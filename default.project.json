@@ -1,0 +1,62 @@
+{
+  "name": "CowFarm",
+  "tree": {
+    "$className": "DataModel",
+
+    "ReplicatedStorage": {
+      "Shared": {
+        "$path": "src/shared"
+      },
+      "Remotes": {
+        "$className": "Folder",
+        "SellMilk": { "$className": "RemoteEvent" },
+        "BuyAutoMilker": { "$className": "RemoteEvent" },
+        "Notify": { "$className": "RemoteEvent" },
+        "InventoryChanged": { "$className": "RemoteEvent" },
+        "BuyCow": { "$className": "RemoteFunction" },
+        "OpenCrate": { "$className": "RemoteFunction" },
+        "StartBreeding": { "$className": "RemoteFunction" },
+        "GetInventory": { "$className": "RemoteFunction" },
+        "MilkingStarted": { "$className": "RemoteEvent" },
+        "MilkPull": { "$className": "RemoteEvent" },
+        "StopMilking": { "$className": "RemoteEvent" },
+        "MilkingEnded": { "$className": "RemoteEvent" },
+        "MilkingProgress": { "$className": "RemoteEvent" },
+        "OpenShop": { "$className": "RemoteEvent" },
+        "TutorialDone": { "$className": "RemoteEvent" }
+      }
+    },
+
+    "ServerScriptService": {
+      "Server": {
+        "$path": "src/server"
+      }
+    },
+
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "Client": {
+          "$path": "src/client"
+        }
+      }
+    },
+
+    "Workspace": {
+      "CowFarmLayout": {
+        "$className": "Folder",
+        "Plots": { "$className": "Folder" }
+      },
+      "Baseplate": {
+        "$className": "Part",
+        "$properties": {
+          "Anchored": true,
+          "Locked": true,
+          "Size": [2048, 16, 2048],
+          "Position": [0, -8, 0],
+          "Color": [0.36, 0.6, 0.29],
+          "Material": "Grass"
+        }
+      }
+    }
+  }
+}
