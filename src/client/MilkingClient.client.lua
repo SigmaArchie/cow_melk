@@ -444,7 +444,7 @@ local function squirtEffect(side)
 				home = teat.CFrame
 				session.TeatsHome[teat] = home
 			end
-			teat.CFrame = home * CFrame.new(-0.15, 0, 0) -- (Zylinder ist gedreht: lokal -X = nach unten)
+			teat.CFrame = home - Vector3.new(0, 0.15, 0) -- nach unten ziehen (Welt-Achse, passt für jedes Modell)
 			TweenService:Create(teat, TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { CFrame = home }):Play()
 
 			if bottom then

@@ -190,10 +190,10 @@ local function addRarityEffects(rarity, torso, model)
 end
 
 ------------------------------------------------------------------------
--- Kuh
+-- Kuh (Ersatz-Version aus Parts, falls das Blender-Modell noch fehlt)
 ------------------------------------------------------------------------
 -- Gibt (model, refs) zurück. refs = { Torso, Head, Udder, Teats = { LeftA, LeftB, RightA, RightB } }
-function Builder.BuildCow(rarity, seedId, base)
+local function buildProceduralCow(rarity, seedId, base)
 	local info = CowData.Rarities[rarity] or CowData.Rarities.Common
 	local rng = Random.new(seedFromString(tostring(seedId)))
 	local transparency = info.Transparency or 0
@@ -353,10 +353,299 @@ function Builder.BuildCow(rarity, seedId, base)
 
 	addRarityEffects(rarity, torso, model)
 
+	-- Maße für Schemel/Eimer (CowManager)
+	model:SetAttribute("BodyHalfWidth", BODY_SIZE.X / 2)
+	model:SetAttribute("UdderZ", 1.0)
+
 	model.PrimaryPart = torso
 	model.WorldPivot = base -- Drehpunkt = Boden unter der Kuhmitte
 	CollectionService:AddTag(model, "Cow")
 	return model, refs
+end
+
+------------------------------------------------------------------------
+-- Kuh aus dem Blender-Modell (ReplicatedStorage.Assets.CowModel)
+--
+-- Das Modell kommt aus CowModell.blend (Export: tools/export_cow.py, Import: Roblox-3D-Importer).
+-- Die Teile werden an ihren Blender-Namen erkannt. Das Script dreht die Kuh so, dass sie
+-- nach -Z schaut, skaliert sie auf TARGET_HEIGHT und stellt sie auf den Boden – egal wie
+-- sie exportiert wurde.
+------------------------------------------------------------------------
+local TARGET_HEIGHT = 6.4 -- Studs (ungefähr so groß wie die Ersatz-Kuh)
+
+local function getTemplate()
+	local ReplicatedStorage = game:GetService("ReplicatedStorage")
+	local assets = ReplicatedStorage:FindFirstChild("Assets")
+	local template = assets and assets:FindFirstChild("CowModel")
+	if template and template:FindFirstChild("Koerper", true) and template:FindFirstChild("Kopf", true) then
+		return template
+	end
+	return nil
+end
+
+-- Rolle eines Teils anhand des Blender-Namens
+local function roleOf(name)
+	if name:match("^Fleck_Kopf") then
+		return "spot", "head"
+	elseif name:match("^Fleck") then
+		return "spot", "body"
+	elseif name:match("^Zitze") then
+		return "teat", "body"
+	elseif name:match("^Euter") then
+		return "pink", "body"
+	elseif name:match("Huf") then
+		return "hoof", "body"
+	elseif name:match("^Bein") or name:match("^Koerper") then
+		return "fur", "body"
+	elseif name:match("^Schwanz_Quaste") then
+		return "tuft", "tail"
+	elseif name:match("^Schwanz") then
+		return "fur", "tail"
+	elseif name:match("^Ohr") then
+		return "fur", "ear"
+	elseif name:match("^Schnauze") then
+		return "pink", "head"
+	elseif name:match("^Nase") then
+		return "nostril", "head"
+	elseif name:match("^Horn") then
+		return "horn", "head"
+	elseif name:match("^Auge") then
+		return "eye", "head"
+	elseif name:match("^Kopf") then
+		return "fur", "head"
+	end
+	return "keep", "body"
+end
+
+-- Achsen-ausgerichtete Box um mehrere Parts (in Weltkoordinaten)
+local function boundsOf(parts)
+	local minV = Vector3.new(math.huge, math.huge, math.huge)
+	local maxV = -minV
+	for _, part in ipairs(parts) do
+		local half = part.Size / 2
+		for _, sx in ipairs({ -1, 1 }) do
+			for _, sy in ipairs({ -1, 1 }) do
+				for _, sz in ipairs({ -1, 1 }) do
+					local corner = part.CFrame * Vector3.new(half.X * sx, half.Y * sy, half.Z * sz)
+					minV = minV:Min(corner)
+					maxV = maxV:Max(corner)
+				end
+			end
+		end
+	end
+	return minV, maxV
+end
+
+local function buildTemplateCow(template, rarity, base)
+	local info = CowData.Rarities[rarity] or CowData.Rarities.Common
+	local transparency = info.Transparency or 0
+	local clone = template:Clone()
+
+	-- alle Mesh-Teile einsammeln (Unterordner aus dem Importer auflösen)
+	local parts = {}
+	for _, d in ipairs(clone:GetDescendants()) do
+		if d:IsA("BasePart") then
+			table.insert(parts, d)
+		end
+	end
+	local function find(prefix)
+		for _, part in ipairs(parts) do
+			if part.Name:sub(1, #prefix) == prefix then
+				return part
+			end
+		end
+		return nil
+	end
+	local body, head = find("Koerper"), find("Kopf")
+
+	-- 1) drehen: Kopf zeigt nach -Z, Mitte auf den Ursprung
+	local minV, maxV = boundsOf(parts)
+	local center = (minV + maxV) / 2
+	local forward = (head.Position - body.Position) * Vector3.new(1, 0, 1)
+	if forward.Magnitude < 0.01 then
+		forward = Vector3.new(0, 0, -1)
+	end
+	local toLocal = CFrame.lookAt(center, center + forward.Unit):Inverse()
+	for _, part in ipairs(parts) do
+		part.CFrame = toLocal * part.CFrame
+	end
+
+	-- 2) skalieren auf Zielhöhe, 3) auf den Boden stellen
+	minV, maxV = boundsOf(parts)
+	local scale = TARGET_HEIGHT / math.max(maxV.Y - minV.Y, 0.01)
+	for _, part in ipairs(parts) do
+		local rotation = part.CFrame.Rotation
+		part.Size *= scale
+		part.CFrame = CFrame.new(part.Position * scale) * rotation
+	end
+	minV, maxV = boundsOf(parts)
+	local lift = Vector3.new(-(minV.X + maxV.X) / 2, -minV.Y, -(minV.Z + maxV.Z) / 2)
+	for _, part in ipairs(parts) do
+		part.CFrame = part.CFrame + lift
+	end
+
+	-- neues Modell mit den Gruppen, die WorldAnimator erwartet
+	local model = Instance.new("Model")
+	model.Name = "Cow"
+	model:SetAttribute("Rarity", rarity)
+	local groups = {}
+	for _, name in ipairs({ "HeadGroup", "EarLeft", "EarRight", "TailGroup" }) do
+		local g = Instance.new("Model")
+		g.Name = name
+		g.Parent = model
+		groups[name] = g
+	end
+
+	local refs = { Teats = {} }
+	local teats = {}
+	local headParts, earParts, tailParts = {}, {}, {}
+
+	for _, part in ipairs(parts) do
+		local role, group = roleOf(part.Name)
+		part.Anchored = true
+		part.CanCollide = false
+		part.CastShadow = true
+		part.Transparency = math.max(part.Transparency, transparency)
+		-- Importer-Texturen entfernen, damit die Seltenheits-Farbe sichtbar ist
+		if role ~= "eye" and role ~= "keep" then
+			for _, child in ipairs(part:GetChildren()) do
+				if child:IsA("SurfaceAppearance") then
+					child:Destroy()
+				end
+			end
+			pcall(function()
+				part.TextureID = ""
+			end)
+		end
+
+		if role == "fur" then
+			part.Color = info.Color
+			part.Material = info.Material
+			part.Reflectance = info.Reflectance or 0
+			part:SetAttribute("Tint", true)
+		elseif role == "spot" then
+			part.Color = info.SpotColor or info.Color
+		elseif role == "tuft" then
+			part.Color = info.SpotColor or HOOF
+		elseif role == "pink" or role == "teat" then
+			part.Color = PINK
+		elseif role == "nostril" then
+			part.Color = DARK_PINK
+		elseif role == "hoof" then
+			part.Color = HOOF
+		elseif role == "horn" then
+			part.Color = HORN
+		end
+
+		if role == "teat" then
+			table.insert(teats, part)
+		end
+		if group == "head" then
+			table.insert(headParts, part)
+			part.Parent = groups.HeadGroup
+		elseif group == "ear" then
+			table.insert(earParts, part)
+		elseif group == "tail" then
+			table.insert(tailParts, part)
+			part.Parent = groups.TailGroup
+		else
+			part.Parent = model
+		end
+	end
+
+	-- Ohren: das linke ist das mit kleinerem X
+	table.sort(earParts, function(a, b)
+		return a.Position.X < b.Position.X
+	end)
+	if earParts[1] then
+		earParts[1].Parent = groups.EarLeft
+	end
+	if earParts[2] then
+		earParts[2].Parent = groups.EarRight
+	end
+
+	-- Zitzen: vordere zwei (kleineres Z) = Left, hintere = Right
+	table.sort(teats, function(a, b)
+		return a.Position.Z < b.Position.Z
+	end)
+	local front = { teats[1], teats[2] }
+	local back = { teats[3], teats[4] }
+	for _, pair in ipairs({ { front, "Left" }, { back, "Right" } }) do
+		local list, side = pair[1], pair[2]
+		table.sort(list, function(a, b)
+			return a.Position.X < b.Position.X
+		end)
+		for i, teat in ipairs(list) do
+			local key = side .. (i == 1 and "A" or "B")
+			teat.Name = "Teat" .. key
+			refs.Teats[key] = teat
+		end
+	end
+
+	body.Name = "Torso"
+	body.CanCollide = true
+	head.Name = "Head"
+	refs.Torso = body
+	refs.Head = head
+	refs.Udder = find("Euter")
+
+	-- Gelenke: Kopf dreht hinten unten am Kopf, Ohren am inneren Ende, Schwanz oben
+	if #headParts > 0 then
+		local hMin, hMax = boundsOf({ head })
+		groups.HeadGroup.WorldPivot = CFrame.new((hMin.X + hMax.X) / 2, hMin.Y + (hMax.Y - hMin.Y) * 0.3, hMax.Z)
+	end
+	for _, entry in ipairs({ { groups.EarLeft, 1 }, { groups.EarRight, -1 } }) do
+		local g, innerSign = entry[1], entry[2]
+		local list = g:GetChildren()
+		if #list > 0 then
+			local eMin, eMax = boundsOf(list)
+			local innerX = innerSign == 1 and eMax.X or eMin.X
+			g.WorldPivot = CFrame.new(innerX, (eMin.Y + eMax.Y) / 2, (eMin.Z + eMax.Z) / 2)
+		end
+	end
+	if #tailParts > 0 then
+		local tMin, tMax = boundsOf(tailParts)
+		groups.TailGroup.WorldPivot = CFrame.new((tMin.X + tMax.X) / 2, tMax.Y, (tMin.Z + tMax.Z) / 2)
+	end
+
+	-- Maße für Schemel/Eimer (CowManager)
+	local bMin, bMax = boundsOf({ body })
+	model:SetAttribute("BodyHalfWidth", (bMax.X - bMin.X) / 2)
+	model:SetAttribute("UdderZ", refs.Udder and refs.Udder.Position.Z or 1.0)
+
+	-- alles an die richtige Stelle in der Welt schieben
+	for _, g in pairs(groups) do
+		g.WorldPivot = base * g.WorldPivot
+	end
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("BasePart") then
+			d.CFrame = base * d.CFrame
+		end
+	end
+
+	clone:Destroy()
+	addRarityEffects(rarity, body, model)
+	model.PrimaryPart = body
+	model.WorldPivot = base
+	CollectionService:AddTag(model, "Cow")
+	return model, refs
+end
+
+-- Gibt (model, refs) zurück. Nimmt das Blender-Modell, wenn es da ist, sonst die Ersatz-Kuh.
+function Builder.BuildCow(rarity, seedId, base)
+	local template = getTemplate()
+	if template then
+		local ok, model, refs = pcall(buildTemplateCow, template, rarity, base)
+		if ok then
+			return model, refs
+		end
+		warn("[CowModelBuilder] Blender-Kuh konnte nicht gebaut werden, nehme Ersatz-Kuh:", model)
+	end
+	return buildProceduralCow(rarity, seedId, base)
+end
+
+function Builder.HasBlenderCow()
+	return getTemplate() ~= nil
 end
 
 ------------------------------------------------------------------------

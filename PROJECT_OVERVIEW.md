@@ -105,6 +105,12 @@ Laden mit 3 Retries; fehlende Felder werden aufgefüllt (reconcile). In Studio o
 
 Melken 5857005819 · Coins 4590662766 · Ambient 1843671818 · Muhen 535690488. Shop-Öffnen `rbxasset://sounds/swoosh.wav` und Fanfare `rbxasset://sounds/victory.wav` sind ungeprüfte eingebaute Sounds (bei Stille eigene IDs eintragen).
 
+## Blender-Kuh (CowModell.blend)
+
+- `tools/export_cow.py` exportiert nur die Kuh-Teile nach `assets_src/CowModell.fbx` (`blender CowModell.blend --background --python tools/export_cow.py`).
+- In Studio mit dem 3D-Importer importieren, Modell `CowModel` nennen, per "Save to File" als `assets/CowModel.rbxm` speichern → Rojo legt es nach `ReplicatedStorage.Assets.CowModel`.
+- `CowModelBuilder.BuildCow` nimmt automatisch dieses Modell (erkennt Teile an den Blender-Namen Koerper, Kopf, Zitze_…, Fleck_… usw.; dreht, skaliert auf 6.4 Studs, färbt pro Seltenheit). Fehlt es, wird die alte Part-Kuh gebaut.
+
 ## Offen / nächste Schritte
 
 1. **Tutorial-Client fehlt noch** (Datenseite ist fertig: `TutorialDone`-Flag, Remote, Alt-Spieler werden übersprungen). Geplant: 3-s-Kameraschwenk, Willkommens-Popup "Gratis-Kuh", gelbe Pfeile Farm → Kuh → Verkaufen-Knopf → Shop. Bis dahin bekommen neue Spieler keine Begrüßung.

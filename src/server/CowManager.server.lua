@@ -753,21 +753,26 @@ local function spawnCow(player, cow)
 	cowModel:SetAttribute("OwnerUserId", player.UserId)
 	cowModel.Parent = spotModel
 
+	-- Maße kommen vom Modell (Blender-Kuh und Ersatz-Kuh sind unterschiedlich breit)
+	local halfWidth = cowModel:GetAttribute("BodyHalfWidth") or 2.5
+	local udderZ = cowModel:GetAttribute("UdderZ") or 1.0
+	local stoolX = -(halfWidth + 1.2)
+
 	-- Schemel links neben dem Euter, Blick zur Kuh (+X)
-	local stoolPosition = base * Vector3.new(-3.7, 0, 1.0)
-	local udderPosition = base * Vector3.new(0, 0, 1.0)
+	local stoolPosition = base * Vector3.new(stoolX, 0, udderZ)
+	local udderPosition = base * Vector3.new(0, 0, udderZ)
 	local stoolModel, seat = CowModelBuilder.BuildStool(CFrame.lookAt(stoolPosition, udderPosition))
 	stoolModel.Parent = spotModel
 
 	-- Eimer unter dem Euter
-	local bucketModel, setFill = CowModelBuilder.BuildBucket(base * CFrame.new(0, 0, 1.0))
+	local bucketModel, setFill = CowModelBuilder.BuildBucket(base * CFrame.new(0, 0, udderZ))
 	bucketModel.Parent = spotModel
 
 	-- Melk-Platte: einfach drauflaufen (funktioniert auch prima am Handy)
 	local pad = makePart({
 		Name = "MilkPad",
 		Size = Vector3.new(3, 0.2, 3.4),
-		CFrame = base * CFrame.new(-6.2, 0.1, 1.0),
+		CFrame = base * CFrame.new(stoolX - 2.5, 0.1, udderZ),
 		Color = Color3.fromRGB(120, 200, 255),
 		Material = Enum.Material.Neon,
 		Transparency = 0.35,
