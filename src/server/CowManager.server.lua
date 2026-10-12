@@ -6,8 +6,11 @@
 --     -> Teleport auf den Schemel -> abwechselnd L/R ziehen
 --   * Melk-Cooldown pro Kuh
 --   * Milch verkaufen, Shop, Kisten (Coins/Robux), Breeding, Auto-Melker, ProcessReceipt
+--   * Raster auf jeder Farm, Kühe aufheben / in Hotbar oder Inventar legen / neu platzieren
+--   * Teleport zu den Häusern (aus der Übersicht)
 -- Idle-Animationen & Regenbogen-Farben laufen auf dem Client (WorldAnimator.client.lua).
 
+local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local MarketplaceService = game:GetService("MarketplaceService")
@@ -83,10 +86,9 @@ local PLOT_WIDTH = Map.PlotWidth -- lokal X (entlang der Allee)
 local PLOT_DEPTH = Map.PlotDepth -- lokal Z (von der Allee weg)
 local GATE_WIDTH = 10
 
-local COLUMNS = 6
-local COW_SPACING_X = 13
-local COW_SPACING_Z = 12
-local FIRST_ROW_Z = -45
+local GRID_CELLS = CowData.GetGridCellCount() -- Felder pro Farm (6 x 6 = 36)
+local HOTBAR_SIZE = Config.HotbarSize
+local COW_OFFSET_X = 1.8 -- Kuh steht im Feld etwas rechts, links ist Platz für Schemel + Melk-Platte
 
 local GRASS_LIGHT = Color3.fromRGB(118, 186, 86)
 local GRASS_DARK = Color3.fromRGB(104, 170, 76)
@@ -111,7 +113,7 @@ if not plotsFolder then
 end
 
 -- farms[player] = {
---   Slot, Model, CowsFolder, Origin, SpawnCFrame, NextIndex,
+--   Slot, Model, CowsFolder, Origin, SpawnCFrame,
 --   Spots = { [cowId] = { Model, Cow, Torso, Stool, Seat, Bucket, SetFill, Status } }
 -- }
 local farms = {}
@@ -126,15 +128,8 @@ local function getFreeSlot()
 	return slot
 end
 
--- Ungerade Slots links (Westen), gerade rechts (Osten). Das Tor zeigt immer zur Allee.
-local function getPlotOrigin(slot)
-	local side = slot % 2 == 1 and -1 or 1
-	local row = math.floor((slot - 1) / 2)
-	local z = Map.PlotRowStartZ + row * Map.PlotRowSpacing
-	-- lokales +Z soll zur Mitte (x = 0) zeigen
-	local yaw = side == -1 and math.rad(90) or math.rad(-90)
-	return CFrame.new(side * Map.PlotCenterX, 0, z) * CFrame.Angles(0, yaw, 0)
-end
+-- Lage der Plots steht in CowData (der Client braucht sie auch für die Übersichtskarte)
+local getPlotOrigin = CowData.GetPlotOrigin
 
 -- Weißer Zaun: Pfosten alle 5 Studs + 2 durchgehende Latten
 local function buildFenceLine(parent, origin, from, to)
@@ -383,11 +378,33 @@ local function getFarm(player)
 		Parent = decor,
 	})
 
-	-- Heuballen in der hinteren linken Ecke
+	-- Raster: ein helles Feld pro Kuh-Platz (Client hebt freie Felder beim Platzieren hervor)
+	local grid = Instance.new("Folder")
+	grid.Name = "Grid"
+	grid.Parent = model
+	for cell = 1, GRID_CELLS do
+		local tile = makePart({
+			Name = "Cell" .. cell,
+			Size = Vector3.new(Map.GridCellX - 0.8, 0.05, Map.GridCellZ - 0.8),
+			CFrame = origin * CowData.GetGridCellLocal(cell) * CFrame.new(0, 0.03, 0),
+			Color = Color3.fromRGB(255, 255, 255),
+			Material = Enum.Material.SmoothPlastic,
+			Transparency = 0.82,
+			CanCollide = false,
+			CanTouch = false,
+			CastShadow = false,
+			Parent = grid,
+		})
+		tile:SetAttribute("Cell", cell)
+		tile:SetAttribute("OwnerUserId", player.UserId)
+		CollectionService:AddTag(tile, "FarmCell")
+	end
+
+	-- Heuballen in der hinteren linken Ecke (außerhalb des Rasters)
 	for _, position in ipairs({
-		Vector3.new(-halfW + 5, GROUND + 0.9, -halfD + 5),
-		Vector3.new(-halfW + 8.6, GROUND + 0.9, -halfD + 5),
-		Vector3.new(-halfW + 6.8, GROUND + 2.7, -halfD + 5),
+		Vector3.new(-halfW + 4, GROUND + 0.9, -halfD + 3.2),
+		Vector3.new(-halfW + 7.6, GROUND + 0.9, -halfD + 3.2),
+		Vector3.new(-halfW + 5.8, GROUND + 2.7, -halfD + 3.2),
 	}) do
 		makePart({
 			Name = "HayBale",
@@ -411,9 +428,9 @@ local function getFarm(player)
 		Origin = origin,
 		SpawnCFrame = origin * CFrame.new(0, GROUND + 4, halfD - 6), -- Blick Richtung Kühe (-Z)
 		Spots = {},
-		NextIndex = 0,
 	}
 	farms[player] = farm
+	player:SetAttribute("PlotSlot", slot) -- für die Übersichtskarte
 	return farm
 end
 
@@ -727,22 +744,112 @@ Remotes.StopMilking.OnServerEvent:Connect(function(player)
 end)
 
 ------------------------------------------------------------------------
--- Kühe auf der Farm platzieren
+-- Wo ist welche Kuh?
+--   cow.Slot   = Feld auf der Farm (1 .. 36)
+--   cow.Hotbar = Platz in der Hotbar (1 .. 6)
+--   cow.Stored = true -> im Inventar
+------------------------------------------------------------------------
+local function sortedCows(data)
+	local list = {}
+	for _, cow in pairs(data.Cows) do
+		table.insert(list, cow)
+	end
+	table.sort(list, function(a, b)
+		return (tonumber(a.Id:sub(2)) or 0) < (tonumber(b.Id:sub(2)) or 0)
+	end)
+	return list
+end
+
+local function occupiedCells(data)
+	local used = {}
+	for _, cow in pairs(data.Cows) do
+		if cow.Slot then
+			used[cow.Slot] = cow
+		end
+	end
+	return used
+end
+
+local function occupiedHotbar(data)
+	local used = {}
+	for _, cow in pairs(data.Cows) do
+		if cow.Hotbar then
+			used[cow.Hotbar] = cow
+		end
+	end
+	return used
+end
+
+local function firstFree(used, count)
+	for i = 1, count do
+		if not used[i] then
+			return i
+		end
+	end
+	return nil
+end
+
+-- Neue Kuh: freies Feld, sonst Hotbar, sonst Inventar
+local function assignLocation(data, cow)
+	local cell = firstFree(occupiedCells(data), GRID_CELLS)
+	if cell then
+		cow.Slot = cell
+		return "farm"
+	end
+	local hotbar = firstFree(occupiedHotbar(data), HOTBAR_SIZE)
+	if hotbar then
+		cow.Hotbar = hotbar
+		return "hotbar"
+	end
+	cow.Stored = true
+	return "inventory"
+end
+
+-- Alte Speicherstände (ohne Felder) und kaputte Werte reparieren
+local function normalizeCows(data)
+	local cells, hotbar = {}, {}
+	local list = sortedCows(data)
+	for _, cow in ipairs(list) do
+		if cow.Slot ~= nil and (type(cow.Slot) ~= "number" or cow.Slot < 1 or cow.Slot > GRID_CELLS or cells[cow.Slot]) then
+			cow.Slot = nil
+		end
+		if cow.Slot then
+			cells[cow.Slot] = true
+			cow.Hotbar = nil
+			cow.Stored = nil
+		else
+			if cow.Hotbar ~= nil
+				and (type(cow.Hotbar) ~= "number" or cow.Hotbar < 1 or cow.Hotbar > HOTBAR_SIZE or hotbar[cow.Hotbar])
+			then
+				cow.Hotbar = nil
+			end
+			if cow.Hotbar then
+				hotbar[cow.Hotbar] = true
+				cow.Stored = nil
+			end
+		end
+	end
+	for _, cow in ipairs(list) do
+		if not cow.Slot and not cow.Hotbar and not cow.Stored then
+			assignLocation(data, cow)
+		end
+	end
+end
+
+------------------------------------------------------------------------
+-- Kühe auf der Farm aufstellen (nur Kühe mit cow.Slot)
 ------------------------------------------------------------------------
 local function spawnCow(player, cow)
+	if not cow.Slot then
+		return nil
+	end
 	local farm = getFarm(player)
 	if farm.Spots[cow.Id] then
 		return farm.Spots[cow.Id]
 	end
 
-	local index = farm.NextIndex
-	farm.NextIndex += 1
-	local column = index % COLUMNS
-	local row = math.floor(index / COLUMNS)
-	local x = (column - (COLUMNS - 1) / 2) * COW_SPACING_X
-	local z = FIRST_ROW_Z + row * COW_SPACING_Z
 	local yaw = math.rad(rng:NextNumber(-8, 8))
-	local base = farm.Origin * CFrame.new(x, GROUND, z) * CFrame.Angles(0, yaw, 0)
+	local base = farm.Origin * CowData.GetGridCellLocal(cow.Slot) * CFrame.new(COW_OFFSET_X, 0, 0) * CFrame.Angles(0, yaw, 0)
 
 	local spotModel = Instance.new("Model")
 	spotModel.Name = cow.Id
@@ -802,7 +909,7 @@ local function spawnCow(player, cow)
 		end
 	end)
 
-	-- Anklicken / Antippen zum Melken (nur der Besitzer)
+	-- Anklicken / Antippen -> kleines Menü beim Besitzer (Melken / Aufheben)
 	local clickDetector = Instance.new("ClickDetector")
 	clickDetector.MaxActivationDistance = 40
 	clickDetector.Parent = cowModel
@@ -811,7 +918,17 @@ local function spawnCow(player, cow)
 			DataService.Notify(clicker, "Das ist nicht deine Kuh! 🐄", "error")
 			return
 		end
-		startMilking(player, cow.Id)
+		local data = DataService.Get(player)
+		local current = data and data.Cows[cow.Id]
+		if current then
+			Remotes.CowClicked:FireClient(player, {
+				Id = current.Id,
+				Name = current.Name,
+				Rarity = current.Rarity,
+				MilkReadyAt = current.MilkReadyAt or 0,
+				ServerTime = os.time(),
+			})
+		end
 	end)
 
 	local status = createInfoBillboard(cow, refs.Torso)
@@ -881,7 +998,9 @@ local function celebrateNewCow(spot, rarity)
 		end
 		if spot.Torso.Parent then
 			if info.Tier >= 4 then
-				playSound(spot.Torso, Config.RareCowSoundId, 1)
+				-- ohne eigene Fanfare: normaler Sound, nur tiefer
+				local fanfare = Config.RareCowSoundId ~= "" and Config.RareCowSoundId or Config.NewCowSoundId
+				playSound(spot.Torso, fanfare, 1, Config.RareCowSoundId ~= "" and 1 or 0.8)
 			else
 				playSound(spot.Torso, Config.NewCowSoundId, 0.8, 1.2)
 			end
@@ -891,16 +1010,27 @@ local function celebrateNewCow(spot, rarity)
 end
 
 DataService.CowAdded:Connect(function(player, cow)
-	if player.Parent then
-		-- schon aufgestellt (z.B. beim Laden) -> keine Feier
-		local farm = farms[player]
-		local isNew = not (farm and farm.Spots[cow.Id])
-		local spot = spawnCow(player, cow)
-		refreshCowLabels(player)
-		if isNew and spot then
-			celebrateNewCow(spot, cow.Rarity)
+	if not player.Parent then
+		return
+	end
+	local data = DataService.Get(player)
+	if data and not cow.Slot and not cow.Hotbar and not cow.Stored then
+		local where = assignLocation(data, cow)
+		if where == "hotbar" then
+			DataService.Notify(player, ("Farm voll – %s wartet in deiner Hotbar."):format(cow.Name), "info")
+		elseif where == "inventory" then
+			DataService.Notify(player, ("Farm und Hotbar voll – %s ist im Inventar."):format(cow.Name), "info")
 		end
 	end
+	-- schon aufgestellt (z.B. beim Laden) -> keine Feier
+	local farm = farms[player]
+	local isNew = not (farm and farm.Spots[cow.Id])
+	local spot = spawnCow(player, cow)
+	refreshCowLabels(player)
+	if isNew and spot then
+		celebrateNewCow(spot, cow.Rarity)
+	end
+	DataService.FireInventoryChanged(player)
 end)
 
 -- Statuszeile über jeder Kuh: Melken / Zucht / Cooldown / Bereit
@@ -934,6 +1064,167 @@ function refreshCowLabels(player)
 		end
 	end
 end
+
+------------------------------------------------------------------------
+-- Inventar & Hotbar: Kuh aufheben, in Hotbar/Inventar legen, auf ein Feld setzen
+------------------------------------------------------------------------
+local function despawnCow(player, cowId)
+	local farm = farms[player]
+	local spot = farm and farm.Spots[cowId]
+	if not spot then
+		return
+	end
+	-- kleine Staubwolke, wo die Kuh stand
+	local puff = makePart({
+		Name = "Puff",
+		Size = Vector3.new(1, 1, 1),
+		CFrame = spot.Torso.CFrame,
+		Transparency = 1,
+		CanCollide = false,
+		CanQuery = false,
+		Parent = workspace,
+	})
+	local emitter = Instance.new("ParticleEmitter")
+	emitter.Color = ColorSequence.new(Color3.fromRGB(245, 240, 225))
+	emitter.Size = NumberSequence.new(1.6, 0)
+	emitter.Lifetime = NumberRange.new(0.5, 0.9)
+	emitter.Speed = NumberRange.new(4, 8)
+	emitter.SpreadAngle = Vector2.new(180, 180)
+	emitter.Rate = 0
+	emitter.Parent = puff
+	emitter:Emit(25)
+	Debris:AddItem(puff, 2)
+
+	spot.Model:Destroy()
+	farm.Spots[cowId] = nil
+end
+
+local function cowAction(player, action, cowId, arg)
+	local data = DataService.Get(player)
+	local cow = data and type(cowId) == "string" and data.Cows[cowId]
+	if not cow then
+		return false, "Kuh nicht gefunden."
+	end
+	local session = sessions[player]
+	local beingMilked = session ~= nil and session.CowId == cowId
+
+	if action == "milk" then
+		if not cow.Slot then
+			return false, "Die Kuh muss auf der Farm stehen."
+		end
+		startMilking(player, cowId)
+		return true
+	elseif action == "pickup" then
+		if not cow.Slot then
+			return false, "Die Kuh steht nicht auf der Farm."
+		end
+		if beingMilked then
+			return false, "Die Kuh wird gerade gemolken."
+		end
+		despawnCow(player, cowId)
+		cow.Slot = nil
+		local hotbar = firstFree(occupiedHotbar(data), HOTBAR_SIZE)
+		if hotbar and arg ~= "inventory" then
+			cow.Hotbar = hotbar
+		else
+			cow.Stored = true
+		end
+		return true, cow.Hotbar and "hotbar" or "inventory"
+	elseif action == "place" then
+		local cell = tonumber(arg)
+		if cow.Slot then
+			return false, "Die Kuh steht schon auf der Farm."
+		end
+		if not cell or cell ~= math.floor(cell) or cell < 1 or cell > GRID_CELLS then
+			return false, "Ungültiges Feld."
+		end
+		if occupiedCells(data)[cell] then
+			return false, "Auf dem Feld steht schon eine Kuh."
+		end
+		cow.Slot = cell
+		cow.Hotbar = nil
+		cow.Stored = nil
+		local spot = spawnCow(player, cow)
+		if spot then
+			celebrateNewCow(spot, cow.Rarity)
+		end
+		return true
+	elseif action == "hotbar" then
+		if cow.Slot then
+			return false, "Heb die Kuh zuerst auf."
+		end
+		local index = tonumber(arg) or firstFree(occupiedHotbar(data), HOTBAR_SIZE)
+		if not index or index ~= math.floor(index) or index < 1 or index > HOTBAR_SIZE then
+			return false, "Die Hotbar ist voll."
+		end
+		local other = occupiedHotbar(data)[index]
+		if other and other ~= cow then
+			-- Plätze tauschen (kommt die Kuh aus dem Inventar, wandert die andere ins Inventar)
+			other.Hotbar = cow.Hotbar
+			if not other.Hotbar then
+				other.Stored = true
+			end
+		end
+		cow.Hotbar = index
+		cow.Stored = nil
+		return true
+	elseif action == "store" then
+		if cow.Slot then
+			if beingMilked then
+				return false, "Die Kuh wird gerade gemolken."
+			end
+			despawnCow(player, cowId)
+			cow.Slot = nil
+		end
+		cow.Hotbar = nil
+		cow.Stored = true
+		return true
+	end
+	return false, "Unbekannte Aktion."
+end
+
+-- action: "milk" | "pickup" | "place" (arg = Feld) | "hotbar" (arg = Platz oder nil) | "store"
+Remotes.CowAction.OnServerInvoke = function(player, action, cowId, arg)
+	if not debounce(player, "CowAction", 0.15) then
+		return false, "Nicht so schnell!"
+	end
+	local ok, message = cowAction(player, action, cowId, arg)
+	if ok and action ~= "milk" then
+		refreshCowLabels(player)
+		DataService.Sync(player)
+		DataService.FireInventoryChanged(player)
+	end
+	return ok, message
+end
+
+-- Teleport aus der Übersicht: zu einem Haus (Page-Name) oder zur eigenen Farm
+Remotes.TeleportTo.OnServerEvent:Connect(function(player, destination)
+	if type(destination) ~= "string" or not debounce(player, "Teleport", 1) then
+		return
+	end
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if not humanoid or humanoid.Health <= 0 then
+		return
+	end
+
+	local target = nil
+	if destination == "Farm" then
+		local farm = farms[player]
+		target = farm and farm.SpawnCFrame
+	else
+		for _, building in ipairs(CollectionService:GetTagged("ShopBuilding")) do
+			if building:GetAttribute("Page") == destination then
+				target = building:GetAttribute("TeleportCFrame")
+				break
+			end
+		end
+	end
+	if target then
+		endMilking(player, false)
+		character:PivotTo(target)
+	end
+end)
 
 ------------------------------------------------------------------------
 -- Milch verkaufen
@@ -1121,7 +1412,15 @@ Remotes.GetInventory.OnServerInvoke = function(player)
 
 	local cows = {}
 	for _, cow in pairs(data.Cows) do
-		table.insert(cows, { Id = cow.Id, Rarity = cow.Rarity, Name = cow.Name, MilkReadyAt = cow.MilkReadyAt or 0 })
+		table.insert(cows, {
+			Id = cow.Id,
+			Rarity = cow.Rarity,
+			Name = cow.Name,
+			MilkReadyAt = cow.MilkReadyAt or 0,
+			Slot = cow.Slot,
+			Hotbar = cow.Hotbar,
+			Stored = cow.Stored == true,
+		})
 	end
 	table.sort(cows, function(a, b)
 		return CowData.Rarities[a.Rarity].Tier > CowData.Rarities[b.Rarity].Tier
@@ -1135,6 +1434,8 @@ Remotes.GetInventory.OnServerInvoke = function(player)
 		LoginStreak = data.LoginStreak.Streak,
 		HasAutoMilker = autoMilker[player] == true,
 		ServerTime = os.time(),
+		HotbarSize = HOTBAR_SIZE,
+		CellCount = GRID_CELLS,
 	}
 end
 
@@ -1189,7 +1490,9 @@ task.spawn(function()
 			if data then
 				local total = 0
 				for _, cow in pairs(data.Cows) do
-					total += CowData.Rarities[cow.Rarity].MilkPerPull
+					if cow.Slot then -- nur Kühe, die auf der Farm stehen
+						total += CowData.Rarities[cow.Rarity].MilkPerPull
+					end
 				end
 				if total > 0 then
 					DataService.AddMilk(player, total)
@@ -1259,18 +1562,13 @@ local function onPlayerAdded(player)
 
 	getFarm(player)
 
-	-- Kühe in fester Reihenfolge (nach ID) aufstellen
-	local cowList = {}
-	for _, cow in pairs(data.Cows) do
-		table.insert(cowList, cow)
-	end
-	table.sort(cowList, function(a, b)
-		return (tonumber(a.Id:sub(2)) or 0) < (tonumber(b.Id:sub(2)) or 0)
-	end)
-	for _, cow in ipairs(cowList) do
+	-- alte Speicherstände bekommen automatisch Felder; dann alle platzierten Kühe aufstellen
+	normalizeCows(data)
+	for _, cow in ipairs(sortedCows(data)) do
 		spawnCow(player, cow)
 	end
 	refreshCowLabels(player)
+	DataService.FireInventoryChanged(player)
 
 	player.CharacterAdded:Connect(function(character)
 		teleportToFarm(player, character)

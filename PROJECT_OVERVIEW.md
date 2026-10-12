@@ -1,119 +1,126 @@
 # Cow Farm – Projektübersicht (Roblox, Rojo)
 
-Roblox-Farming-Tycoon "Cow Farm". Kühe melken (Minispiel), Milch verkaufen, mehr Kühe kaufen/züchten/aus Kisten ziehen. Kein Schlachten, keine Fusion. Code in Luau, synchronisiert mit **Rojo 7.7.1** (Tools über rokit: rojo + selene). Alle Texte im Spiel und alle Code-Kommentare sind **Deutsch**. Schulprojekt (5. Klasse, GD).
+Stand: 10.10.2026
 
-Status: baut mit `rojo build` fehlerfrei, selene meldet 0 Fehler (nur 3 Stil-Warnungen in MilkingClient). **Noch nicht in Studio gespielt/getestet.**
+Roblox-Farming-Simulator "Cow Farm": Kühe melken (Minispiel), Milch verkaufen, mehr Kühe kaufen / züchten / aus Kisten ziehen, Kühe auf der eigenen Farm in einem Raster aufstellen. Kein Schlachten, keine Fusion. Code in Luau, synchronisiert mit **Rojo 7.7.1** (Tools über rokit: `rojo`, `selene`). Alle Texte im Spiel und alle Code-Kommentare sind **Deutsch**. Schulprojekt (5. Klasse, GD).
+
+Status: `rojo build` fehlerfrei, `selene src` 0 Fehler (nur Stil-Warnungen). In Studio gespielt: Shops öffnen, Tutorial läuft. Die letzte UI-Überarbeitung (Theme.lua) ist noch **nicht** in Studio geprüft.
+
+Starten: im Projektordner `rojo serve`, in Studio Rojo-Plugin → Connect (localhost:34872). Nach Änderungen an `default.project.json` Rojo neu starten.
 
 ## Ordnerstruktur
 
 ```
-default.project.json        Rojo-Baum (siehe unten)
+default.project.json        Rojo-Baum
 rokit.toml / selene.toml    Tools (rojo, selene; std = "roblox")
-src/shared/   -> ReplicatedStorage.Shared   (ModuleScripts, Server + Client)
-  CowData.lua               alle Spielwerte, Seltenheiten, Zucht-Chancen, Kisten, Karte, Sound-IDs
-  CowModelBuilder.lua       baut Kuh / Melkschemel / Eimer aus Parts (SpecialMesh-Kugeln)
-src/server/   -> ServerScriptService.Server
-  DataService.lua           ModuleScript: DataStore laden/speichern, API für alle Server-Scripts
-  PlayerDataManager.server  Laden bei Join, Speichern bei Leave/Autosave/BindToClose, Starter-Kuh, TutorialDone
-  CowManager.server         Plots, Kühe, Melken, Verkaufen, Shop, Kisten, Zucht, Auto-Melker, Robux
-  LoginStreak.server        täglicher Bonus, 7 Tage am Stück -> Rainbow Cow
-  MapBuilder.server         Hub-Platz, Allee, 2 Förderbänder, 4 Shop-Gebäude mit NPC
-src/client/   -> StarterPlayerScripts.Client
-  CoinDisplay.client        HUD (oben Coins/Logo/Milch/Streak, unten VERKAUFEN-Knopf, Benachrichtigungen)
-  MenuUI.client             Fenster: Shop, Kisten, Zucht, Tagesbonus, Auto-Melker + runde Seitenknöpfe
-  MilkingClient.client      Melk-Minispiel-UI
-  WorldAnimator.client      alle Welt-Animationen + Ambient-Sounds
+CowModell.blend             Kuh-Modell aus Blender (+ Hände, Eimer, Kamera; nur die Kuh wird benutzt)
+tools/export_cow.py         Blender-Script: exportiert nur die Kuh-Teile als FBX
+assets_src/CowModell.fbx    exportierte Kuh (33 Teile) – noch nicht in Studio importiert
+assets/                     -> ReplicatedStorage.Assets (hier kommt CowModel.rbxm hin)
+src/shared/  -> ReplicatedStorage.Shared
+  CowData.lua               alle Spielwerte, Seltenheiten, Zucht, Kisten, Karte, Shops, Sounds, Plot-/Raster-Funktionen
+  CowModelBuilder.lua       baut Kuh (Blender-Modell oder Ersatz aus Parts), Schemel, Eimer
+src/server/  -> ServerScriptService.Server
+  DataService.lua           DataStore laden/speichern + API für alle Server-Scripts
+  PlayerDataManager.server  Laden/Speichern/Autosave, Starter-Kuh, TutorialDone
+  CowManager.server         Plots + Raster, Kühe, Melken, Inventar-Aktionen, Teleport, Verkaufen, Shop, Kisten, Zucht, Auto-Melker, Robux
+  LoginStreak.server        Tagesbonus, 7 Tage am Stück -> Rainbow Cow
+  MapBuilder.server         Süd-Platz, Allee, 2 Förderbänder, Nord-Markt, 4 Shop-Gebäude mit NPC
+src/client/  -> StarterPlayerScripts.Client
+  Theme.lua                 EIN UI-Stil für alles (Farben, Knöpfe, Fenster, Symbole, Skalierung)
+  UIBus.lua                 Signale zwischen Client-Scripts (Fenster öffnen sich gegenseitig)
+  CoinDisplay.client        HUD: Coins/Milch, Seitenknöpfe, Meldungen, VERKAUFEN
+  InventoryClient.client    Hotbar, Fenster "MEINE KÜHE", Platzier-Modus, Kuh-Menü
+  OverviewClient.client     Fenster "KARTE" mit gezeichneter Karte + Reisen
+  MenuUI.client             Fenster Kuh-Shop, Kisten, Zucht-Stall, Tagesbonus, Auto-Melker
+  MilkingClient.client      Melk-Minispiel
+  TutorialClient.client     Einführung für neue Spieler
+  WorldAnimator.client      Welt-Animationen (Förderbänder, Kühe, Shops) + Sounds
 ```
 
-`default.project.json` legt außerdem an: `ReplicatedStorage.Remotes` (alle Remotes), `Workspace.CowFarmLayout.Plots`, `Workspace.Baseplate`.
+`default.project.json` legt außerdem an: `ReplicatedStorage.Remotes` (alle Remotes), `ReplicatedStorage.Assets`, `Workspace.CowFarmLayout.Plots`, `Workspace.Baseplate`.
 
 ## Remotes (ReplicatedStorage.Remotes)
 
 | Name | Typ | Richtung | Zweck |
 |---|---|---|---|
 | SellMilk | RE | C→S | ganze Milch verkaufen |
-| BuyCow | RF | C→S | (rarity) → ok, msg/cowId |
-| OpenCrate | RF | C→S | (crateId, payWithRobux) → ok, rarity/msg, cowId |
+| BuyCow | RF | C→S | (rarity) → ok, msg |
+| OpenCrate | RF | C→S | (crateId, payWithRobux) → ok, rarity/msg |
 | StartBreeding | RF | C→S | (cowIdA, cowIdB) → ok, readyAt/msg |
-| GetInventory | RF | C→S | Coins, Milk, Cows[], Breeding, LoginStreak, HasAutoMilker, ServerTime |
+| GetInventory | RF | C→S | Coins, Milk, Cows[] (mit Slot/Hotbar/Stored), Breeding, HotbarSize, CellCount … |
+| CowAction | RF | C→S | (action, cowId, arg): `milk`, `pickup`, `place` (arg = Feld), `hotbar` (arg = Platz), `store` |
+| TeleportTo | RE | C→S | "Farm" oder Page-Name eines Shops |
 | BuyAutoMilker | RE | C→S | Gamepass-Kaufdialog |
-| MilkPull | RE | C→S | ("Left"/"Right") ein Zug |
-| StopMilking | RE | C→S | Melken abbrechen |
+| MilkPull / StopMilking | RE | C→S | Melk-Zug ("Left"/"Right") / abbrechen |
 | TutorialDone | RE | C→S | Tutorial als gesehen speichern |
-| MilkingStarted | RE | S→C | {CowId, CowName, Rarity, PullsNeeded, MilkPerPull, Penalty, Spot} |
-| MilkingProgress | RE | S→C | (pulls, lastSide) echter Stand vom Server |
-| MilkingEnded | RE | S→C | (completed, milk) |
-| OpenShop | RE | S→C | (page) Shop-Gebäude wurde angeklickt |
+| MilkingStarted / MilkingProgress / MilkingEnded | RE | S→C | Melk-Minispiel |
+| CowClicked | RE | S→C | eigene Kuh angeklickt → Menü (Melken/Aufheben) |
+| OpenShop | RE | S→C | Shop-Gebäude angeklickt → Fenster öffnen |
 | Notify | RE | S→C | (text, kind) kind = info/success/error/rare |
-| InventoryChanged | RE | S→C | Menü neu laden |
+| InventoryChanged | RE | S→C | Client lädt Inventar neu |
 
-Spieler-Attribute (vom Server via DataService.Sync): `Coins`, `Milk`, `CowCount`, `LoginStreak`, `TutorialDone`, `HasAutoMilker`. Plus leaderstats `Coins`, `Kühe`.
+Spieler-Attribute (Server setzt sie): `Coins`, `Milk`, `CowCount`, `LoginStreak`, `TutorialDone`, `HasAutoMilker`, `PlotSlot`. Plus leaderstats `Coins`, `Kühe`.
 
 ## Daten (DataStore "CowFarm_PlayerData_v1", Key "Player_<UserId>")
 
 ```lua
 { Version=1, Coins=100, Milk=0, TotalMilk=0,
-  Cows = { c1 = {Id, Rarity, Name, Obtained, MilkReadyAt} },  NextCowId,
-  Breeding = {ParentA, ParentB, StartedAt, ReadyAt} | nil,
-  LoginStreak = {Streak, LastDay, Best},
-  Receipts = { [PurchaseId] = os.time() },   -- Robux-Doppelvergabe-Schutz
+  Cows = { c1 = { Id, Rarity, Name, Obtained, MilkReadyAt,
+                  Slot (Feld 1-36) | Hotbar (1-6) | Stored (true = Lager) } },
+  NextCowId, Breeding = {ParentA, ParentB, StartedAt, ReadyAt} | nil,
+  LoginStreak = {Streak, LastDay, Best}, Receipts = {[PurchaseId]=time},
   ReceivedStarterCow, TutorialDone }
 ```
-Laden mit 3 Retries; fehlende Felder werden aufgefüllt (reconcile). In Studio ohne API-Zugriff: Testdaten, kein Speichern. Live: bei Ladefehler Kick. DataService-API: `Load, Save, Release, Get, WaitForData, Sync, AddCoins, SpendCoins, AddMilk, TakeAllMilk, AddCow, CountCows, HasCowSpace, Notify, FireInventoryChanged`, Event `CowAdded(player, cow)`.
+Laden mit 3 Versuchen, fehlende Felder werden aufgefüllt; alte Kühe ohne Ort werden beim Laden automatisch auf freie Felder verteilt. Studio ohne API-Zugriff → Testdaten (nicht gespeichert). Live: bei Ladefehler Kick.
 
 ## Spielmechanik (Werte in CowData.lua)
 
-- Start: 100 Coins + Gratis-Common-Kuh. Milch = 2 Coins/Liter. Max 40 Kühe (Robux-Käufe dürfen drüber).
-- Seltenheiten (MilkPerPull / Melk-Pause s / Shoppreis):
-  Common 2/20/100 · Uncommon 5/25/600 · Rare 12/30 · Epic 30/45 · Legendary 75/60 ·
-  Special: Golden 200 · Rainbow 160 · Ghost 130 (Pause 60).
-- Kühe bekommen: Shop (Common, Uncommon), Zucht, Kisten (Holzkiste 500 Coins, Silberkiste 3000 Coins oder Robux, Premium-Kiste nur Robux mit 5 % Ghost).
-- Zucht: Tabelle nach Durchschnitt der Eltern-Stufen (z.B. 2x Common: 90 % Common / 10 % Uncommon; 2x Legendary: 30 % Epic / 69 % Legendary / **1 % Golden**, Golden nur bei 2 echten Legendary). Dauer 5–20 Min, läuft auch offline; Kalb kommt automatisch.
-- Rainbow Cow: nur durch 7-Tage-Login-Streak (UTC-Tage). Ghost Cow: nur Premium-Kiste. Täglicher Bonus = 25 × Tag (1–7).
-- Auto-Melker (Gamepass): alle 3 s Milch von jeder Kuh.
-- **Platzhalter, die noch eingetragen werden müssen:** `AutoMilkerGamePassId = 0`, `Crates.Super.ProductId = 0`, `Crates.Premium.ProductId = 0`, optional `MilkingAnimationId = 0`.
+- Start: 100 Coins + Gratis-Common-Kuh. Milch = 2 Coins pro Liter. Max. 40 Kühe insgesamt; 36 Felder pro Farm, 6 Hotbar-Plätze, Rest im Lager.
+- Seltenheiten (Milch pro Zug / Melk-Pause in s / Shoppreis): Common 2/20/100 · Uncommon 5/25/600 · Rare 12/30 · Epic 30/45 · Legendary 75/60 · Special: Golden 200 · Rainbow 160 · Ghost 130.
+- Kühe bekommen: Kuh-Shop (Common, Uncommon), Zucht, Kisten (Holzkiste 500 Coins, Silberkiste 3000 Coins oder Robux, Premium-Kiste nur Robux mit 5 % Ghost).
+- Zucht nach Durchschnitt der Eltern-Stufen; 2x Legendary: 1 % Golden (nur bei 2 echten Legendary). 5–20 Min, läuft auch offline.
+- Rainbow Cow nur durch 7-Tage-Login-Streak. Tagesbonus = 25 × Tag (1–7).
+- Auto-Melker (Gamepass): alle 3 s Milch von jeder Kuh, die auf der Farm steht.
+- **Platzhalter:** `AutoMilkerGamePassId = 0`, `Crates.Super.ProductId = 0`, `Crates.Premium.ProductId = 0`, `MilkingAnimationId = 0`.
+
+## Karte
+
+- **Süd-Platz** (z −100..0): Milch-Brunnen, Spawn, "COW FARM"-Bogen, **Kuh-Shop** und **Zucht-Stall**.
+- **2 Förderbänder** in der Allee (Nord / Süd, 36 Studs/s): unsichtbares Band mit `AssemblyLinearVelocity`; 6 Kacheln à 10×0.5×50 bewegt der Client per Heartbeat; Gehäuse an den Enden.
+- **Nord-Markt** (z ≈ 350..450): **Kisten** und **Auto-Melker**.
+- Shop-Gebäude: Licht innen, winkender NPC mit Strohhut, hüpfendes Schild (Größe in Studs), Klick → `OpenShop`; jedes hat einen Teleport-Punkt vor der Tür.
+- **Farmen** links/rechts der Allee (3 Reihen pro Seite, ab Spieler 7 weiter außen): Wiese, Steinkante, weißer Zaun, Torbogen mit Namen, Milch-Stand (F = verkaufen), **Raster mit 36 Feldern**. Jede Kuh hat Schemel, Eimer und blaue Melk-Platte.
+
+## Kuhmodell & Animation
+
+- `CowModelBuilder.BuildCow` nimmt `ReplicatedStorage.Assets.CowModel` (Blender-Kuh), wenn vorhanden: erkennt Teile an den Blender-Namen (Koerper, Kopf, Zitze_…, Fleck_…), dreht, skaliert auf 6.4 Studs, färbt pro Seltenheit. Sonst Ersatz-Kuh aus Parts (rund, niedlich).
+- Gruppen `HeadGroup`, `EarLeft`, `EarRight`, `TailGroup`; Tag "Cow". WorldAnimator: schweben, Kopf ±15°, Schwanz wedelt, Ohren flattern, ab und zu umdrehen; nur in < 160 Studs; Regenbogen-Kuh wechselt jede Sekunde die Farbe.
+- Effekte je Seltenheit (Licht, Partikel, Lichtstrahl bei Golden, durchsichtig + grün bei Ghost). Neue Kuh fällt vom Himmel mit Konfetti.
 
 ## Melk-Minispiel
 
-1. Kuh anklicken (ClickDetector) **oder** auf die blaue "🥛 Melken"-Platte neben der Kuh laufen (Touched). Nur der Besitzer.
-2. Server teleportiert auf den Schemel und setzt den Spieler (Seat:Sit), Kuh bekommt Attribut `BeingMilked`.
-3. Client: Bildschirm abgedunkelt, Panel gleitet hoch (Cartoon-Kuhgesicht, Eimer füllt sich, runde Knöpfe ◄ ► bzw. Q/E, Controller L1/R1).
-4. Abwechselnd ziehen. Richtig: +1 Zug, Kamera wackelt, Sound, "+X" fliegt hoch. Gleiche Seite nochmal: −1 Zug, Knöpfe rot.
-5. 10 Züge = Eimer voll → Milch = Züge × MilkPerPull, "+X Milch!" über der Kuh, Kuh bekommt Cooldown (Timer über der Kuh). Abbruch (Springen/Weglaufen >10 Studs/Aufstehen) gibt anteilige Milch.
-6. Server ist maßgeblich (prüft Seite, Rate-Limit `MinPullInterval`) und schickt `MilkingProgress`.
+Kuh anklicken → Menü "Melken" (oder auf die blaue Platte laufen). Server teleportiert auf den Schemel. Panel mit Kuhgesicht, Eimer füllt sich, ◄ ► bzw. Q/E abwechselnd; falsche Seite = 1 Zug weniger. Nach 10 Zügen: Eimer kippt, "+X MILCH!", Kuh bekommt Pause (Timer über der Kuh). Server prüft alles.
 
-## Karte (CowData.Map)
+## Benutzeroberfläche (Theme.lua)
 
-- Hub-Platz im Süden (z −100..0): Milch-Brunnen, Spawn, "COW FARM"-Bogen, 4 Shop-Gebäude: KUH-SHOP 🐄, KISTEN ✨, ZUCHT-STALL 💕, AUTO-MELKER 🥛. Jedes mit Licht innen, winkendem NPC mit Strohhut, hüpfendem Schild "KLICKEN ZUM ÖFFNEN". Klick → Server → `OpenShop`.
-- Allee nach Norden mit **2 Förderbändern** (Nord/Süd, 22 Studs/s): unsichtbares Band mit `AssemblyLinearVelocity` schiebt Spieler; 6 Kacheln à 10×0.5×50 (schwarz mit gelben Pfeilen) bewegt der Client per Heartbeat nach Serverzeit; Rücksprung versteckt in Gehäusen an den Enden.
-- Plots: ungerade Slots links (Westen), gerade rechts, Reihen ab z = 70 alle 95 Studs, Tor zeigt zur Allee. Plot = gestreifte Wiese, Steinkante, weißer Zaun, Torbogen mit Namen, Weg, Heuballen, Milch-Stand (ProximityPrompt F = verkaufen). Kühe im Raster 6 Spalten, jede mit Schemel, Eimer, Melk-Platte. Spieler wird beim Spawn auf seine Farm teleportiert. Ca. 8 Spieler passen gut.
+- Ein Stil: dunkle Flächen, dicke dunkle Umrandung, "dicke" Knöpfe mit dunklerer Unterkante, weiße Schrift mit Umriss, gezeichnete Symbole (Münze, Milchtüte, Kuh) statt Emojis. Alles skaliert mit der Bildschirmgröße (Basis 1280×720).
+- Feste Zonen: **oben links** Coins/Milch · **links Mitte** KARTE (M) / KÜHE (I) / BONUS (Streak-Abzeichen) · **oben Mitte** Meldungen (max. 3, 2,5 s) · **unten Mitte** Hotbar (1–6) · **darüber** Hinweis-Leiste · **unten rechts** VERKAUFEN (pulsiert bei Milch).
+- Fenster (`Theme.window`): immer nur eins offen, Hintergrund abgedunkelt, Klick daneben schließt. Fenster: KARTE, MEINE KÜHE, KUH-SHOP, KISTEN, ZUCHT-STALL, TAGESBONUS, AUTO-MELKER.
+- Wichtig für Code: an Roblox-Objekte keine eigenen Funktionen hängen (z. B. `frame.SetColor = …` wirft einen Fehler) – `Theme.button` gibt dafür `setColor` als 3. Wert zurück.
 
-## Kuh-Modell & Animation
+## Tutorial (nur neue Spieler)
 
-- Cartoon-Stil: Kopf-Kugel 2.5, Körper 5×3×7, kurze Beine, große Augen, rosa Schnauze, großes Euter mit 4 Zitzen (`TeatLeftA/B` vorne, `TeatRightA/B` hinten), 3–5 Flecken (pro Kuh-ID immer gleich).
-- Gruppen für Animation: `HeadGroup`, `EarLeft`, `EarRight`, `TailGroup` (Pivot-Gelenke). Tag "Cow".
-- WorldAnimator (Client): schweben, Kopf ±15°, Schwanz wedeln, Ohren flattern, alle 5–12 s umdrehen; TweenService-Werte, angewendet mit `workspace:BulkMoveTo`, nur in < 160 Studs Entfernung. Rainbow wechselt jede Sekunde die Farbe. Während des Melkens steht der Körper still.
-- Effekte: Uncommon Funken · Rare blaues Licht · Epic lila Licht + Partikel · Legendary Goldlicht + Sterne · Golden sehr hell + Lichtstrahl + Münz-Partikel · Rainbow bunte Partikel · Ghost 50 % durchsichtig + grünes Licht + Schwaden.
-- Neue Kuh: fällt vom Himmel (Bounce), Konfetti, Sound (Fanfare ab Epic).
-
-## UI
-
-- HUD (CoinDisplay): obere Leiste über volle Breite (Coins mit Spielautomat-Ziffern, Logo, Milch, Streak), unten pulsierender grüner "MILCH VERKAUFEN 🥛"-Knopf, Benachrichtigungen rechts (grün/rot/gold/blau, 2,5 s), Coin-Sound.
-- MenuUI: runde Knöpfe links (Shop, Kisten, Zucht, Tagesbonus, Auto). Kisten mit "Spielautomat"-Enthüllung, Zucht mit Chancen-Anzeige und Countdown, Tagesbonus mit 7 Tagesfeldern.
+3-s-Kamerafahrt, Willkommens-Fenster "Gratis-Kuh", gelber Pfeil: Farm → Kuh melken → VERKAUFEN → Kuh-Shop; "Tutorial überspringen" unten links.
 
 ## Sounds (CowData.Config)
 
-Melken 5857005819 · Coins 4590662766 · Ambient 1843671818 · Muhen 535690488. Shop-Öffnen `rbxasset://sounds/swoosh.wav` und Fanfare `rbxasset://sounds/victory.wav` sind ungeprüfte eingebaute Sounds (bei Stille eigene IDs eintragen).
-
-## Blender-Kuh (CowModell.blend)
-
-- `tools/export_cow.py` exportiert nur die Kuh-Teile nach `assets_src/CowModell.fbx` (`blender CowModell.blend --background --python tools/export_cow.py`).
-- In Studio mit dem 3D-Importer importieren, Modell `CowModel` nennen, per "Save to File" als `assets/CowModel.rbxm` speichern → Rojo legt es nach `ReplicatedStorage.Assets.CowModel`.
-- `CowModelBuilder.BuildCow` nimmt automatisch dieses Modell (erkennt Teile an den Blender-Namen Koerper, Kopf, Zitze_…, Fleck_… usw.; dreht, skaliert auf 6.4 Studs, färbt pro Seltenheit). Fehlt es, wird die alte Part-Kuh gebaut.
+Funktioniert vermutlich: Coins `4590662766`, Muhen `535690488`. **Aus** (IDs waren keine Sounds oder gesperrt): Melken, Eimer voll, Hintergrund-Musik, Shop-Öffnen, Fanfare. Neue IDs aus der Toolbox (Audio) eintragen.
 
 ## Offen / nächste Schritte
 
-1. **Tutorial-Client fehlt noch** (Datenseite ist fertig: `TutorialDone`-Flag, Remote, Alt-Spieler werden übersprungen). Geplant: 3-s-Kameraschwenk, Willkommens-Popup "Gratis-Kuh", gelbe Pfeile Farm → Kuh → Verkaufen-Knopf → Shop. Bis dahin bekommen neue Spieler keine Begrüßung.
-2. Playtest in Studio: Förderbänder tragen den Spieler? Giebel-Keile der Shop-Dächer richtig herum? Flecken/Gesicht der Kuh sitzen richtig? 2-Spieler-Test (eigene Plots, fremde Kühe nicht melkbar).
-3. Gamepass-/Produkt-IDs eintragen; Studio: "Enable Studio Access to API Services" für DataStore.
-4. Starten: `rojo serve` im Projektordner, in Studio Rojo-Plugin → Connect (localhost:34872).
+1. In Studio prüfen: neues HUD, Fenster, Hotbar, Kuh aufheben/platzieren, Karte + Reisen, Förderbänder, Nord-Markt.
+2. Blender-Kuh importieren: `assets_src/CowModell.fbx` → Studio "Import 3D" → Modell `CowModel` nennen → "Save to File" als `assets/CowModel.rbxm`.
+3. Funktionierende Sound-IDs eintragen.
+4. Balancing (erster Kauf nach ca. 2–3 Minuten), Upgrades (größerer Eimer, schnellere Pause), evtl. Bestenliste.
+5. Gamepass-/Produkt-IDs eintragen, Spiel veröffentlichen, "Enable Studio Access to API Services" für den DataStore.

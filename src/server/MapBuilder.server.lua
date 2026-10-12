@@ -1,6 +1,8 @@
 -- MapBuilder.server.lua
 -- Baut einmalig die gemeinsame Karte (alles unter Workspace.CowFarmLayout):
---   * Hub-Platz im Süden mit Brunnen und 4 Shop-Gebäuden (ClickDetector öffnet das Menü)
+--   * Süd-Platz mit Brunnen, Kuh-Shop und Zucht-Stall
+--   * Nord-Markt am anderen Ende der Förderbänder mit Kisten und Auto-Melker
+--   (Shop-Daten stehen in CowData.Map.Shops; jedes Gebäude bekommt einen Teleport-Punkt)
 --   * Allee nach Norden mit ZWEI Laufbändern (eins nach Norden, eins nach Süden)
 --   * Begrüßungsbogen und Laternen
 -- Die Farm-Plots selbst baut CowManager.server.lua links und rechts der Allee.
@@ -25,7 +27,7 @@ if not layoutFolder then
 end
 
 -- alte Version (z.B. nach Neustart im Studio) entfernen
-for _, name in ipairs({ "Hub", "Walkways", "Avenue" }) do
+for _, name in ipairs({ "Hub", "Walkways", "Avenue", "NorthMarket" }) do
 	local old = layoutFolder:FindFirstChild(name)
 	if old then
 		old:Destroy()
@@ -658,8 +660,10 @@ local function buildShop(opts, base)
 		{ Transparency = 1, CanCollide = false, CanQuery = false })
 	local billboard = Instance.new("BillboardGui")
 	billboard.Name = "ShopBillboard"
-	billboard.Size = UDim2.fromOffset(300, 150)
-	billboard.MaxDistance = 300
+	-- Größe in Studs (nicht Pixeln): wird mit Abstand kleiner wie ein echtes Schild,
+	-- statt aus der Nähe den halben Bildschirm zu verdecken
+	billboard.Size = UDim2.fromScale(14, 7)
+	billboard.MaxDistance = 250
 	billboard.LightInfluence = 0
 	billboard.Parent = billboardAnchor
 
@@ -721,37 +725,108 @@ local function buildShop(opts, base)
 
 	model:SetAttribute("Page", opts.Page)
 	model:SetAttribute("Title", opts.Title)
+	model:SetAttribute("Label", opts.Label)
+	model:SetAttribute("Area", opts.Area)
+	-- hier landet man, wenn man in der Übersicht auf das Haus klickt (vor der Tür, Blick zum Haus)
+	local standPosition = (base * CFrame.new(0, 3, -D / 2 - 9)).Position
+	local doorPosition = (base * CFrame.new(0, 3, 0)).Position
+	model:SetAttribute("TeleportCFrame", CFrame.lookAt(standPosition, doorPosition))
 	model.PrimaryPart = model:FindFirstChild("Floor")
 	CollectionService:AddTag(model, "ShopBuilding")
-	model.Parent = hub
+	model.Parent = opts.Parent or hub
 	return model
 end
 
-local SHOPS = {
-	{
-		Name = "CowShop", Page = "Shop", Title = "KUH-SHOP", Icon = "🐄",
-		Color = Color3.fromRGB(70, 140, 220), RoofColor = Color3.fromRGB(45, 90, 160), WallColor = Color3.fromRGB(240, 232, 215),
-		Position = Vector3.new(-40, 0, -25), FacesEast = true,
-	},
-	{
-		Name = "CrateShop", Page = "Crates", Title = "KISTEN", Icon = "✨",
-		Color = Color3.fromRGB(230, 150, 45), RoofColor = Color3.fromRGB(170, 95, 30), WallColor = Color3.fromRGB(245, 230, 200),
-		Position = Vector3.new(40, 0, -25), FacesEast = false,
-	},
-	{
-		Name = "BreedingBarn", Page = "Breeding", Title = "ZUCHT-STALL", Icon = "💕",
-		Color = Color3.fromRGB(225, 85, 140), RoofColor = Color3.fromRGB(160, 45, 45), WallColor = Color3.fromRGB(190, 60, 55),
-		Position = Vector3.new(-40, 0, -72), FacesEast = true,
-	},
-	{
-		Name = "AutoMilkerShop", Page = "AutoMilker", Title = "AUTO-MELKER", Icon = "🥛",
-		Color = Color3.fromRGB(60, 185, 160), RoofColor = Color3.fromRGB(40, 110, 100), WallColor = Color3.fromRGB(215, 222, 228),
-		Position = Vector3.new(40, 0, -72), FacesEast = false,
-	},
-}
+------------------------------------------------------------------------
+-- Nord-Markt (am Ende der Förderbänder)
+------------------------------------------------------------------------
+local north = Instance.new("Folder")
+north.Name = "NorthMarket"
+north.Parent = layoutFolder
 
-for _, shop in ipairs(SHOPS) do
+local NORTH_CENTER = Vector3.new(0, 0, Map.NorthPlazaZ)
+makePart({
+	Name = "Plaza",
+	Size = Map.NorthPlazaSize,
+	CFrame = CFrame.new(NORTH_CENTER + Vector3.new(0, Map.NorthPlazaSize.Y / 2, 0)),
+	Color = STONE,
+	Material = Enum.Material.Pavement,
+	Parent = north,
+})
+
+-- Torbogen am Eingang des Markts
+do
+	local archZ = Map.NorthPlazaZ - Map.NorthPlazaSize.Z / 2 + 4
+	for _, side in ipairs({ -1, 1 }) do
+		makePart({
+			Name = "ArchPillar",
+			Size = Vector3.new(2, 16, 2),
+			CFrame = CFrame.new(side * (AVENUE_HALF + 1), 8, archZ),
+			Color = Color3.fromRGB(120, 78, 45),
+			Material = Enum.Material.Wood,
+			Parent = north,
+		})
+	end
+	local beam = makePart({
+		Name = "ArchSign",
+		Size = Vector3.new(AVENUE_HALF * 2 + 6, 4, 1),
+		CFrame = CFrame.new(0, 17, archZ),
+		Color = Color3.fromRGB(120, 78, 45),
+		Material = Enum.Material.Wood,
+		Parent = north,
+	})
+	-- Vorderseite (-Z) sieht man, wenn man vom Förderband kommt
+	addSurfaceText(beam, Enum.NormalId.Front, "NORD-MARKT", Color3.new(1, 1, 1), Color3.fromRGB(35, 30, 28))
+	addSurfaceText(beam, Enum.NormalId.Back, "⬇ Farmen & Süd-Platz ⬇", Color3.new(1, 1, 1), Color3.fromRGB(35, 30, 28))
+end
+
+-- Heuhaufen-Deko und Laternen auf dem Markt
+for _, position in ipairs({
+	Vector3.new(-50, 0, Map.NorthPlazaZ + 40), Vector3.new(50, 0, Map.NorthPlazaZ + 40),
+	Vector3.new(0, 0, Map.NorthPlazaZ + 42),
+}) do
+	makePart({
+		Name = "HayBale",
+		Size = Vector3.new(4, 2.4, 3.2),
+		CFrame = CFrame.new(position + Vector3.new(0, 1.3, 0)),
+		Color = Color3.fromRGB(230, 200, 100),
+		Material = Enum.Material.Fabric,
+		Parent = north,
+	})
+end
+for _, x in ipairs({ -14, 14 }) do
+	local lamp = makePart({
+		Name = "Lamp",
+		Shape = Enum.PartType.Ball,
+		Size = Vector3.new(1.4, 1.4, 1.4),
+		CFrame = CFrame.new(x, 9.4, Map.NorthPlazaZ),
+		Color = Color3.fromRGB(255, 240, 200),
+		Material = Enum.Material.Neon,
+		CanCollide = false,
+		Parent = north,
+	})
+	makePart({
+		Name = "LampPost",
+		Size = Vector3.new(0.5, 9, 0.5),
+		CFrame = CFrame.new(x, 4.5, Map.NorthPlazaZ),
+		Color = Color3.fromRGB(45, 48, 55),
+		Material = Enum.Material.Metal,
+		Parent = north,
+	})
+	local light = Instance.new("PointLight")
+	light.Range = 18
+	light.Brightness = 1.2
+	light.Color = Color3.fromRGB(255, 230, 180)
+	light.Parent = lamp
+end
+
+------------------------------------------------------------------------
+-- Alle Shops bauen (Daten aus CowData.Map.Shops)
+------------------------------------------------------------------------
+for _, shop in ipairs(Map.Shops) do
+	local opts = table.clone(shop)
+	opts.Parent = shop.Area == "Nord-Markt" and north or hub
 	-- Tür zeigt zur Platzmitte: -Z des Gebäudes muss nach +X (Westseite) bzw. -X (Ostseite) zeigen
 	local yaw = shop.FacesEast and math.rad(-90) or math.rad(90)
-	buildShop(shop, CFrame.new(shop.Position) * CFrame.Angles(0, yaw, 0))
+	buildShop(opts, CFrame.new(shop.Position) * CFrame.Angles(0, yaw, 0))
 end

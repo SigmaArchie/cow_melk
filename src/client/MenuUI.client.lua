@@ -1,6 +1,6 @@
 -- MenuUI.client.lua
 -- Fenster, die sich öffnen, wenn man ein Shop-Gebäude anklickt (Server -> Remotes.OpenShop)
--- oder einen der runden Knöpfe links am Bildschirm benutzt:
+-- oder sie aus der Übersicht aufruft (UIBus.OpenPage):
 --   🐄 Shop        – Common/Uncommon für Coins kaufen          (Gebäude "KUH-SHOP")
 --   ✨ Kisten      – Kuh-Kisten für Coins oder Robux öffnen    (Gebäude "KISTEN")
 --   💕 Zucht       – zwei Kühe auswählen, Chancen, Zucht       (Gebäude "ZUCHT-STALL")
@@ -15,18 +15,20 @@ local SoundService = game:GetService("SoundService")
 
 local CowData = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CowData"))
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
+local UIBus = require(script.Parent:WaitForChild("UIBus"))
+local Theme = require(script.Parent:WaitForChild("Theme"))
 
 local player = Players.LocalPlayer
 
-local BG = Color3.fromRGB(30, 32, 45)
-local CARD = Color3.fromRGB(46, 49, 66)
-local CARD_HOVER = Color3.fromRGB(58, 62, 82)
-local TEXT = Color3.new(1, 1, 1)
-local SUBTEXT = Color3.fromRGB(190, 195, 215)
-local GREEN = Color3.fromRGB(70, 185, 90)
+local BG = Theme.Colors.Panel
+local CARD = Theme.Colors.Card
+local CARD_HOVER = Theme.Colors.PanelLight
+local TEXT = Theme.Colors.Text
+local SUBTEXT = Theme.Colors.SubText
+local GREEN = Theme.Colors.Green
 local ROBUX = Color3.fromRGB(0, 170, 110)
-local PINK = Color3.fromRGB(235, 100, 160)
-local DISABLED = Color3.fromRGB(85, 88, 105)
+local PINK = Theme.Colors.Pink
+local DISABLED = Theme.Colors.Grey
 local ERROR = Color3.fromRGB(255, 120, 120)
 
 local inventory = nil -- letzte Antwort von GetInventory
@@ -74,12 +76,13 @@ local function button(parent, props)
 	b.Font = Enum.Font.FredokaOne
 	b.TextSize = 18
 	b.TextColor3 = TEXT
-	b.TextStrokeTransparency = 0.6 -- dunkler Rand: weiße Schrift auf hellen Knöpfen lesbar
 	b.BackgroundColor3 = GREEN
 	for k, v in pairs(props) do
 		b[k] = v
 	end
 	corner(b, 10)
+	Theme.border(b, 3)
+	Theme.textOutline(b, 2)
 	b.Parent = parent
 	return b
 end
@@ -114,68 +117,38 @@ gui.ResetOnSpawn = false
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.Parent = player:WaitForChild("PlayerGui")
 
--- Menüleiste links
-local menu = Instance.new("Frame")
-menu.Name = "Menu"
-menu.AnchorPoint = Vector2.new(0, 0.5)
-menu.Position = UDim2.new(0, 12, 0.5, 0)
-menu.Size = UDim2.fromOffset(76, 0)
-menu.AutomaticSize = Enum.AutomaticSize.Y
-menu.BackgroundTransparency = 1
-menu.Parent = gui
-local menuLayout = Instance.new("UIListLayout")
-menuLayout.Padding = UDim.new(0, 14)
-menuLayout.SortOrder = Enum.SortOrder.LayoutOrder
-menuLayout.Parent = menu
+-- Hauptfenster (gemeinsames Theme-Fenster: ein Fenster zur Zeit, Hintergrund abgedunkelt)
+local PAGE_COLORS = {
+	Shop = Theme.Colors.Blue,
+	Crates = Theme.Colors.Orange,
+	Breeding = Theme.Colors.Pink,
+	Daily = Theme.Colors.Green,
+	AutoMilker = Theme.Colors.Teal,
+}
 
--- Hauptfenster
-local window = Instance.new("Frame")
-window.Name = "Window"
-window.AnchorPoint = Vector2.new(0.5, 0.5)
-window.Position = UDim2.fromScale(0.5, 0.5)
-window.Size = UDim2.fromOffset(600, 430)
-window.BackgroundColor3 = BG
-window.BackgroundTransparency = 0.05
-window.Visible = false
-window.Parent = gui
-corner(window, 18)
-local windowStroke = Instance.new("UIStroke")
-windowStroke.Color = TEXT
-windowStroke.Transparency = 0.75
-windowStroke.Thickness = 2
-windowStroke.Parent = window
-local windowScale = Instance.new("UIScale")
-windowScale.Parent = window
-
-local windowTitle = label(window, {
-	Position = UDim2.fromOffset(20, 12),
-	Size = UDim2.new(1, -80, 0, 36),
-	Font = Enum.Font.FredokaOne,
-	TextSize = 28,
-	Text = "",
+local win = Theme.window(gui, {
+	Name = "Window", -- (das Tutorial prüft MenuUI.Window.Visible)
+	Title = "",
+	Size = Vector2.new(680, 500),
+	OnClose = function()
+		currentPage = nil
+	end,
 })
-
-local closeButton = button(window, {
-	AnchorPoint = Vector2.new(1, 0),
-	Position = UDim2.new(1, -12, 0, 12),
-	Size = UDim2.fromOffset(36, 36),
-	BackgroundColor3 = Color3.fromRGB(200, 70, 70),
-	Text = "✕",
-})
+local window = win.Root
 
 local content = Instance.new("Frame")
 content.Name = "Content"
-content.Position = UDim2.fromOffset(16, 56)
-content.Size = UDim2.new(1, -32, 1, -96)
+content.Size = UDim2.new(1, 0, 1, -30)
 content.BackgroundTransparency = 1
-content.Parent = window
+content.Parent = win.Body
 
-local statusText = label(window, {
+local statusText = label(win.Body, {
 	AnchorPoint = Vector2.new(0, 1),
-	Position = UDim2.new(0, 20, 1, -10),
-	Size = UDim2.new(1, -40, 0, 24),
+	Position = UDim2.fromScale(0, 1),
+	Size = UDim2.new(1, 0, 0, 24),
 	TextColor3 = ERROR,
 	TextXAlignment = Enum.TextXAlignment.Center,
+	Font = Enum.Font.GothamBold,
 	Text = "",
 })
 
@@ -238,19 +211,17 @@ local function openPage(name, keepOpen)
 	if not pages[name] then
 		return
 	end
-	if currentPage == name and window.Visible then
+	if currentPage == name and win:IsOpen() then
 		if not keepOpen then
-			-- Schnellzugriff nochmal klicken = schließen
-			window.Visible = false
-			currentPage = nil
+			win:Close()
 		end
 		return
 	end
-	currentPage = name
 	for pageName, page in pairs(pages) do
 		page.Frame.Visible = pageName == name
 	end
-	windowTitle.Text = pages[name].Title
+	win:SetTitle(pages[name].Title)
+	win:SetColor(PAGE_COLORS[name] or Theme.Colors.Blue)
 	statusText.Text = ""
 
 	-- "Wusch"-Sound
@@ -265,17 +236,8 @@ local function openPage(name, keepOpen)
 		end)
 	end
 
-	-- an kleine Bildschirme anpassen
-	local camera = workspace.CurrentCamera
-	local viewport = camera and camera.ViewportSize or Vector2.new(1000, 800)
-	local fit = math.min(1, (viewport.X - 100) / window.Size.X.Offset, (viewport.Y - 40) / window.Size.Y.Offset)
-	if not window.Visible then
-		window.Visible = true
-		windowScale.Scale = fit * 0.7
-		TweenService:Create(windowScale, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = fit }):Play()
-	else
-		windowScale.Scale = fit
-	end
+	win:Open()
+	currentPage = name
 
 	task.spawn(function()
 		refreshInventory()
@@ -283,15 +245,11 @@ local function openPage(name, keepOpen)
 	end)
 end
 
-closeButton.Activated:Connect(function()
-	window.Visible = false
-	currentPage = nil
-end)
 
 ------------------------------------------------------------------------
 -- 🛒 Shop
 ------------------------------------------------------------------------
-local shopPage = newPage("Shop", "🛒 Kuh-Shop")
+local shopPage = newPage("Shop", "KUH-SHOP")
 do
 	local grid = Instance.new("UIGridLayout")
 	grid.CellSize = UDim2.new(0.5, -8, 0, 220)
@@ -489,7 +447,7 @@ local function playReveal(crateName, rarity)
 	revealing = false
 end
 
-local cratesPage = newPage("Crates", "🎁 Kuh-Kisten")
+local cratesPage = newPage("Crates", "KISTEN")
 do
 	local grid = Instance.new("UIGridLayout")
 	grid.CellSize = UDim2.new(1 / 3, -11, 1, 0)
@@ -593,7 +551,7 @@ end
 ------------------------------------------------------------------------
 -- 💕 Zucht
 ------------------------------------------------------------------------
-local breedPage = newPage("Breeding", "💕 Zucht")
+local breedPage = newPage("Breeding", "ZUCHT-STALL")
 do
 	local selected = {} -- Liste mit bis zu 2 Kuh-IDs
 	local countdownLabel = nil
@@ -846,7 +804,7 @@ end
 ------------------------------------------------------------------------
 -- 🤖 Auto-Melker
 ------------------------------------------------------------------------
-local autoPage = newPage("AutoMilker", "🤖 Auto-Melker")
+local autoPage = newPage("AutoMilker", "AUTO-MELKER")
 do
 	autoPage.Build = function()
 		clear(autoPage.Frame)
@@ -888,7 +846,7 @@ end
 ------------------------------------------------------------------------
 -- 🎁 Tagesbonus (Login-Streak)
 ------------------------------------------------------------------------
-local dailyPage = newPage("Daily", "🎁 Tagesbonus")
+local dailyPage = newPage("Daily", "TAGESBONUS")
 do
 	dailyPage.Build = function()
 		clear(dailyPage.Frame)
@@ -990,69 +948,14 @@ do
 end
 
 ------------------------------------------------------------------------
--- Runde Knöpfe links (wie in Pet Simulator)
+-- Andere Scripts (Übersicht, Tutorial) können Fenster öffnen / schließen
 ------------------------------------------------------------------------
-local function makeMenuButton(icon, text, order, color, pageName)
-	local holder = Instance.new("Frame")
-	holder.Name = pageName .. "Button"
-	holder.LayoutOrder = order
-	holder.Size = UDim2.fromOffset(76, 88)
-	holder.BackgroundTransparency = 1
-	holder.Parent = menu
-
-	local b = Instance.new("TextButton")
-	b.Name = "Button"
-	b.AnchorPoint = Vector2.new(0.5, 0)
-	b.Position = UDim2.fromScale(0.5, 0)
-	b.Size = UDim2.fromOffset(68, 68)
-	b.BackgroundColor3 = color
-	b.AutoButtonColor = true
-	b.Font = Enum.Font.GothamBold
-	b.TextSize = 34
-	b.Text = icon
-	b.Parent = holder
-	corner(b, 34)
-	local ring = Instance.new("UIStroke")
-	ring.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-	ring.Color = Color3.new(1, 1, 1)
-	ring.Thickness = 3
-	ring.Parent = b
-	local shine = Instance.new("UIGradient")
-	shine.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255), Color3.fromRGB(170, 170, 170))
-	shine.Rotation = 90
-	shine.Parent = b
-	local scale = Instance.new("UIScale")
-	scale.Parent = b
-
-	local caption = label(holder, {
-		AnchorPoint = Vector2.new(0.5, 1),
-		Position = UDim2.fromScale(0.5, 1),
-		Size = UDim2.fromOffset(76, 20),
-		BackgroundTransparency = 0.2,
-		BackgroundColor3 = Color3.fromRGB(20, 22, 32),
-		Font = Enum.Font.GothamBlack,
-		TextSize = 12,
-		TextXAlignment = Enum.TextXAlignment.Center,
-		Text = text,
-	})
-	corner(caption, 10)
-
-	b.MouseEnter:Connect(function()
-		TweenService:Create(scale, TweenInfo.new(0.15), { Scale = 1.1 }):Play()
-	end)
-	b.MouseLeave:Connect(function()
-		TweenService:Create(scale, TweenInfo.new(0.15), { Scale = 1 }):Play()
-	end)
-	b.Activated:Connect(function()
-		openPage(pageName)
-	end)
-end
-
-makeMenuButton("🐄", "SHOP", 1, Color3.fromRGB(70, 140, 220), "Shop")
-makeMenuButton("✨", "KISTEN", 2, Color3.fromRGB(230, 150, 45), "Crates")
-makeMenuButton("💕", "ZUCHT", 3, PINK, "Breeding")
-makeMenuButton("🎁", "TAGESBONUS", 4, Color3.fromRGB(60, 175, 85), "Daily")
-makeMenuButton("🥛", "AUTO", 5, Color3.fromRGB(60, 185, 160), "AutoMilker")
+UIBus.OpenPage.Event:Connect(function(page)
+	openPage(page, true)
+end)
+UIBus.CloseOverlays.Event:Connect(function()
+	win:Close()
+end)
 
 -- Server sagt: Shop-Gebäude wurde angeklickt -> passendes Fenster öffnen
 Remotes.OpenShop.OnClientEvent:Connect(function(page)

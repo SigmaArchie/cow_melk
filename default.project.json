@@ -26,7 +26,10 @@
         "MilkingEnded": { "$className": "RemoteEvent" },
         "MilkingProgress": { "$className": "RemoteEvent" },
         "OpenShop": { "$className": "RemoteEvent" },
-        "TutorialDone": { "$className": "RemoteEvent" }
+        "TutorialDone": { "$className": "RemoteEvent" },
+        "CowAction": { "$className": "RemoteFunction" },
+        "CowClicked": { "$className": "RemoteEvent" },
+        "TeleportTo": { "$className": "RemoteEvent" }
       }
     },
 

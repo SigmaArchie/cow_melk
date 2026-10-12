@@ -1,11 +1,10 @@
--- CoinDisplay.client.lua
--- HUD wie in großen Simulator-Spielen:
---   OBEN (ganze Breite, dunkel): links 🪙 Coins (Zahlen rollen wie ein Spielautomat),
---                                Mitte Logo "🐄 COW FARM", rechts 🥛 Milch + 🔥 Streak
---   UNTEN: großer grüner "MILCH VERKAUFEN 🥛"-Knopf, pulsiert, sobald man Milch hat
---   Benachrichtigungen: gleiten von rechts herein, Karten-Stil, farbig
---                       (grün = gut, rot = Fehler, gold = seltener Fund), nach 2,5 s wieder raus
--- Die runden Seitenknöpfe links (Shop, Zucht, Tagesbonus …) baut MenuUI.client.lua.
+-- CoinDisplay.client.lua  (das HUD)
+-- Feste Bildschirm-Zonen, nichts überlappt:
+--   oben links    Coins + Milch (Zahlen zählen hoch, Münz-Sound)
+--   links Mitte   3 Knöpfe: KARTE (M), KÜHE (I), BONUS (mit Streak-Zahl)
+--   oben Mitte    Meldungen (max. 3, verschwinden nach 2,5 s)
+--   unten rechts  VERKAUFEN (pulsiert, sobald Milch da ist)
+-- Stil kommt aus Theme.lua.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -14,47 +13,20 @@ local TweenService = game:GetService("TweenService")
 
 local CowData = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CowData"))
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
-local Config = CowData.Config
+local Theme = require(script.Parent:WaitForChild("Theme"))
+local UIBus = require(script.Parent:WaitForChild("UIBus"))
 
+local Colors = Theme.Colors
+local Config = CowData.Config
 local player = Players.LocalPlayer
 
-local DARK = Color3.fromRGB(20, 22, 32)
-local CHIP = Color3.fromRGB(38, 41, 58)
-local TEXT = Color3.new(1, 1, 1)
-local COIN_COLOR = Color3.fromRGB(255, 215, 60)
-local MILK_COLOR = Color3.fromRGB(215, 235, 255)
-local STREAK_COLOR = Color3.fromRGB(255, 160, 70)
-local SELL_GREEN = Color3.fromRGB(55, 190, 80)
-local SELL_GREY = Color3.fromRGB(80, 84, 104)
-
-------------------------------------------------------------------------
--- Helfer
-------------------------------------------------------------------------
-local function corner(parent, radius)
-	local c = Instance.new("UICorner")
-	c.CornerRadius = radius or UDim.new(0, 12)
-	c.Parent = parent
-	return c
-end
-
-local function stroke(parent, color, thickness, transparency)
-	local s = Instance.new("UIStroke")
-	s.Color = color
-	s.Thickness = thickness or 2
-	s.Transparency = transparency or 0
-	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-	s.Parent = parent
-	return s
-end
-
-local function playSound(soundId, volume, speed)
+local function playSound(soundId, volume)
 	if not soundId or soundId == "" then
 		return
 	end
 	local sound = Instance.new("Sound")
 	sound.SoundId = soundId
 	sound.Volume = volume or 0.6
-	sound.PlaybackSpeed = speed or 1
 	sound.Parent = SoundService
 	sound:Play()
 	sound.Ended:Connect(function()
@@ -62,9 +34,6 @@ local function playSound(soundId, volume, speed)
 	end)
 end
 
-------------------------------------------------------------------------
--- GUI
-------------------------------------------------------------------------
 local gui = Instance.new("ScreenGui")
 gui.Name = "HUD"
 gui.ResetOnSpawn = false
@@ -72,273 +41,300 @@ gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.DisplayOrder = 5
 gui.Parent = player:WaitForChild("PlayerGui")
 
--- obere Leiste über die ganze Breite
-local topBar = Instance.new("Frame")
-topBar.Name = "TopBar"
-topBar.Size = UDim2.new(1, 0, 0, 64)
-topBar.BackgroundColor3 = DARK
-topBar.BackgroundTransparency = 0.25
-topBar.BorderSizePixel = 0
-topBar.Parent = gui
-local topGradient = Instance.new("UIGradient")
-topGradient.Transparency = NumberSequence.new({
-	NumberSequenceKeypoint.new(0, 0),
-	NumberSequenceKeypoint.new(1, 0.35),
-})
-topGradient.Rotation = 90
-topGradient.Parent = topBar
+------------------------------------------------------------------------
+-- Oben links: Coins + Milch
+------------------------------------------------------------------------
+local currency = Instance.new("Frame")
+currency.Name = "Currency"
+currency.Position = UDim2.fromOffset(20, 12)
+currency.Size = UDim2.fromOffset(210, 0)
+currency.AutomaticSize = Enum.AutomaticSize.Y
+currency.BackgroundTransparency = 1
+currency.Parent = gui
+local currencyLayout = Instance.new("UIListLayout")
+currencyLayout.Padding = UDim.new(0, 10)
+currencyLayout.SortOrder = Enum.SortOrder.LayoutOrder
+currencyLayout.Parent = currency
+Theme.autoScale(currency)
 
--- Chip = abgerundete Box mit Icon + Inhalt
-local function makeChip(name, icon, anchorX, positionX, color)
-	local chip = Instance.new("Frame")
-	chip.Name = name
-	chip.AnchorPoint = Vector2.new(anchorX, 0.5)
-	chip.Position = UDim2.new(positionX, positionX == 0 and 14 or (positionX == 1 and -14 or 0), 0.5, 0)
-	chip.Size = UDim2.fromOffset(0, 46)
-	chip.AutomaticSize = Enum.AutomaticSize.X
-	chip.BackgroundColor3 = CHIP
-	chip.Parent = topBar
-	corner(chip, UDim.new(1, 0))
-	stroke(chip, color, 2, 0.3)
+-- Leiste: Symbol in einem farbigen Kreis links (ganz in der Leiste), dahinter die Zahl
+local function makeCounter(order, iconBuilder, accent)
+	local holder = Instance.new("Frame")
+	holder.LayoutOrder = order
+	holder.Size = UDim2.fromOffset(200, 46)
+	holder.BackgroundTransparency = 1
+	holder.Parent = currency
 
-	local padding = Instance.new("UIPadding")
-	padding.PaddingLeft = UDim.new(0, 6)
-	padding.PaddingRight = UDim.new(0, 16)
-	padding.Parent = chip
+	local bar = Theme.panel(holder, {
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Colors.Panel,
+		BackgroundTransparency = 0.1,
+		Radius = 23,
+	})
+	local badge = Theme.panel(bar, {
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.new(0, 5, 0.5, 0),
+		Size = UDim2.fromOffset(36, 36),
+		BackgroundColor3 = Theme.darken(accent, 0.55),
+		Radius = 18,
+		Outline = 0,
+	})
+	iconBuilder(badge, 28, UDim2.fromScale(0.5, 0.5))
 
-	local layout = Instance.new("UIListLayout")
-	layout.FillDirection = Enum.FillDirection.Horizontal
-	layout.VerticalAlignment = Enum.VerticalAlignment.Center
-	layout.SortOrder = Enum.SortOrder.LayoutOrder
-	layout.Padding = UDim.new(0, 8)
-	layout.Parent = chip
-
-	local iconBack = Instance.new("TextLabel")
-	iconBack.LayoutOrder = 1
-	iconBack.Size = UDim2.fromOffset(36, 36)
-	iconBack.BackgroundColor3 = color
-	iconBack.BackgroundTransparency = 0.75
-	iconBack.Font = Enum.Font.GothamBold
-	iconBack.TextSize = 22
-	iconBack.Text = icon
-	iconBack.Parent = chip
-	corner(iconBack, UDim.new(1, 0))
+	local value = Theme.label(bar, {
+		Name = "Value",
+		Position = UDim2.fromOffset(50, 0),
+		Size = UDim2.new(1, -60, 1, 0),
+		TextSize = 25,
+		Text = "0",
+	})
 
 	local scale = Instance.new("UIScale")
-	scale.Parent = chip
-	return chip, scale
+	scale.Parent = holder
+	return value, scale
 end
 
-------------------------------------------------------------------------
--- Spielautomat-Zähler: jede Ziffer ist eine Rolle mit 0-9, die zur neuen Zahl rollt
-------------------------------------------------------------------------
-local DIGIT_HEIGHT = 32
-local DIGIT_WIDTH = 17
+local coinValue, coinScale = makeCounter(1, Theme.coinIcon, Colors.Gold)
+local milkValue, milkScale = makeCounter(2, Theme.milkIcon, Colors.Blue)
 
-local function createRoller(parent, color, order)
-	local holder = Instance.new("Frame")
-	holder.Name = "Roller"
-	holder.LayoutOrder = order
-	holder.BackgroundTransparency = 1
-	holder.Size = UDim2.fromOffset(0, DIGIT_HEIGHT)
-	holder.AutomaticSize = Enum.AutomaticSize.X
-	holder.Parent = parent
-	local layout = Instance.new("UIListLayout")
-	layout.FillDirection = Enum.FillDirection.Horizontal
-	layout.SortOrder = Enum.SortOrder.LayoutOrder
-	layout.Parent = holder
+local function pop(scale)
+	scale.Scale = 1.12
+	TweenService:Create(scale, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+end
 
-	local columns = {}
-	local pattern = ""
-
-	local function digitLabel(parentFrame, textValue, y)
-		local label = Instance.new("TextLabel")
-		label.BackgroundTransparency = 1
-		label.Position = UDim2.fromOffset(0, y)
-		label.Size = UDim2.fromOffset(DIGIT_WIDTH, DIGIT_HEIGHT)
-		label.Font = Enum.Font.FredokaOne
-		label.TextSize = 28
-		label.TextColor3 = color
-		label.TextStrokeTransparency = 0.6
-		label.Text = textValue
-		label.Parent = parentFrame
-		return label
-	end
-
-	local function rebuild(str)
-		for _, column in ipairs(columns) do
-			column.Frame:Destroy()
+-- Zahl zählt sanft zum neuen Wert
+local function bindCounter(attribute, label, scale, onIncrease)
+	local shown = Instance.new("NumberValue")
+	local known = nil
+	shown.Changed:Connect(function(v)
+		label.Text = CowData.FormatNumber(v)
+	end)
+	local function update()
+		local target = player:GetAttribute(attribute)
+		if target == nil then
+			return
 		end
-		table.clear(columns)
-		for i = 1, #str do
-			local ch = str:sub(i, i)
-			local column = Instance.new("Frame")
-			column.LayoutOrder = i
-			column.BackgroundTransparency = 1
-			column.ClipsDescendants = true
-			column.Parent = holder
-			if ch:match("%d") then
-				column.Size = UDim2.fromOffset(DIGIT_WIDTH, DIGIT_HEIGHT)
-				local strip = Instance.new("Frame")
-				strip.BackgroundTransparency = 1
-				strip.Size = UDim2.fromOffset(DIGIT_WIDTH, DIGIT_HEIGHT * 10)
-				strip.Parent = column
-				for d = 0, 9 do
-					digitLabel(strip, tostring(d), d * DIGIT_HEIGHT)
-				end
-				strip.Position = UDim2.fromOffset(0, -tonumber(ch) * DIGIT_HEIGHT)
-				table.insert(columns, { Frame = column, Strip = strip, Digit = tonumber(ch) })
-			else
-				column.Size = UDim2.fromOffset(8, DIGIT_HEIGHT)
-				local sep = digitLabel(column, ch, 0)
-				sep.Size = UDim2.fromOffset(8, DIGIT_HEIGHT)
-				table.insert(columns, { Frame = column })
-			end
-		end
-	end
-
-	-- setzt den Zähler; animate = true -> Ziffern rollen
-	return function(value, animate)
-		local str = CowData.FormatNumber(value)
-		local newPattern = str:gsub("%d", "0")
-		if newPattern ~= pattern then
-			pattern = newPattern
-			rebuild(str)
-			animate = false
-		end
-		for i, column in ipairs(columns) do
-			if column.Strip then
-				local digit = tonumber(str:sub(i, i))
-				if digit ~= column.Digit then
-					column.Digit = digit
-					local target = UDim2.fromOffset(0, -digit * DIGIT_HEIGHT)
-					if animate then
-						-- rechte Ziffern rollen etwas später -> Spielautomat-Gefühl
-						local delayTime = (#columns - i) * 0.04
-						task.delay(delayTime, function()
-							TweenService:Create(column.Strip, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-								Position = target,
-							}):Play()
-						end)
-					else
-						column.Strip.Position = target
-					end
+		if known == nil then
+			shown.Value = target
+			label.Text = CowData.FormatNumber(target)
+		else
+			TweenService:Create(shown, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Value = target }):Play()
+			if target > known then
+				pop(scale)
+				if onIncrease then
+					onIncrease()
 				end
 			end
 		end
+		known = target
 	end
+	player:GetAttributeChangedSignal(attribute):Connect(update)
+	update()
 end
 
--- links: Coins
-local coinChip, coinScale = makeChip("Coins", "🪙", 0, 0, COIN_COLOR)
-local setCoins = createRoller(coinChip, COIN_COLOR, 2)
+bindCounter("Coins", coinValue, coinScale, function()
+	playSound(Config.CoinSoundId, 0.6)
+end)
+bindCounter("Milk", milkValue, milkScale)
 
--- Mitte: Logo
-local logo = Instance.new("TextLabel")
-logo.Name = "Logo"
-logo.AnchorPoint = Vector2.new(0.5, 0.5)
-logo.Position = UDim2.fromScale(0.5, 0.5)
-logo.Size = UDim2.fromOffset(260, 46)
-logo.BackgroundTransparency = 1
-logo.Font = Enum.Font.FredokaOne
-logo.TextSize = 34
-logo.TextColor3 = TEXT
-logo.TextStrokeColor3 = Color3.fromRGB(60, 40, 20)
-logo.TextStrokeTransparency = 0
-logo.Text = "🐄 COW FARM"
-logo.Parent = topBar
-local logoGradient = Instance.new("UIGradient")
-logoGradient.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255), Color3.fromRGB(255, 225, 140))
-logoGradient.Rotation = 90
-logoGradient.Parent = logo
+------------------------------------------------------------------------
+-- Links Mitte: KARTE / KÜHE / BONUS
+------------------------------------------------------------------------
+local side = Instance.new("Frame")
+side.Name = "SideButtons"
+side.AnchorPoint = Vector2.new(0, 0.5)
+side.Position = UDim2.new(0, 14, 0.5, 0)
+side.Size = UDim2.fromOffset(84, 0)
+side.AutomaticSize = Enum.AutomaticSize.Y
+side.BackgroundTransparency = 1
+side.Parent = gui
+local sideLayout = Instance.new("UIListLayout")
+sideLayout.Padding = UDim.new(0, 12)
+sideLayout.SortOrder = Enum.SortOrder.LayoutOrder
+sideLayout.Parent = side
+Theme.autoScale(side)
 
--- rechts: Milch + Streak
-local rightGroup = Instance.new("Frame")
-rightGroup.Name = "Right"
-rightGroup.AnchorPoint = Vector2.new(1, 0.5)
-rightGroup.Position = UDim2.new(1, -14, 0.5, 0)
-rightGroup.Size = UDim2.fromOffset(0, 46)
-rightGroup.AutomaticSize = Enum.AutomaticSize.X
-rightGroup.BackgroundTransparency = 1
-rightGroup.Parent = topBar
-local rightLayout = Instance.new("UIListLayout")
-rightLayout.FillDirection = Enum.FillDirection.Horizontal
-rightLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
-rightLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-rightLayout.SortOrder = Enum.SortOrder.LayoutOrder
-rightLayout.Padding = UDim.new(0, 8)
-rightLayout.Parent = rightGroup
-
-local streakChip = makeChip("Streak", "🔥", 1, 1, STREAK_COLOR)
-streakChip.LayoutOrder = 1
-streakChip.Parent = rightGroup
-local streakLabel = Instance.new("TextLabel")
-streakLabel.LayoutOrder = 2
-streakLabel.BackgroundTransparency = 1
-streakLabel.Size = UDim2.fromOffset(0, DIGIT_HEIGHT)
-streakLabel.AutomaticSize = Enum.AutomaticSize.X
-streakLabel.Font = Enum.Font.FredokaOne
-streakLabel.TextSize = 24
-streakLabel.TextColor3 = STREAK_COLOR
-streakLabel.Text = "0"
-streakLabel.Parent = streakChip
-
-local milkChip, milkScale = makeChip("Milk", "🥛", 1, 1, MILK_COLOR)
-milkChip.LayoutOrder = 2
-milkChip.Parent = rightGroup
-local setMilk = createRoller(milkChip, MILK_COLOR, 2)
-
--- schmale Bildschirme: Logo ausblenden, wenn es eng wird
-local function fitTopBar()
-	local width = topBar.AbsoluteSize.X
-	logo.Visible = width > coinChip.AbsoluteSize.X + rightGroup.AbsoluteSize.X + logo.Size.X.Offset + 40
+local function sideButton(order, text, color, keyHint, drawIcon, onClick)
+	local face, holder = Theme.button(side, {
+		Name = text,
+		Size = UDim2.fromOffset(84, 84),
+		Color = color,
+		LayoutOrder = order,
+		Radius = 16,
+		Lip = 6,
+	})
+	drawIcon(face)
+	Theme.label(face, {
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -4),
+		Size = UDim2.new(1, 0, 0, 20),
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextSize = 17,
+		Text = text,
+	})
+	if keyHint then
+		local key = Theme.label(face, {
+			Position = UDim2.fromOffset(6, 4),
+			Size = UDim2.fromOffset(18, 18),
+			BackgroundTransparency = 0,
+			BackgroundColor3 = Colors.Outline,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			Font = Theme.BodyFont,
+			TextSize = 11,
+			Text = keyHint,
+			Outline = 0,
+		})
+		Theme.corner(key, 5)
+	end
+	face.Activated:Connect(onClick)
+	return face, holder
 end
-topBar:GetPropertyChangedSignal("AbsoluteSize"):Connect(fitTopBar)
-coinChip:GetPropertyChangedSignal("AbsoluteSize"):Connect(fitTopBar)
-rightGroup:GetPropertyChangedSignal("AbsoluteSize"):Connect(fitTopBar)
+
+-- Karten-Symbol: drei Felder wie eine gefaltete Karte
+local function drawMapIcon(face)
+	local icon = Instance.new("Frame")
+	icon.AnchorPoint = Vector2.new(0.5, 0.5)
+	icon.Position = UDim2.new(0.5, 0, 0.5, -10)
+	icon.Size = UDim2.fromOffset(44, 34)
+	icon.BackgroundTransparency = 1
+	icon.Parent = face
+	for i, color in ipairs({ Color3.fromRGB(120, 200, 110), Color3.fromRGB(240, 230, 190), Color3.fromRGB(120, 200, 110) }) do
+		local panel = Instance.new("Frame")
+		panel.Position = UDim2.fromScale((i - 1) / 3, i == 2 and 0.08 or 0)
+		panel.Size = UDim2.new(1 / 3, 1, 0.92, 0)
+		panel.BackgroundColor3 = color
+		panel.BorderSizePixel = 0
+		panel.Parent = icon
+		Theme.border(panel, 2)
+	end
+	local pin = Instance.new("Frame")
+	pin.AnchorPoint = Vector2.new(0.5, 0.5)
+	pin.Position = UDim2.fromScale(0.5, 0.45)
+	pin.Size = UDim2.fromOffset(12, 12)
+	pin.BackgroundColor3 = Colors.Red
+	pin.Parent = icon
+	Theme.corner(pin, UDim.new(1, 0))
+	Theme.border(pin, 2)
+end
+
+local function drawCowIcon(face)
+	Theme.cowIcon(face, 42, UDim2.new(0.5, 0, 0.5, -10), Color3.new(1, 1, 1), Color3.fromRGB(30, 30, 35))
+end
+
+-- Geschenk-Symbol: Kiste mit Schleife
+local function drawGiftIcon(face)
+	local box = Instance.new("Frame")
+	box.AnchorPoint = Vector2.new(0.5, 0.5)
+	box.Position = UDim2.new(0.5, 0, 0.5, -8)
+	box.Size = UDim2.fromOffset(38, 30)
+	box.BackgroundColor3 = Colors.Red
+	box.BorderSizePixel = 0
+	box.Parent = face
+	Theme.corner(box, 4)
+	Theme.border(box, 2)
+	local ribbon = Instance.new("Frame")
+	ribbon.AnchorPoint = Vector2.new(0.5, 0)
+	ribbon.Position = UDim2.fromScale(0.5, 0)
+	ribbon.Size = UDim2.new(0, 8, 1, 0)
+	ribbon.BackgroundColor3 = Colors.Gold
+	ribbon.BorderSizePixel = 0
+	ribbon.Parent = box
+	local lid = Instance.new("Frame")
+	lid.AnchorPoint = Vector2.new(0.5, 1)
+	lid.Position = UDim2.new(0.5, 0, 0, 2)
+	lid.Size = UDim2.new(1, 6, 0, 9)
+	lid.BackgroundColor3 = Theme.darken(Colors.Red, 0.15)
+	lid.BorderSizePixel = 0
+	lid.Parent = box
+	Theme.corner(lid, 3)
+	Theme.border(lid, 2)
+end
+
+sideButton(1, "KARTE", Colors.Blue, "M", drawMapIcon, function()
+	UIBus.ToggleOverview:Fire()
+end)
+sideButton(2, "KÜHE", Colors.Orange, "I", drawCowIcon, function()
+	UIBus.ToggleInventory:Fire()
+end)
+local bonusFace = sideButton(3, "BONUS", Colors.Green, nil, drawGiftIcon, function()
+	UIBus.OpenPage:Fire("Daily")
+end)
+
+-- Streak-Zahl als rotes Abzeichen am Bonus-Knopf
+local badge = Theme.label(bonusFace, {
+	AnchorPoint = Vector2.new(0.5, 0.5),
+	Position = UDim2.new(1, -6, 0, 6),
+	Size = UDim2.fromOffset(28, 28),
+	BackgroundTransparency = 0,
+	BackgroundColor3 = Colors.Red,
+	TextXAlignment = Enum.TextXAlignment.Center,
+	TextSize = 16,
+	Text = "0",
+	Outline = 2,
+})
+Theme.corner(badge, UDim.new(1, 0))
+Theme.border(badge, 2)
+local function updateStreak()
+	local streak = player:GetAttribute("LoginStreak") or 0
+	badge.Text = tostring(streak)
+	badge.Visible = streak > 0
+end
+player:GetAttributeChangedSignal("LoginStreak"):Connect(updateStreak)
+updateStreak()
 
 ------------------------------------------------------------------------
--- Unten: großer Verkaufen-Knopf (Pille)
+-- Unten rechts: VERKAUFEN
 ------------------------------------------------------------------------
-local sellButton = Instance.new("TextButton")
-sellButton.Name = "SellButton"
-sellButton.AnchorPoint = Vector2.new(0.5, 1)
-sellButton.Position = UDim2.new(0.5, 0, 1, -18)
-sellButton.Size = UDim2.fromOffset(300, 68)
-sellButton.BackgroundColor3 = SELL_GREEN
-sellButton.AutoButtonColor = true
-sellButton.Font = Enum.Font.FredokaOne
-sellButton.TextSize = 30
-sellButton.TextColor3 = TEXT
-sellButton.TextStrokeColor3 = Color3.fromRGB(20, 70, 30)
-sellButton.TextStrokeTransparency = 0
-sellButton.Text = "MILCH VERKAUFEN 🥛"
-sellButton.Parent = gui
-corner(sellButton, UDim.new(1, 0))
-local sellStroke = stroke(sellButton, Color3.fromRGB(190, 255, 190), 4)
-local sellGradient = Instance.new("UIGradient")
-sellGradient.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255), Color3.fromRGB(180, 180, 180))
-sellGradient.Rotation = 90
-sellGradient.Parent = sellButton
-local sellScale = Instance.new("UIScale")
-sellScale.Parent = sellButton
+local sellZone = Instance.new("Frame")
+sellZone.Name = "SellZone"
+sellZone.AnchorPoint = Vector2.new(1, 1)
+sellZone.Position = UDim2.new(1, -16, 1, -16)
+sellZone.Size = UDim2.fromOffset(230, 72)
+sellZone.BackgroundTransparency = 1
+sellZone.Parent = gui
+Theme.autoScale(sellZone)
+
+local sellPulse = Instance.new("Frame") -- eigene Ebene fürs Pulsieren
+sellPulse.AnchorPoint = Vector2.new(0.5, 0.5)
+sellPulse.Position = UDim2.fromScale(0.5, 0.5)
+sellPulse.Size = UDim2.fromScale(1, 1)
+sellPulse.BackgroundTransparency = 1
+sellPulse.Parent = sellZone
+local pulseScale = Instance.new("UIScale")
+pulseScale.Parent = sellPulse
+
+local sellButton, sellHolder, setSellColor = Theme.button(sellPulse, {
+	Name = "SellButton",
+	Text = "VERKAUFEN",
+	Size = UDim2.fromScale(1, 1),
+	Color = Colors.Green,
+	TextSize = 30,
+	Radius = 18,
+	Lip = 7,
+})
+-- Milchflasche links im Knopf (am Halter, damit der Text-Abstand sie nicht verschiebt)
+local sellIcon = Theme.milkIcon(sellHolder, 34, UDim2.new(0, 30, 0.5, -3))
+sellIcon.ZIndex = sellButton.ZIndex + 1
+local sellPadding = Instance.new("UIPadding")
+sellPadding.PaddingLeft = UDim.new(0, 44)
+sellPadding.Parent = sellButton
 
 local pulseTween = nil
-local function updateSellButton()
+local function updateSell()
 	local hasMilk = (player:GetAttribute("Milk") or 0) > 0
-	sellButton.BackgroundColor3 = hasMilk and SELL_GREEN or SELL_GREY
-	sellStroke.Transparency = hasMilk and 0 or 0.7
-	sellButton.TextTransparency = hasMilk and 0 or 0.3
+	setSellColor(hasMilk and Colors.Green or Colors.Grey)
 	if hasMilk and not pulseTween then
-		sellScale.Scale = 1
-		pulseTween = TweenService:Create(sellScale, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), { Scale = 1.05 })
+		pulseScale.Scale = 1
+		pulseTween = TweenService:Create(pulseScale, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), { Scale = 1.05 })
 		pulseTween:Play()
 	elseif not hasMilk and pulseTween then
 		pulseTween:Cancel()
 		pulseTween = nil
-		sellScale.Scale = 1
+		pulseScale.Scale = 1
 	end
 end
+player:GetAttributeChangedSignal("Milk"):Connect(updateSell)
+updateSell()
 
 local sellCooldown = false
 sellButton.Activated:Connect(function()
@@ -352,162 +348,110 @@ sellButton.Activated:Connect(function()
 	end)
 end)
 
-------------------------------------------------------------------------
--- Werte verbinden
-------------------------------------------------------------------------
-local function pop(scale)
-	scale.Scale = 1.15
-	TweenService:Create(scale, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
-end
-
-local lastCoins = nil
-local function onCoins()
-	local coins = player:GetAttribute("Coins")
-	if coins == nil then
-		return
-	end
-	local increased = lastCoins ~= nil and coins > lastCoins
-	setCoins(coins, lastCoins ~= nil)
-	if increased then
-		pop(coinScale)
-		playSound(Config.CoinSoundId, 0.7)
-	end
-	lastCoins = coins
-end
-player:GetAttributeChangedSignal("Coins"):Connect(onCoins)
-onCoins()
-
-local lastMilk = nil
-local function onMilk()
-	local milk = player:GetAttribute("Milk")
-	if milk == nil then
-		return
-	end
-	setMilk(milk, lastMilk ~= nil)
-	if lastMilk and milk > lastMilk then
-		pop(milkScale)
-	end
-	lastMilk = milk
-	updateSellButton()
-end
-player:GetAttributeChangedSignal("Milk"):Connect(onMilk)
-onMilk()
-updateSellButton()
-
-local function onStreak()
-	streakLabel.Text = tostring(player:GetAttribute("LoginStreak") or 0)
-end
-player:GetAttributeChangedSignal("LoginStreak"):Connect(onStreak)
-onStreak()
+-- Damit das Tutorial den Knopf findet: Verweis direkt unter dem HUD
+local sellRef = Instance.new("ObjectValue")
+sellRef.Name = "SellButtonRef"
+sellRef.Value = sellButton
+sellRef.Parent = gui
 
 ------------------------------------------------------------------------
--- Benachrichtigungen (rechts, Karten, 2,5 s)
+-- Oben Mitte: Meldungen
 ------------------------------------------------------------------------
 local KIND_COLORS = {
-	success = Color3.fromRGB(55, 175, 80), -- grün = gut
-	error = Color3.fromRGB(215, 60, 60), -- rot = Fehler
-	rare = Color3.fromRGB(235, 170, 30), -- gold = seltener Fund
-	info = Color3.fromRGB(70, 130, 230),
+	success = Colors.Green,
+	error = Colors.Red,
+	rare = Colors.Gold,
+	info = Colors.Blue,
 }
-local KIND_ICONS = { success = "✅", error = "⚠️", rare = "🌟", info = "💬" }
-local NOTIFICATION_TIME = 2.5
-local NOTIFICATION_WIDTH = 330
-local MAX_NOTIFICATIONS = 5
+local MAX_TOASTS = 3
+local TOAST_TIME = 2.5
 
-local notifyHolder = Instance.new("Frame")
-notifyHolder.Name = "Notifications"
-notifyHolder.AnchorPoint = Vector2.new(1, 0)
-notifyHolder.Position = UDim2.new(1, -12, 0, 78)
-notifyHolder.Size = UDim2.fromOffset(NOTIFICATION_WIDTH, 0)
-notifyHolder.AutomaticSize = Enum.AutomaticSize.Y
-notifyHolder.BackgroundTransparency = 1
-notifyHolder.Parent = gui
-local notifyLayout = Instance.new("UIListLayout")
-notifyLayout.SortOrder = Enum.SortOrder.LayoutOrder
-notifyLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
-notifyLayout.Padding = UDim.new(0, 8)
-notifyLayout.Parent = notifyHolder
+local toasts = Instance.new("Frame")
+toasts.Name = "Toasts"
+toasts.AnchorPoint = Vector2.new(0.5, 0)
+toasts.Position = UDim2.new(0.5, 0, 0, 10)
+toasts.Size = UDim2.fromOffset(460, 0)
+toasts.AutomaticSize = Enum.AutomaticSize.Y
+toasts.BackgroundTransparency = 1
+toasts.Parent = gui
+local toastLayout = Instance.new("UIListLayout")
+toastLayout.Padding = UDim.new(0, 6)
+toastLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+toastLayout.SortOrder = Enum.SortOrder.LayoutOrder
+toastLayout.Parent = toasts
+Theme.autoScale(toasts)
 
-local counter = 0
-local active = {}
+local toastCount = 0
+local activeToasts = {}
 
-local function removeSlot(slot)
-	local index = table.find(active, slot)
+local function removeToast(toast)
+	local index = table.find(activeToasts, toast)
 	if index then
-		table.remove(active, index)
+		table.remove(activeToasts, index)
 	end
-	slot:Destroy()
+	toast:Destroy()
 end
 
-local function showNotification(message, kind)
-	counter += 1
-	local color = KIND_COLORS[kind] or KIND_COLORS.info
+local function showToast(message, kind)
+	toastCount += 1
+	local accent = KIND_COLORS[kind] or Colors.Blue
 
-	local slot = Instance.new("Frame")
-	slot.Name = "Notification"
-	slot.LayoutOrder = counter
-	slot.Size = UDim2.fromOffset(NOTIFICATION_WIDTH, 0)
-	slot.AutomaticSize = Enum.AutomaticSize.Y
-	slot.BackgroundTransparency = 1
-	slot.Parent = notifyHolder
-
-	local card = Instance.new("Frame")
-	card.Size = UDim2.fromScale(1, 0)
-	card.AutomaticSize = Enum.AutomaticSize.Y
-	card.Position = UDim2.fromOffset(NOTIFICATION_WIDTH + 40, 0)
-	card.BackgroundColor3 = color
-	card.Parent = slot
-	corner(card, UDim.new(0, 16))
-	stroke(card, Color3.new(1, 1, 1), 2, 0.4)
-	local cardGradient = Instance.new("UIGradient")
-	cardGradient.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255), Color3.fromRGB(170, 170, 170))
-	cardGradient.Rotation = 90
-	cardGradient.Parent = card
-
-	local label = Instance.new("TextLabel")
-	label.BackgroundTransparency = 1
-	label.Size = UDim2.fromScale(1, 0)
-	label.AutomaticSize = Enum.AutomaticSize.Y
-	label.Font = Enum.Font.GothamBold
-	label.TextSize = 16
-	label.TextWrapped = true
-	label.TextXAlignment = Enum.TextXAlignment.Left
-	label.TextColor3 = TEXT
-	label.TextStrokeColor3 = Color3.fromRGB(20, 20, 30)
-	label.TextStrokeTransparency = 0.5
-	label.Text = (KIND_ICONS[kind] or "💬") .. "  " .. tostring(message)
-	label.Parent = card
+	local toast = Theme.panel(toasts, {
+		Name = "Toast",
+		LayoutOrder = toastCount,
+		Size = UDim2.fromOffset(0, 40),
+		AutomaticSize = Enum.AutomaticSize.X,
+		BackgroundColor3 = Colors.Panel,
+		Radius = 12,
+	})
+	local accentBar = Instance.new("Frame")
+	accentBar.Size = UDim2.new(0, 8, 1, 0)
+	accentBar.BackgroundColor3 = accent
+	accentBar.BorderSizePixel = 0
+	accentBar.Parent = toast
+	Theme.corner(accentBar, 6)
+	local text = Theme.label(toast, {
+		Position = UDim2.fromOffset(18, 0),
+		Size = UDim2.new(0, 0, 1, 0),
+		AutomaticSize = Enum.AutomaticSize.X,
+		Font = Theme.BodyFont,
+		TextSize = 16,
+		Text = tostring(message),
+		Outline = 0,
+	})
 	local padding = Instance.new("UIPadding")
-	padding.PaddingTop = UDim.new(0, 12)
-	padding.PaddingBottom = UDim.new(0, 12)
-	padding.PaddingLeft = UDim.new(0, 14)
-	padding.PaddingRight = UDim.new(0, 14)
-	padding.Parent = label
+	padding.PaddingRight = UDim.new(0, 16)
+	padding.Parent = toast
+	text.TextTransparency = 1
 
-	table.insert(active, slot)
-	if #active > MAX_NOTIFICATIONS then
-		removeSlot(active[1])
+	local scale = Instance.new("UIScale")
+	scale.Scale = 0.8
+	scale.Parent = toast
+	TweenService:Create(scale, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+	TweenService:Create(text, TweenInfo.new(0.2), { TextTransparency = 0 }):Play()
+
+	table.insert(activeToasts, toast)
+	if #activeToasts > MAX_TOASTS then
+		removeToast(activeToasts[1])
 	end
 
-	-- von rechts hereingleiten
-	TweenService:Create(card, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-		Position = UDim2.fromOffset(0, 0),
-	}):Play()
-
-	-- nach 2,5 s wieder nach rechts raus
-	task.delay(NOTIFICATION_TIME, function()
-		if not slot.Parent then
+	task.delay(TOAST_TIME, function()
+		if not toast.Parent then
 			return
 		end
-		local out = TweenService:Create(card, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-			Position = UDim2.fromOffset(NOTIFICATION_WIDTH + 40, 0),
-		})
-		out:Play()
-		out.Completed:Wait()
-		if slot.Parent then
-			removeSlot(slot)
+		local fade = TweenService:Create(toast, TweenInfo.new(0.25), { BackgroundTransparency = 1 })
+		TweenService:Create(text, TweenInfo.new(0.25), { TextTransparency = 1 }):Play()
+		TweenService:Create(accentBar, TweenInfo.new(0.25), { BackgroundTransparency = 1 }):Play()
+		local stroke = toast:FindFirstChildOfClass("UIStroke")
+		if stroke then
+			TweenService:Create(stroke, TweenInfo.new(0.25), { Transparency = 1 }):Play()
+		end
+		fade:Play()
+		fade.Completed:Wait()
+		if toast.Parent then
+			removeToast(toast)
 		end
 	end)
 end
 
-Remotes.Notify.OnClientEvent:Connect(showNotification)
+Remotes.Notify.OnClientEvent:Connect(showToast)

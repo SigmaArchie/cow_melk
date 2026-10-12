@@ -12,7 +12,8 @@ CowData.Config = {
 	StarterCow = "Common", -- jeder neue Spieler bekommt eine Gratis-Kuh
 
 	MilkSellPrice = 2, -- Coins pro Liter Milch
-	MaxCows = 40, -- maximale Kühe pro Farm (für Coin-Käufe & Zucht)
+	MaxCows = 40, -- maximale Kühe insgesamt (Farm + Hotbar + Inventar)
+	HotbarSize = 6, -- Plätze in der Hotbar (Tasten 1-6)
 
 	-- Melk-Minispiel
 	PullsPerMilking = 10, -- so viele richtige Züge, bis der Eimer voll ist
@@ -20,16 +21,18 @@ CowData.Config = {
 	MinPullInterval = 0.1, -- schnellste erlaubte Zug-Rate (Anti-Cheat)
 	MilkingAnimationId = 0, -- optional: eigene Animation-ID (0 = keine)
 	-- Sounds (Roblox-Asset-IDs). Leerer Text = Sound aus.
-	SquirtSoundId = "rbxassetid://5857005819", -- bei jedem Zug
-	MilkDoneSoundId = "rbxassetid://5857005819", -- Eimer voll (tiefer abgespielt)
+	-- 5857005819 ist KEIN Sound (Studio: "Asset type does not match") -> aus, bis eine echte ID da ist
+	SquirtSoundId = "", -- bei jedem Zug
+	MilkDoneSoundId = "", -- Eimer voll (tiefer abgespielt)
 	SellSoundId = "rbxassetid://4590662766", -- Coins beim Verkaufen
 	CoinSoundId = "rbxassetid://4590662766", -- Coins-Zähler steigt (HUD)
-	AmbientSoundId = "rbxassetid://1843671818", -- Hintergrund-Musik (Loop)
+	-- 1843671818 ist KEIN Sound (Studio: "Asset type does not match") -> aus, bis eine echte ID da ist
+	AmbientSoundId = "", -- Hintergrund-Musik (Loop)
 	MooSoundId = "rbxassetid://535690488", -- Kuh muht (alle 15-30 s pro Kuh)
 	NewCowSoundId = "rbxassetid://4590662766", -- neue Kuh auf der Farm
-	-- eingebaute Roblox-Sounds; falls sie stumm bleiben, eigene IDs eintragen:
-	ShopOpenSoundId = "rbxasset://sounds/swoosh.wav", -- Shop-Fenster öffnet
-	RareCowSoundId = "rbxasset://sounds/victory.wav", -- Fanfare für Episch und besser
+	-- noch keine funktionierenden IDs ("swoosh.wav" ist gesperrt) -> aus, bis eine echte ID da ist
+	ShopOpenSoundId = "", -- Shop-Fenster öffnet
+	RareCowSoundId = "", -- Fanfare für Episch und besser
 
 	AutoMilkInterval = 3, -- Auto-Melker melkt alle X Sekunden jede Kuh einmal
 	AutoMilkerGamePassId = 0, -- >>> HIER die echte Gamepass-ID eintragen <<<
@@ -53,12 +56,26 @@ CowData.Config = {
 CowData.Map = {
 	GroundTop = 0.4, -- Oberkante von Plots / Laufbändern
 
-	-- Farm-Plots links (Westen) und rechts (Osten) der Allee
+	-- Farm-Plots links (Westen) und rechts (Osten) der Allee.
+	-- 3 Reihen pro Seite (6 Spieler); ab Spieler 7 kommt eine zweite Spalte weiter außen.
 	PlotWidth = 90, -- entlang der Allee
 	PlotDepth = 110, -- von der Allee weg
 	PlotCenterX = 75,
+	PlotColumnSpacing = 120,
 	PlotRowStartZ = 70,
 	PlotRowSpacing = 95,
+	PlotRowsPerColumn = 3,
+
+	-- Raster auf jeder Farm (Plätze für Kühe), in lokalen Plot-Koordinaten
+	GridColumns = 6,
+	GridRows = 6,
+	GridCellX = 13,
+	GridCellZ = 12,
+	GridFirstRowZ = -44,
+
+	-- Nord-Markt am anderen Ende der Förderbänder
+	NorthPlazaZ = 400, -- Mitte
+	NorthPlazaSize = Vector3.new(120, 0.2, 100),
 
 	-- Förderbänder in der Mitte (eins nach Norden, eins nach Süden).
 	-- 6 Kacheln à 50 Studs laufen im Kreis (Zyklus = 300 Studs). Die ersten und letzten
@@ -68,8 +85,33 @@ CowData.Map = {
 	WalkwayTileCount = 6,
 	WalkwayX = 6, -- Abstand der Bandmitte von der Mittellinie
 	WalkwayWidth = 10,
-	WalkwaySpeed = 22, -- Studs pro Sekunde
+	WalkwaySpeed = 36, -- Studs pro Sekunde
 }
+-- Shop-Gebäude: zwei am Süd-Platz, zwei am Nord-Markt (Förderbänder verbinden beide)
+-- Page = welches Fenster sich öffnet; Label = Name in der Übersicht
+CowData.Map.Shops = {
+	{
+		Name = "CowShop", Page = "Shop", Title = "KUH-SHOP", Label = "Kuh-Shop", Icon = "🐄", Area = "Süd-Platz",
+		Color = Color3.fromRGB(70, 140, 220), RoofColor = Color3.fromRGB(45, 90, 160), WallColor = Color3.fromRGB(240, 232, 215),
+		Position = Vector3.new(-40, 0, -40), FacesEast = true,
+	},
+	{
+		Name = "BreedingBarn", Page = "Breeding", Title = "ZUCHT-STALL", Label = "Zucht-Stall", Icon = "💕", Area = "Süd-Platz",
+		Color = Color3.fromRGB(225, 85, 140), RoofColor = Color3.fromRGB(160, 45, 45), WallColor = Color3.fromRGB(190, 60, 55),
+		Position = Vector3.new(40, 0, -40), FacesEast = false,
+	},
+	{
+		Name = "CrateShop", Page = "Crates", Title = "KISTEN", Label = "Kisten", Icon = "✨", Area = "Nord-Markt",
+		Color = Color3.fromRGB(230, 150, 45), RoofColor = Color3.fromRGB(170, 95, 30), WallColor = Color3.fromRGB(245, 230, 200),
+		Position = Vector3.new(-40, 0, 405), FacesEast = true,
+	},
+	{
+		Name = "AutoMilkerShop", Page = "AutoMilker", Title = "AUTO-MELKER", Label = "Auto-Melker", Icon = "🥛", Area = "Nord-Markt",
+		Color = Color3.fromRGB(60, 185, 160), RoofColor = Color3.fromRGB(40, 110, 100), WallColor = Color3.fromRGB(215, 222, 228),
+		Position = Vector3.new(40, 0, 405), FacesEast = false,
+	},
+}
+
 -- abgeleitete Werte
 CowData.Map.WalkwayCycle = CowData.Map.WalkwayTileLength * CowData.Map.WalkwayTileCount -- 300
 CowData.Map.WalkwayVisibleStart = CowData.Map.WalkwayStartZ + CowData.Map.WalkwayTileLength -- 40
@@ -279,6 +321,36 @@ CowData.Names = {
 ------------------------------------------------------------------------
 -- Hilfsfunktionen
 ------------------------------------------------------------------------
+
+-- Lage eines Farm-Plots (Server baut ihn, Client zeichnet ihn in der Übersicht).
+-- Ungerade Slots links (Westen), gerade rechts (Osten). Lokales +Z (Tor) zeigt zur Allee.
+function CowData.GetPlotOrigin(slot)
+	local map = CowData.Map
+	local index = slot - 1
+	local side = index % 2 == 0 and -1 or 1
+	local pair = math.floor(index / 2)
+	local row = pair % map.PlotRowsPerColumn
+	local column = math.floor(pair / map.PlotRowsPerColumn)
+	local x = side * (map.PlotCenterX + column * map.PlotColumnSpacing)
+	local z = map.PlotRowStartZ + row * map.PlotRowSpacing
+	local yaw = side == -1 and math.rad(90) or math.rad(-90)
+	return CFrame.new(x, 0, z) * CFrame.Angles(0, yaw, 0)
+end
+
+-- Mitte eines Rasterfelds (1 .. GridColumns*GridRows) in lokalen Plot-Koordinaten
+function CowData.GetGridCellLocal(cell)
+	local map = CowData.Map
+	local index = cell - 1
+	local column = index % map.GridColumns
+	local row = math.floor(index / map.GridColumns)
+	local x = (column - (map.GridColumns - 1) / 2) * map.GridCellX
+	local z = map.GridFirstRowZ + row * map.GridCellZ
+	return CFrame.new(x, map.GroundTop, z)
+end
+
+function CowData.GetGridCellCount()
+	return CowData.Map.GridColumns * CowData.Map.GridRows
+end
 
 function CowData.IsValidRarity(rarity)
 	return type(rarity) == "string" and CowData.Rarities[rarity] ~= nil
