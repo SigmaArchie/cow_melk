@@ -345,6 +345,46 @@ RunService.Heartbeat:Connect(function()
 end)
 
 ------------------------------------------------------------------------
+-- Licht-Budget: nur Kühe in der Nähe leuchten (jedes PointLight kostet Leistung)
+--   * Legendary / Golden / Rainbow ("besondere" Kühe): bis 8 Lichter, bis 140 Studs
+--   * Rare / Epic / Ghost: nur die 5 nächsten, bis 70 Studs
+-- Die Lichter kommen vom Server (CowModelBuilder); hier werden sie nur an- und ausgeschaltet.
+------------------------------------------------------------------------
+local SPECIAL_LIGHT_RARITIES = { Legendary = true, Golden = true, Rainbow = true }
+local SPECIAL_LIGHT_COUNT, SPECIAL_LIGHT_DISTANCE = 8, 140
+local NORMAL_LIGHT_COUNT, NORMAL_LIGHT_DISTANCE = 5, 70
+
+local function applyLightBudget(entries, count, distance)
+	table.sort(entries, function(a, b)
+		return a.Distance < b.Distance
+	end)
+	for index, entry in ipairs(entries) do
+		entry.Light.Enabled = index <= count and entry.Distance < distance
+	end
+end
+
+task.spawn(function()
+	while true do
+		task.wait(0.5)
+		local camPos = cameraPosition()
+		local special, normal = {}, {}
+		for cow, state in pairs(cows) do
+			if cow.Parent then
+				if state.Light == nil then
+					state.Light = state.Torso:FindFirstChildOfClass("PointLight") or false
+				end
+				if state.Light then
+					local entry = { Light = state.Light, Distance = (state.Base.Position - camPos).Magnitude }
+					table.insert(SPECIAL_LIGHT_RARITIES[cow:GetAttribute("Rarity")] and special or normal, entry)
+				end
+			end
+		end
+		applyLightBudget(special, SPECIAL_LIGHT_COUNT, SPECIAL_LIGHT_DISTANCE)
+		applyLightBudget(normal, NORMAL_LIGHT_COUNT, NORMAL_LIGHT_DISTANCE)
+	end
+end)
+
+------------------------------------------------------------------------
 -- Shops: Hinweis "Klicken zum Öffnen" atmet ruhig, Verkäufer winkt
 ------------------------------------------------------------------------
 local function animateShop(building)

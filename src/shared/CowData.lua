@@ -12,6 +12,7 @@ CowData.Config = {
 	StarterCow = "Common", -- jeder neue Spieler bekommt eine Gratis-Kuh
 
 	MilkSellPrice = 2, -- Coins pro Liter Milch
+	UseImportedCowModel = true, -- false = immer die Ersatz-Kuh aus Parts (z.B. wenn das Blender-Modell Probleme macht)
 	MaxCows = 40, -- maximale Kühe insgesamt (Farm + Hotbar + Inventar)
 	HotbarSize = 6, -- Plätze in der Hotbar (Tasten 1-6)
 

@@ -15,7 +15,10 @@
 --   TailGroup  (Model, Pivot = Schwanzansatz)     -> Schwanz wedelt
 --   TeatLeftA/B, TeatRightA/B                     -> Zitzen (Left = vorne, Right = hinten)
 
+local AssetService = game:GetService("AssetService")
 local CollectionService = game:GetService("CollectionService")
+local ContentProvider = game:GetService("ContentProvider")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local CowData = require(script.Parent:WaitForChild("CowData"))
 local Palette = require(script.Parent:WaitForChild("Palette"))
@@ -380,12 +383,92 @@ end
 ------------------------------------------------------------------------
 local TARGET_HEIGHT = 6.4 -- Studs (ungefähr so groß wie die Ersatz-Kuh)
 
+local MESH_CHECK_TIMEOUT = 15 -- Sekunden, bis die Mesh-Prüfung als gescheitert gilt
+
+-- Prüft EINMAL, ob die Meshes des importierten Modells wirklich laden. Sonst wären die Kühe unsichtbar.
+-- Gibt true zurück, wenn das Modell benutzt werden darf.
+local function verifyMeshes(template)
+	local meshIds, meshParts = {}, {}
+	for _, descendant in ipairs(template:GetDescendants()) do
+		if descendant:IsA("MeshPart") and descendant.MeshId ~= "" then
+			meshIds[descendant.MeshId] = true
+			table.insert(meshParts, descendant)
+		end
+	end
+	if #meshParts == 0 then
+		return true -- keine Meshes, nichts zu laden
+	end
+
+	local succeeded, failed, finished = 0, 0, false
+	task.spawn(function()
+		pcall(function()
+			ContentProvider:PreloadAsync(meshParts, function(contentId, status)
+				if not meshIds[contentId] then
+					return -- nur die Meshes zählen, nicht Texturen
+				end
+				if status == Enum.AssetFetchStatus.Success then
+					succeeded += 1
+				elseif status == Enum.AssetFetchStatus.Failure or status == Enum.AssetFetchStatus.TimedOut then
+					failed += 1
+				end
+			end)
+		end)
+		finished = true
+	end)
+
+	local start = os.clock()
+	while not finished and os.clock() - start < MESH_CHECK_TIMEOUT do
+		task.wait(0.1)
+	end
+	if not finished or failed > 0 then
+		return false
+	end
+	if succeeded > 0 then
+		return true
+	end
+
+	-- PreloadAsync war nicht eindeutig (z.B. auf dem Server): ein Mesh direkt laden
+	local anyId = next(meshIds)
+	local ok = pcall(function()
+		return AssetService:CreateMeshPartAsync(anyId)
+	end)
+	return ok
+end
+
+local meshCheckResult = nil -- nil = noch nicht fertig, true/false = Ergebnis (wird gemerkt)
+local meshCheckStarted = false
+
+local function importedModelAllowed(template)
+	if meshCheckResult == nil and not meshCheckStarted then
+		meshCheckStarted = true
+		task.spawn(function()
+			local ok, result = pcall(verifyMeshes, template)
+			meshCheckResult = ok and result == true
+			if not meshCheckResult then
+				warn("[CowModelBuilder] Die Meshes von CowModel.rbxm konnten nicht geladen werden. "
+					.. "Es wird die Ersatz-Kuh aus Parts benutzt (sonst wären die Kühe unsichtbar). "
+					.. "Mögliche Ursache: Mesh-Asset gehört einem anderen Konto oder ist nicht freigegeben.")
+			end
+		end)
+	end
+	-- andere Kühe, die gleichzeitig gebaut werden, warten auf dasselbe Ergebnis
+	local start = os.clock()
+	while meshCheckResult == nil and os.clock() - start < MESH_CHECK_TIMEOUT + 10 do
+		task.wait(0.1)
+	end
+	return meshCheckResult == true
+end
+
 local function getTemplate()
-	local ReplicatedStorage = game:GetService("ReplicatedStorage")
+	if not CowData.Config.UseImportedCowModel then
+		return nil
+	end
 	local assets = ReplicatedStorage:FindFirstChild("Assets")
 	local template = assets and assets:FindFirstChild("CowModel")
 	if template and template:FindFirstChild("Koerper", true) and template:FindFirstChild("Kopf", true) then
-		return template
+		if importedModelAllowed(template) then
+			return template
+		end
 	end
 	return nil
 end
