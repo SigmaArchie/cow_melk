@@ -140,6 +140,82 @@ end)
 bindCounter("Milk", milkValue, milkScale)
 
 ------------------------------------------------------------------------
+-- Nächstes Ziel: kleiner Hinweis unter Coins/Milch (nur aus vorhandenen Werten berechnet)
+------------------------------------------------------------------------
+local goalHolder = Instance.new("Frame")
+goalHolder.Name = "NextGoal"
+goalHolder.LayoutOrder = 3
+goalHolder.Size = UDim2.fromOffset(200, 0)
+goalHolder.AutomaticSize = Enum.AutomaticSize.Y
+goalHolder.BackgroundTransparency = 1
+goalHolder.Parent = currency
+local goalPanel = Theme.panel(goalHolder, {
+	Size = UDim2.fromScale(1, 0),
+	AutomaticSize = Enum.AutomaticSize.Y,
+	BackgroundColor3 = Colors.Panel,
+	BackgroundTransparency = 0.25,
+	Radius = Theme.Radius.M,
+})
+Theme.padding(goalPanel, Theme.Spacing.S)
+local goalLayout = Instance.new("UIListLayout")
+goalLayout.Padding = UDim.new(0, 2)
+goalLayout.SortOrder = Enum.SortOrder.LayoutOrder
+goalLayout.Parent = goalPanel
+Theme.label(goalPanel, {
+	LayoutOrder = 1,
+	Size = UDim2.new(1, 0, 0, 14),
+	Font = Theme.BodyFont,
+	TextSize = Theme.TextSize.Tiny,
+	TextColor3 = Colors.Blue,
+	Text = "NÄCHSTES ZIEL",
+})
+local goalText = Theme.label(goalPanel, {
+	LayoutOrder = 2,
+	Size = UDim2.fromScale(1, 0),
+	AutomaticSize = Enum.AutomaticSize.Y,
+	Font = Theme.BodyFont,
+	TextSize = Theme.TextSize.Small,
+	TextWrapped = true,
+	Text = "",
+})
+
+local function currentGoal()
+	local coins = player:GetAttribute("Coins") or 0
+	local milk = player:GetAttribute("Milk") or 0
+	local cows = player:GetAttribute("CowCount") or 0
+	local cowPrice = CowData.Rarities.Common.ShopPrice
+	local cratePrice = CowData.Crates.Basic.CoinPrice
+
+	if milk > 0 then
+		return "Verkaufe deine Milch (Knopf VERKAUFEN)"
+	end
+	if cows < 2 then
+		if coins >= cowPrice then
+			return ("Kauf deine zweite Kuh im Kuh-Shop (%s Coins)"):format(CowData.FormatNumber(cowPrice))
+		end
+		return ("Melke deine Kuh. Für Kuh Nr. 2 brauchst du %s Coins"):format(CowData.FormatNumber(cowPrice))
+	end
+	if coins >= cratePrice then
+		return ("Öffne eine Holzkiste am Nord-Markt (%s Coins)"):format(CowData.FormatNumber(cratePrice))
+	end
+	if cows < Config.MaxCows then
+		return ("Melke deine Kühe, züchte im Zucht-Stall oder spare %s Coins für eine Holzkiste"):format(CowData.FormatNumber(cratePrice))
+	end
+	return "Deine Farm ist voll – sammle Coins und tausche Kühe aus!"
+end
+
+local function updateGoal()
+	local text = currentGoal()
+	if goalText.Text ~= text then
+		goalText.Text = text
+	end
+end
+for _, attribute in ipairs({ "Coins", "Milk", "CowCount" }) do
+	player:GetAttributeChangedSignal(attribute):Connect(updateGoal)
+end
+updateGoal()
+
+------------------------------------------------------------------------
 -- Links Mitte: KARTE / KÜHE / BONUS
 ------------------------------------------------------------------------
 local side = Instance.new("Frame")

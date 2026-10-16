@@ -20,9 +20,13 @@ local Colors = Theme.Colors
 local Map = CowData.Map
 local player = Players.LocalPlayer
 
-local GRASS = Color3.fromRGB(104, 168, 76)
-local STONE = Color3.fromRGB(196, 190, 176)
-local CONVEYOR = Color3.fromRGB(40, 40, 46)
+local Palette = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Palette"))
+local World = Palette.World
+
+-- Kartenfarben aus der gemeinsamen Palette
+local GRASS = World.GrassDark
+local STONE = World.StonePath
+local CONVEYOR = Colors.Deep
 
 local gui = Instance.new("ScreenGui")
 gui.Name = "Overview"
@@ -88,16 +92,25 @@ end
 
 local function mapText(text, x, z, size, color)
 	local position = toMap(x, z)
-	return Theme.label(layer, {
+	local pill = Theme.label(layer, {
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromOffset(position.X, position.Y),
-		Size = UDim2.fromOffset(130, size + 4),
+		Size = UDim2.fromOffset(0, size + 8),
+		AutomaticSize = Enum.AutomaticSize.X,
+		BackgroundTransparency = 0.15,
+		BackgroundColor3 = Colors.Deep,
 		TextXAlignment = Enum.TextXAlignment.Center,
+		Font = Theme.BodyFont,
 		TextSize = size,
 		TextColor3 = color or Colors.Text,
 		Text = text,
-		Outline = 2,
+		ZIndex = 4,
 	})
+	Theme.corner(pill, UDim.new(0.5, 0))
+	local pad = Theme.padding(pill, 0)
+	pad.PaddingLeft = UDim.new(0, 8)
+	pad.PaddingRight = UDim.new(0, 8)
+	return pill
 end
 
 local teleport -- weiter unten
@@ -161,14 +174,14 @@ local function drawMap()
 			local origin = CowData.GetPlotOrigin(slot).Position
 			local mine = other == player
 			local plot = rect(origin.X, origin.Z, Map.PlotDepth, Map.PlotWidth,
-				mine and Color3.fromRGB(150, 205, 100) or Color3.fromRGB(124, 182, 90))
+				mine and World.GrassLight or World.Leaf)
 			Theme.corner(plot, 6)
 			Theme.border(plot, mine and 3 or 1.5, mine and Colors.Blue or Colors.Outline)
 			Theme.label(plot, {
 				Size = UDim2.fromScale(1, 1),
 				TextXAlignment = Enum.TextXAlignment.Center,
 				TextWrapped = true,
-				TextSize = mine and 15 or 11,
+				TextSize = mine and 16 or 12,
 				Text = mine and "DU" or other.DisplayName,
 				Outline = 2,
 			})
@@ -189,11 +202,11 @@ local function drawMap()
 			teleport(shop.Page)
 		end)
 		local labelX = shop.Position.X + (shop.Position.X < 0 and -1 or 1) * 2
-		mapText(shop.Label, labelX, shop.Position.Z - 16, 11)
+		mapText(shop.Label, labelX, shop.Position.Z - 16, 12)
 	end
 
-	mapText("SÜD-PLATZ", 0, -92, 13, Colors.Text)
-	mapText("NORD-MARKT", 0, Map.NorthPlazaZ + 42, 13, Colors.Text)
+	mapText("SÜD-PLATZ", 0, -92, 14, Colors.Text)
+	mapText("NORD-MARKT", 0, Map.NorthPlazaZ + 42, 14, Colors.Text)
 end
 
 ------------------------------------------------------------------------

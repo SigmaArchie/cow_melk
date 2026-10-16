@@ -271,11 +271,19 @@ do
 	grid.SortOrder = Enum.SortOrder.LayoutOrder
 	grid.Parent = shopPage.Frame
 
-	local buyButtons = {} -- [rarity] = api
+	local buyButtons = {} -- [rarity] = { Api, Card, Tag }
 
+	-- bezahlbar: grüner Rahmen + Abzeichen "Bezahlbar"; sonst ausgegrauter Knopf
 	local function updateAffordable()
-		for rarity, api in pairs(buyButtons) do
-			api.SetDisabled(coins() < CowData.Rarities[rarity].ShopPrice)
+		for rarity, entry in pairs(buyButtons) do
+			local affordable = coins() >= CowData.Rarities[rarity].ShopPrice
+			entry.Api.SetDisabled(not affordable)
+			entry.Tag.Visible = affordable
+			local stroke = entry.Card:FindFirstChildOfClass("UIStroke")
+			if stroke then
+				stroke.Color = affordable and Colors.Green or Colors.Line
+				stroke.Thickness = affordable and 3 or Theme.Stroke.Thin
+			end
 		end
 	end
 
@@ -302,7 +310,15 @@ do
 					Position = UDim2.new(0.5, 0, 1, -Theme.Spacing.L),
 					Size = UDim2.new(1, -32, 0, 48),
 				})
-				buyButtons[rarity] = api
+				local tag = Theme.tag(card, {
+					Name = "Affordable",
+					AnchorPoint = Vector2.new(1, 0),
+					Position = UDim2.new(1, -10, 0, 12),
+					Color = Colors.Green,
+					Text = "Bezahlbar",
+				})
+				tag.TextColor3 = Colors.Cream
+				buyButtons[rarity] = { Api = api, Card = card, Tag = tag }
 
 				buy.Activated:Connect(function()
 					if coins() < info.ShopPrice then
@@ -541,8 +557,14 @@ do
 					Position = UDim2.new(0, 0, 1, buttonY),
 					Size = UDim2.new(1, 0, 0, 46),
 				})
+				local cardStroke = card:FindFirstChildOfClass("UIStroke")
 				local function updateColor()
-					coinApi.SetDisabled(coins() < crate.CoinPrice)
+					local affordable = coins() >= crate.CoinPrice
+					coinApi.SetDisabled(not affordable)
+					if cardStroke then -- bezahlbar: grüner Rahmen
+						cardStroke.Color = affordable and Colors.Green or Colors.Line
+						cardStroke.Thickness = affordable and 3 or Theme.Stroke.Thin
+					end
 				end
 				updateColor()
 				local connection = player:GetAttributeChangedSignal("Coins"):Connect(updateColor)
