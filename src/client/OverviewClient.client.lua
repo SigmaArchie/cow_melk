@@ -145,7 +145,7 @@ local function drawMap()
 				Size = UDim2.fromOffset(12, 12),
 				TextXAlignment = Enum.TextXAlignment.Center,
 				TextSize = 10,
-				TextColor3 = Colors.Gold,
+				TextColor3 = Colors.Cream,
 				Text = lane[2],
 				Outline = 0,
 			})
@@ -163,7 +163,7 @@ local function drawMap()
 			local plot = rect(origin.X, origin.Z, Map.PlotDepth, Map.PlotWidth,
 				mine and Color3.fromRGB(150, 205, 100) or Color3.fromRGB(124, 182, 90))
 			Theme.corner(plot, 6)
-			Theme.border(plot, mine and 4 or 2, mine and Colors.Gold or Colors.Outline)
+			Theme.border(plot, mine and 3 or 1.5, mine and Colors.Blue or Colors.Outline)
 			Theme.label(plot, {
 				Size = UDim2.fromScale(1, 1),
 				TextXAlignment = Enum.TextXAlignment.Center,
@@ -265,7 +265,7 @@ local function placeRow(order, color, title, subtitle, destination, drawIcon)
 	end)
 end
 
-placeRow(1, Colors.Gold, "Meine Farm", "Melken, Kühe platzieren, Milch verkaufen", "Farm", function(swatch)
+placeRow(1, Colors.Green, "Meine Farm", "Melken, Kühe platzieren, Milch verkaufen", "Farm", function(swatch)
 	Theme.cowIcon(swatch, 32, UDim2.fromScale(0.5, 0.5), Color3.new(1, 1, 1), Color3.fromRGB(30, 30, 35))
 end)
 for i, shop in ipairs(Map.Shops) do

@@ -18,6 +18,7 @@
 local CollectionService = game:GetService("CollectionService")
 
 local CowData = require(script.Parent:WaitForChild("CowData"))
+local Palette = require(script.Parent:WaitForChild("Palette"))
 
 local Builder = {}
 
@@ -76,23 +77,23 @@ end
 
 local function particles(parent, props)
 	local emitter = Instance.new("ParticleEmitter")
-	emitter.LightEmission = 1
+	emitter.LightEmission = props.LightEmission or 0.3 -- sanft, nicht strahlend
 	emitter.Size = NumberSequence.new({
 		NumberSequenceKeypoint.new(0, props.Size or 0.3),
 		NumberSequenceKeypoint.new(1, 0),
 	})
 	emitter.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, props.Transparency or 0.1),
+		NumberSequenceKeypoint.new(0, props.Transparency or 0.3),
 		NumberSequenceKeypoint.new(1, 1),
 	})
 	emitter.Color = props.Color
-	emitter.Rate = props.Rate or 5
+	emitter.Rate = props.Rate or 3
 	emitter.Lifetime = props.Lifetime or NumberRange.new(1, 2)
 	emitter.Speed = props.Speed or NumberRange.new(0.5, 1.5)
 	emitter.SpreadAngle = props.Spread or Vector2.new(180, 180)
 	emitter.Acceleration = props.Acceleration or Vector3.zero
 	emitter.Rotation = NumberRange.new(0, 360)
-	emitter.RotSpeed = props.RotSpeed or NumberRange.new(-90, 90)
+	emitter.RotSpeed = props.RotSpeed or NumberRange.new(-60, 60)
 	emitter.Drag = props.Drag or 0
 	emitter.Parent = parent
 	return emitter
@@ -103,89 +104,95 @@ local function light(parent, color, brightness, range)
 	pointLight.Color = color
 	pointLight.Brightness = brightness
 	pointLight.Range = range
+	pointLight.Shadows = false
 	pointLight.Parent = parent
 	return pointLight
 end
 
 local RAINBOW_SEQUENCE = ColorSequence.new({
-	ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 80, 80)),
-	ColorSequenceKeypoint.new(0.2, Color3.fromRGB(255, 165, 60)),
-	ColorSequenceKeypoint.new(0.4, Color3.fromRGB(255, 230, 70)),
-	ColorSequenceKeypoint.new(0.6, Color3.fromRGB(90, 220, 110)),
-	ColorSequenceKeypoint.new(0.8, Color3.fromRGB(80, 170, 255)),
-	ColorSequenceKeypoint.new(1, Color3.fromRGB(175, 100, 255)),
+	ColorSequenceKeypoint.new(0, Color3.fromRGB(246, 128, 128)),
+	ColorSequenceKeypoint.new(0.2, Color3.fromRGB(246, 178, 104)),
+	ColorSequenceKeypoint.new(0.4, Color3.fromRGB(240, 224, 124)),
+	ColorSequenceKeypoint.new(0.6, Color3.fromRGB(132, 208, 144)),
+	ColorSequenceKeypoint.new(0.8, Color3.fromRGB(124, 182, 244)),
+	ColorSequenceKeypoint.new(1, Color3.fromRGB(186, 144, 240)),
 })
 
--- Licht & Partikel je Seltenheit
+-- Licht & Partikel je Seltenheit – bewusst zurückhaltend (viele Kühe auf mehreren Farmen):
+--   Common    schlicht, nichts
+--   Uncommon  ganz wenige grünliche Funken
+--   Rare      kühles blaues Leuchten (kleines Licht)
+--   Epic      lila Schein + wenige Partikel
+--   Legendary warmer Gold-Schein + wenige Funken
+--   Golden    Premium-Gold: Schein, wenige Münz-Partikel, dünner Lichtstrahl
+--   Rainbow   sanfter Schein, zarte Farbpartikel (die Kuh wechselt langsam die Farbe)
+--   Ghost     grünlicher, durchscheinender Dunst
 local function addRarityEffects(rarity, torso, model)
 	if rarity == "Uncommon" then
-		-- wenige kleine weiße Funken
-		particles(torso, { Color = ColorSequence.new(Color3.new(1, 1, 1)), Rate = 2, Size = 0.25 })
+		particles(torso, { Color = ColorSequence.new(Palette.rarityColor("Uncommon")), Rate = 1.5, Size = 0.2, Transparency = 0.4 })
 	elseif rarity == "Rare" then
-		light(torso, Color3.fromRGB(90, 160, 255), 2, 12)
+		light(torso, Palette.rarityColor("Rare"), 0.8, 9)
 	elseif rarity == "Epic" then
-		light(torso, Color3.fromRGB(180, 90, 255), 2.5, 14)
-		-- lila "Spur": langsame Partikel, die hinter der Kuh zurückbleiben
+		light(torso, Palette.rarityColor("Epic"), 1.0, 10)
 		particles(torso, {
-			Color = ColorSequence.new(Color3.fromRGB(190, 110, 255)),
-			Rate = 10, Size = 0.4, Lifetime = NumberRange.new(1.5, 2.5),
-			Speed = NumberRange.new(0.2, 0.6), Drag = 2,
+			Color = ColorSequence.new(Palette.rarityColor("Epic")),
+			Rate = 3, Size = 0.3, Lifetime = NumberRange.new(1.5, 2.5),
+			Speed = NumberRange.new(0.2, 0.5), Drag = 2,
 		})
 	elseif rarity == "Legendary" then
-		light(torso, Color3.fromRGB(255, 200, 80), 5, 16)
+		light(torso, Palette.rarityColor("Legendary"), 1.4, 11)
 		particles(torso, {
-			Color = ColorSequence.new(Color3.fromRGB(255, 215, 80)),
-			Rate = 14, Size = 0.45, Speed = NumberRange.new(1, 3),
-			Acceleration = Vector3.new(0, 2, 0), RotSpeed = NumberRange.new(-200, 200),
+			Color = ColorSequence.new(Palette.rarityColor("Legendary")),
+			Rate = 4, Size = 0.3, Speed = NumberRange.new(0.8, 2),
+			Acceleration = Vector3.new(0, 1.5, 0),
 		})
 	elseif rarity == "Golden" then
-		light(torso, Color3.fromRGB(255, 210, 60), 8, 24)
-		-- Goldmünzen-Partikel
+		light(torso, Palette.rarityColor("Golden"), 1.8, 13)
+		-- wenige Goldmünzen-Partikel
 		particles(torso, {
-			Color = ColorSequence.new(Color3.fromRGB(255, 205, 40)),
-			Rate = 12, Size = 0.6, Lifetime = NumberRange.new(1.2, 1.8),
-			Speed = NumberRange.new(4, 7), Spread = Vector2.new(40, 40),
-			Acceleration = Vector3.new(0, -12, 0), RotSpeed = NumberRange.new(-300, 300),
+			Color = ColorSequence.new(Palette.rarityColor("Golden")),
+			Rate = 3, Size = 0.45, Lifetime = NumberRange.new(1.2, 1.8),
+			Speed = NumberRange.new(3, 5), Spread = Vector2.new(35, 35),
+			Acceleration = Vector3.new(0, -10, 0), RotSpeed = NumberRange.new(-200, 200),
 		})
-		-- goldener Lichtstrahl nach oben
+		-- dünner goldener Lichtstrahl nach oben (kurz und durchsichtig)
 		local bottom = Instance.new("Attachment")
 		bottom.Name = "BeamBottom"
 		bottom.Position = Vector3.new(0, 1, 0)
 		bottom.Parent = torso
 		local top = Instance.new("Attachment")
 		top.Name = "BeamTop"
-		top.Position = Vector3.new(0, 18, 0)
+		top.Position = Vector3.new(0, 11, 0)
 		top.Parent = torso
 		local beam = Instance.new("Beam")
 		beam.Attachment0 = bottom
 		beam.Attachment1 = top
-		beam.Color = ColorSequence.new(Color3.fromRGB(255, 220, 90))
+		beam.Color = ColorSequence.new(Palette.rarityColor("Golden"))
 		beam.Transparency = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, 0.3),
+			NumberSequenceKeypoint.new(0, 0.6),
 			NumberSequenceKeypoint.new(1, 1),
 		})
-		beam.Width0 = 3
-		beam.Width1 = 0.5
-		beam.LightEmission = 1
+		beam.Width0 = 1.8
+		beam.Width1 = 0.3
+		beam.LightEmission = 0.5
 		beam.FaceCamera = true
 		beam.Parent = torso
 	elseif rarity == "Rainbow" then
-		light(torso, Color3.fromRGB(255, 170, 230), 3, 14)
+		light(torso, Palette.rarityColor("Rainbow"), 1.0, 10)
 		particles(torso, {
-			Color = RAINBOW_SEQUENCE, Rate = 14, Size = 0.45,
-			Lifetime = NumberRange.new(1.5, 2.5), Speed = NumberRange.new(0.3, 0.8), Drag = 1.5,
+			Color = RAINBOW_SEQUENCE, Rate = 3, Size = 0.3,
+			Lifetime = NumberRange.new(1.5, 2.5), Speed = NumberRange.new(0.3, 0.6), Drag = 1.5,
 		})
 	elseif rarity == "Ghost" then
-		light(torso, Color3.fromRGB(80, 255, 120), 3, 16)
-		-- Geister-Schwaden, die nach oben steigen
+		light(torso, Palette.rarityColor("Ghost"), 0.8, 10)
+		-- Geister-Dunst, der langsam nach oben steigt
 		particles(torso, {
-			Color = ColorSequence.new(Color3.fromRGB(190, 255, 210)),
-			Rate = 8, Size = 1.1, Transparency = 0.5, Lifetime = NumberRange.new(2, 3),
-			Speed = NumberRange.new(0.5, 1), Spread = Vector2.new(30, 30),
-			Acceleration = Vector3.new(0, 1.5, 0),
+			Color = ColorSequence.new(Palette.rarityColor("Ghost")),
+			Rate = 2, Size = 0.9, Transparency = 0.6, Lifetime = NumberRange.new(2, 3),
+			Speed = NumberRange.new(0.4, 0.8), Spread = Vector2.new(30, 30),
+			Acceleration = Vector3.new(0, 1, 0), LightEmission = 0.1,
 		})
 	end
-	-- Common: keine Effekte
 	model:SetAttribute("HasEffects", rarity ~= "Common")
 end
 

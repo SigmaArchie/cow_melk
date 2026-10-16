@@ -1,10 +1,10 @@
 # Cow Farm – Projektübersicht (Roblox, Rojo)
 
-Stand: 16.10.2026 (Pass 1: Bugfixes + UI-Design-System)
+Stand: 16.10.2026 (Pass 1: Bugfixes + UI-Design-System, Pass 2: Welt, Shops, Farmen, Kühe)
 
 Roblox-Farming-Simulator "Cow Farm": Kühe melken (Minispiel), Milch verkaufen, mehr Kühe kaufen / züchten / aus Kisten ziehen, Kühe auf der eigenen Farm in einem Raster aufstellen. Kein Schlachten, keine Fusion. Code in Luau, synchronisiert mit **Rojo 7.7.1** (Tools über rokit: `rojo`, `selene`). Alle Texte im Spiel und alle Code-Kommentare sind **Deutsch**. Schulprojekt (5. Klasse, GD).
 
-Status: `rojo build` fehlerfrei, `selene src` 0 Fehler / 0 Warnungen. In Studio gespielt wurde zuletzt vor der UI-Überarbeitung (Shops öffnen, Tutorial). Das neue Theme (HUD, Fenster, Melk-Minispiel) ist **noch nicht in Studio geprüft** – es gab in Pass 1 keine Studio-Verbindung.
+Status: `rojo build` fehlerfrei, `selene src` 0 Fehler / 0 Warnungen. In Studio gespielt wurde zuletzt vor der UI-Überarbeitung (Shops öffnen, Tutorial). Das neue Theme (HUD, Fenster, Melk-Minispiel) und die neue Welt (Shops, Farmen, Kuh-Beschriftungen, Effekte) sind **noch nicht in Studio geprüft** – in Pass 1 und 2 gab es keine Studio-Verbindung.
 
 Starten: im Projektordner `rojo serve`, in Studio Rojo-Plugin → Connect (localhost:34872). Nach Änderungen an `default.project.json` Rojo neu starten.
 
@@ -18,7 +18,8 @@ assets_src/CowModell.fbx    exportierte Kuh (33 Teile); die .blend-Datei liegt N
 assets/CowModel.rbxm        -> ReplicatedStorage.Assets.CowModel (Blender-Kuh, 9,8 KB; Inhalt noch nicht in Studio geprüft)
 src/shared/  -> ReplicatedStorage.Shared
   CowData.lua               alle Spielwerte, Seltenheiten, Zucht, Kisten, Karte, Shops, Sounds, Plot-/Raster-Funktionen
-  CowModelBuilder.lua       baut Kuh (Blender-Modell oder Ersatz aus Parts), Schemel, Eimer
+  Palette.lua               gemeinsame Farben, Schriften, Welt- und Seltenheitsfarben (Client UND Server; Theme.lua liest hier)
+  CowModelBuilder.lua       baut Kuh (Blender-Modell oder Ersatz aus Parts), Schemel, Eimer, Seltenheits-Effekte
 src/server/  -> ServerScriptService.Server
   DataService.lua           DataStore laden/speichern + API für alle Server-Scripts
   PlayerDataManager.server  Laden/Speichern/Autosave, Starter-Kuh, TutorialDone
@@ -85,17 +86,20 @@ Laden mit 3 Versuchen, fehlende Felder werden aufgefüllt; Speichern erst NACH a
 
 ## Karte
 
-- **Süd-Platz** (z −100..0): Milch-Brunnen, Spawn, "COW FARM"-Bogen, **Kuh-Shop** und **Zucht-Stall**.
-- **2 Förderbänder** in der Allee (Nord / Süd, 36 Studs/s): unsichtbares Band mit `AssemblyLinearVelocity`; 6 Kacheln à 10×0.5×50 bewegt der Client per Heartbeat; Gehäuse an den Enden.
-- **Nord-Markt** (z ≈ 350..450): **Kisten** und **Auto-Melker**.
-- Shop-Gebäude: Licht innen, winkender NPC mit Strohhut, hüpfendes Schild (Größe in Studs), Klick → `OpenShop`; jedes hat einen Teleport-Punkt vor der Tür.
-- **Farmen** links/rechts der Allee (3 Reihen pro Seite, ab Spieler 7 weiter außen): Wiese, Steinkante, weißer Zaun, Torbogen mit Namen, Milch-Stand (F = verkaufen), **Raster mit 36 Feldern**. Jede Kuh hat Schemel, Eimer und blaue Melk-Platte.
+- **Süd-Platz** (z −100..0): Milch-Brunnen, Spawn, "COW FARM"-Bogen, Steinwege (Eingang → Brunnen, Türen → Brunnen), Blumenbeete, Bänke, Laternen, Bäume, **Kuh-Shop** und **Zucht-Stall**.
+- **2 Förderbänder** in der Allee (Nord / Süd, 36 Studs/s): unsichtbares Band mit `AssemblyLinearVelocity`; 6 Kacheln à 10×0.5×50 bewegt der Client per Heartbeat; Gehäuse an den Enden. Unverändert.
+- **Nord-Markt** (z ≈ 350..450): **Kisten** und **Auto-Melker**, gleiche Deko wie der Süd-Platz.
+- **Shop-Gebäude** (Daten in `CowData.Map.Shops`, Bau in `MapBuilder`, je ein Stil): Kuh-Shop = Scheune (Gambrel-Dach, Scheunentore), Kisten = offener Marktstand mit gestreiftem Dach und Kistenstapeln, Zucht-Stall = gemütlicher Stall (Blumenkästen, Heu, Trog), Auto-Melker = Werkstatt aus Metall mit Silo und Schornstein. Alle: Grundfläche ca. 20×16, Tür vorne (−Z), kleines Holzschild an der Wand (Symbol + Name), winkender NPC mit Strohhut, kleiner Hinweis "Klicken zum Öffnen" (Palette, atmet ruhig), Klick → `OpenShop`, Teleport-Punkt 9 Studs vor der Tür.
+- **Hügel** (`CowFarmLayout.Hills`) nur am Kartenrand (|x| > ~450 bzw. z < −170 / z > 600), nie unter Farmen, Wegen, Bändern oder Spawn.
+- **Farmen** links/rechts der Allee (3 Reihen pro Seite, ab Spieler 7 weiter außen): Wiese, Steinkante, weißer Zaun, Torbogen mit Holz-Namensschild (Part `Sign`, vom Tutorial gebraucht) und Laternen, Weg, Deko VOR der Kuhfläche (Blumenbeete, Heuballen, Fässer, Trog; lokal z > 28), Heu in der hinteren Ecke, **Milch-Verkaufsstation** (Podest, Theke, Preistafel, Kasse, Kannen, Schild; ProximityPrompt F), **Raster mit 36 Feldern** (Kühe stehen lokal in z −50..22, dort steht nichts). Jede Kuh hat Schemel, Eimer und blaue Melk-Platte.
 
 ## Kuhmodell & Animation
 
 - `CowModelBuilder.BuildCow` nimmt `ReplicatedStorage.Assets.CowModel` (Blender-Kuh), wenn vorhanden: erkennt Teile an den Blender-Namen (Koerper, Kopf, Zitze_…, Fleck_…), dreht, skaliert auf 6.4 Studs, färbt pro Seltenheit. Sonst Ersatz-Kuh aus Parts (rund, niedlich).
 - Gruppen `HeadGroup`, `EarLeft`, `EarRight`, `TailGroup`; Tag "Cow". WorldAnimator: schweben, Kopf ±15°, Schwanz wedelt, Ohren flattern, ab und zu umdrehen; nur in < 160 Studs; Regenbogen-Kuh wechselt jede Sekunde die Farbe.
-- Effekte je Seltenheit (Licht, Partikel, Lichtstrahl bei Golden, durchsichtig + grün bei Ghost). Neue Kuh fällt vom Himmel mit Konfetti.
+- Effekte je Seltenheit (bewusst zurückhaltend, wegen vieler Kühe): Common keine · Uncommon wenige grünliche Funken · Rare kleines blaues Licht · Epic lila Licht + wenige Partikel · Legendary warmes Gold-Licht + wenige Funken · Golden Gold-Licht, wenige Münz-Partikel, dünner Strahl · Rainbow sanftes Licht, zarte Farbpartikel, Farbwechsel alle 3 s · Ghost grünlicher Dunst, durchsichtig. Neue Kuh fällt vom Himmel mit dezentem Konfetti.
+- Beschriftungen an der Kuh (Server, `Palette`): Namensschild (Name, Seltenheit in Seltenheitsfarbe, Status "Bereit" / "Pause m:ss" / "Zucht m:ss" / "Wird gemolken"), Pop-ups "+X Milch" (Creme) und "+X Coins" (Gold), Melk-Platte "Melken".
+- `assets/CowModel.rbxm` (Modell `CowModel`, MeshParts `Koerper`, `Kopf`, `Zitze_*`, `Ohr_*`, `Schwanz*`, `Schnauze`, `Euter`, `Fleck*`, `Huf*`, `Bein*`, `Auge_*`, `Horn*`; verweist auf eine Mesh-ID aus Roblox): wird benutzt, wenn `Koerper` und `Kopf` gefunden werden; bei Fehlern oder fehlendem Modell baut `CowModelBuilder` die Ersatz-Kuh aus Parts. Ob die Mesh-ID im Spiel lädt, ist ungeprüft.
 
 ## Melk-Minispiel
 
@@ -110,7 +114,7 @@ Kuh anklicken → Menü "Melken" (oder auf die blaue Platte laufen). Server tele
 - **Eingabegeräte:** Maus/Touch über `Activated`, Controller über Auswahlrahmen (`SelectionImageObject`) und B; Tastenkürzel-Hinweise (M, I, Q/E) nur mit Tastatur bzw. L1/R1 mit Controller. Safe-Area: alle ScreenGuis laufen mit dem Roblox-Standard `CoreUISafe`, Fenster passen sich über `gui.AbsoluteSize` an.
 - Feste Zonen: **oben links** Coins/Milch · **links Mitte** KARTE (M) / KÜHE (I) / BONUS (Streak-Abzeichen) · **oben Mitte** Meldungen (max. 3, 2,5 s) · **unten Mitte** Hotbar (1–6) · **darüber** Hinweis-Leiste · **unten rechts** VERKAUFEN (pulsiert bei Milch).
 - Fenster: KARTE, MEINE KÜHE, KUH-SHOP, KISTEN, ZUCHT-STALL, TAGESBONUS, AUTO-MELKER.
-- Noch im alten Look bzw. nur über das neue Theme-Palette angepasst (Pass 2/3): Hotbar/Kuh-Menü (InventoryClient), Karte (OverviewClient), Tutorial, Welt-Beschriftungen (Schilder, Kuh-Namensschilder, Pop-ups im Server-Code).
+- Noch im alten Look bzw. nur über die neue Palette angepasst (Pass 3): Hotbar/Kuh-Menü (InventoryClient), Karte (OverviewClient; "meine Farm" ist jetzt blau, nicht mehr gold), Tutorial.
 - Wichtig für Code: an Roblox-Objekte keine eigenen Funktionen hängen (z. B. `frame.SetColor = …` wirft einen Fehler) – `Theme.button` gibt dafür `setColor` (3. Wert) und `api` (4. Wert: `SetColor`, `SetDisabled`, `SetText`) zurück. `api.SetDisabled(true)` graut nur optisch aus; der Klick kommt weiter an, damit der Aufrufer eine Erklärung zeigen kann.
 
 ## Tutorial (nur neue Spieler)
@@ -127,7 +131,7 @@ Funktioniert vermutlich: Coins `4590662766`, Muhen `535690488`. **Aus** (IDs war
 2. Funktionierende Sound-IDs eintragen.
 3. Balancing (erster Kauf nach ca. 2–3 Minuten), Upgrades (größerer Eimer, schnellere Pause), evtl. Bestenliste.
 4. Gamepass-/Produkt-IDs eintragen (Platzhalter siehe oben), Spiel veröffentlichen, "Enable Studio Access to API Services" für den DataStore.
-5. Pass 2: Welt, Shop-Gebäude, Schilder, Kühe; Inventar/Karte/Tutorial auf das neue Theme umstellen.
+5. Pass 3: Inventar/Hotbar, Karte und Tutorial auf das neue Theme umstellen; Feinschliff nach dem Studio-Test.
 
 ## Bekannte Risiken (Stand Pass 1)
 

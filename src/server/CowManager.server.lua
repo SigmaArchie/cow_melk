@@ -600,75 +600,86 @@ end
 ------------------------------------------------------------------------
 local function createInfoBillboard(cow, torso)
 	local info = CowData.Rarities[cow.Rarity]
+	local accent = Palette.rarityColor(cow.Rarity)
 
+	-- kleines Namensschild über dem Kopf (Marineblau, dünner Rahmen in der Seltenheitsfarbe)
 	local billboard = Instance.new("BillboardGui")
 	billboard.Name = "Info"
-	billboard.Size = UDim2.fromOffset(170, 66)
-	billboard.StudsOffsetWorldSpace = Vector3.new(0, 4.4, 0)
-	billboard.MaxDistance = 70
+	billboard.Size = UDim2.fromOffset(136, 52)
+	billboard.StudsOffsetWorldSpace = Vector3.new(0, 4.6, 0)
+	billboard.MaxDistance = 55
 	billboard.LightInfluence = 0
 	billboard.Parent = torso
 
 	local background = Instance.new("Frame")
 	background.Size = UDim2.fromScale(1, 1)
-	background.BackgroundColor3 = Color3.fromRGB(25, 27, 38)
-	background.BackgroundTransparency = 0.25
+	background.BackgroundColor3 = Palette.Colors.Deep
+	background.BackgroundTransparency = 0.18
+	background.BorderSizePixel = 0
 	background.Parent = billboard
-	Instance.new("UICorner", background).CornerRadius = UDim.new(0, 10)
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 10)
+	corner.Parent = background
 	local stroke = Instance.new("UIStroke")
-	stroke.Color = info.UiColor
-	stroke.Thickness = 2
+	stroke.Color = accent
+	stroke.Thickness = 1.5
+	stroke.Transparency = 0.15
 	stroke.Parent = background
 
-	local function label(name, text, posY, height, color)
+	local function label(name, text, posY, height, font, color)
 		local l = Instance.new("TextLabel")
 		l.Name = name
 		l.BackgroundTransparency = 1
-		l.Position = UDim2.fromScale(0.05, posY)
-		l.Size = UDim2.fromScale(0.9, height)
-		l.Font = Enum.Font.FredokaOne
+		l.Position = UDim2.fromScale(0.06, posY)
+		l.Size = UDim2.fromScale(0.88, height)
+		l.Font = font
 		l.TextScaled = true
 		l.TextColor3 = color
 		l.Text = text
 		l.Parent = background
 		return l
 	end
-	label("NameLabel", cow.Name, 0.04, 0.36, Color3.new(1, 1, 1))
-	label("RarityLabel", (info.IsSpecial and "✦ " or "") .. info.DisplayName, 0.4, 0.26, info.UiColor)
-	return label("Status", "", 0.68, 0.28, Color3.new(1, 1, 1))
+	label("NameLabel", cow.Name, 0.05, 0.38, Palette.Fonts.Heading, Palette.Colors.Cream)
+	label("RarityLabel", (info.IsSpecial and "★ " or "") .. info.DisplayName, 0.44, 0.22, Palette.Fonts.Body, accent)
+	return label("Status", "", 0.7, 0.24, Palette.Fonts.Body, Palette.Colors.SubText)
 end
 
 local function showPopup(part, message, color)
+	-- kleine Schwebe-Schrift (Creme bzw. Gold für Coins), weicher Umriss statt dicker Kontur
 	local popup = Instance.new("BillboardGui")
-	popup.Size = UDim2.fromOffset(220, 50)
-	popup.StudsOffsetWorldSpace = Vector3.new(0, 6, 0)
+	popup.Size = UDim2.fromOffset(180, 38)
+	popup.StudsOffsetWorldSpace = Vector3.new(0, 6.5, 0)
 	popup.AlwaysOnTop = true
-	popup.MaxDistance = 80
+	popup.MaxDistance = 70
 	popup.LightInfluence = 0
 	popup.Parent = part
 
 	local text = Instance.new("TextLabel")
 	text.BackgroundTransparency = 1
 	text.Size = UDim2.fromScale(1, 1)
-	text.Font = Enum.Font.FredokaOne
+	text.Font = Palette.Fonts.Heading
 	text.TextScaled = true
-	text.TextColor3 = color or Color3.new(1, 1, 1)
-	text.TextStrokeColor3 = Color3.fromRGB(20, 20, 30)
-	text.TextStrokeTransparency = 0
+	text.TextColor3 = color or Palette.Colors.Cream
 	text.Text = message
 	text.Parent = popup
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = Palette.Colors.Deep
+	stroke.Thickness = 1.5
+	stroke.Transparency = 0.3
+	stroke.Parent = text
 
 	local scale = Instance.new("UIScale")
-	scale.Scale = 0.4
+	scale.Scale = 0.5
 	scale.Parent = text
-	TweenService:Create(scale, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+	TweenService:Create(scale, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
 
-	local rise = TweenInfo.new(1.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-	TweenService:Create(popup, rise, { StudsOffsetWorldSpace = Vector3.new(0, 10, 0) }):Play()
-	task.delay(1.0, function()
-		TweenService:Create(text, TweenInfo.new(0.8), { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
+	local rise = TweenInfo.new(1.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	TweenService:Create(popup, rise, { StudsOffsetWorldSpace = Vector3.new(0, 9, 0) }):Play()
+	task.delay(0.9, function()
+		TweenService:Create(text, TweenInfo.new(0.7), { TextTransparency = 1 }):Play()
+		TweenService:Create(stroke, TweenInfo.new(0.7), { Transparency = 1 }):Play()
 	end)
-	Debris:AddItem(popup, 2)
+	Debris:AddItem(popup, 1.9)
 end
 
 local function playSound(parent, soundId, volume, speed)
@@ -726,7 +737,7 @@ local function endMilking(player, completed)
 
 	if milk > 0 then
 		DataService.AddMilk(player, milk)
-		showPopup(spot.Torso, "+" .. CowData.FormatNumber(milk) .. " Milch!", Color3.new(1, 1, 1))
+		showPopup(spot.Torso, "+" .. CowData.FormatNumber(milk) .. " Milch", Palette.Colors.Cream)
 	end
 	if cow and session.Pulls > 0 then
 		cow.MilkReadyAt = os.time() + CowData.Rarities[cow.Rarity].MilkCooldown
@@ -1019,28 +1030,34 @@ local function spawnCow(player, cow)
 		Name = "MilkPad",
 		Size = Vector3.new(3, 0.2, 3.4),
 		CFrame = base * CFrame.new(stoolX - 2.5, 0.1, udderZ),
-		Color = Color3.fromRGB(120, 200, 255),
-		Material = Enum.Material.Neon,
-		Transparency = 0.35,
+		Color = Palette.Colors.Blue,
+		Material = Enum.Material.SmoothPlastic,
+		Transparency = 0.3,
 		CanCollide = false,
 		Parent = spotModel,
 	})
 	local padLabel = Instance.new("BillboardGui")
-	padLabel.Size = UDim2.fromOffset(110, 34)
+	padLabel.Size = UDim2.fromOffset(84, 26)
 	padLabel.StudsOffsetWorldSpace = Vector3.new(0, 1.6, 0)
-	padLabel.MaxDistance = 35
+	padLabel.MaxDistance = 30
 	padLabel.LightInfluence = 0
 	padLabel.Parent = pad
 	local padText = Instance.new("TextLabel")
 	padText.Size = UDim2.fromScale(1, 1)
-	padText.BackgroundColor3 = Color3.fromRGB(25, 27, 38)
+	padText.BackgroundColor3 = Palette.Colors.Deep
 	padText.BackgroundTransparency = 0.2
-	padText.Font = Enum.Font.FredokaOne
+	padText.Font = Palette.Fonts.Body
 	padText.TextScaled = true
-	padText.TextColor3 = Color3.new(1, 1, 1)
-	padText.Text = "🥛 Melken"
+	padText.TextColor3 = Palette.Colors.Cream
+	padText.Text = "Melken"
 	padText.Parent = padLabel
-	Instance.new("UICorner", padText).CornerRadius = UDim.new(0, 8)
+	local padCorner = Instance.new("UICorner")
+	padCorner.CornerRadius = UDim.new(0, 8)
+	padCorner.Parent = padText
+	local padPadding = Instance.new("UIPadding")
+	padPadding.PaddingTop = UDim.new(0.15, 0)
+	padPadding.PaddingBottom = UDim.new(0.15, 0)
+	padPadding.Parent = padText
 	pad.Touched:Connect(function(hit)
 		local character = hit.Parent
 		if character and Players:GetPlayerFromCharacter(character) == player then
@@ -1112,28 +1129,28 @@ local function celebrateNewCow(spot, rarity)
 		alpha:Destroy()
 	end)
 
-	-- Konfetti in der Farbe der Seltenheit
+	-- dezentes Konfetti in der Farbe der Seltenheit
 	local emitter = Instance.new("ParticleEmitter")
 	emitter.Color = ColorSequence.new({
 		ColorSequenceKeypoint.new(0, info.UiColor),
 		ColorSequenceKeypoint.new(1, Color3.new(1, 1, 1)),
 	})
 	emitter.Size = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.6),
+		NumberSequenceKeypoint.new(0, 0.45),
 		NumberSequenceKeypoint.new(1, 0),
 	})
-	emitter.Lifetime = NumberRange.new(0.8, 1.6)
+	emitter.Lifetime = NumberRange.new(0.8, 1.4)
 	emitter.Speed = NumberRange.new(10, 20)
 	emitter.SpreadAngle = Vector2.new(180, 180)
 	emitter.Acceleration = Vector3.new(0, -20, 0)
 	emitter.Rotation = NumberRange.new(0, 360)
 	emitter.RotSpeed = NumberRange.new(-200, 200)
-	emitter.LightEmission = 0.5
+	emitter.LightEmission = 0.2
 	emitter.Enabled = false
 	emitter.Parent = spot.Torso
 	task.delay(0.5, function()
 		if emitter.Parent then
-			emitter:Emit(info.Tier >= 5 and 120 or 50)
+			emitter:Emit(info.Tier >= 5 and 40 or 20)
 		end
 		if spot.Torso.Parent then
 			if info.Tier >= 4 then
@@ -1189,17 +1206,17 @@ function refreshCowLabels(player)
 		if not cow then
 			status.Text = ""
 		elseif session and session.CowId == cowId then
-			status.Text = "🪣 Wird gemolken..."
-			status.TextColor3 = Color3.fromRGB(200, 230, 255)
+			status.Text = "Wird gemolken"
+			status.TextColor3 = Palette.Colors.Blue
 		elseif breeding and (breeding.ParentA == cowId or breeding.ParentB == cowId) then
-			status.Text = "💕 Zucht " .. formatTime(breeding.ReadyAt - now)
-			status.TextColor3 = Color3.fromRGB(255, 150, 200)
+			status.Text = "Zucht " .. formatTime(breeding.ReadyAt - now)
+			status.TextColor3 = Palette.Colors.Pink
 		elseif (cow.MilkReadyAt or 0) > now then
-			status.Text = "⏳ " .. formatTime(cow.MilkReadyAt - now)
-			status.TextColor3 = Color3.fromRGB(255, 200, 100)
+			status.Text = "Pause " .. formatTime(cow.MilkReadyAt - now)
+			status.TextColor3 = Palette.Colors.Orange
 		else
-			status.Text = "🥛 Bereit zum Melken"
-			status.TextColor3 = Color3.fromRGB(130, 255, 140)
+			status.Text = "Bereit"
+			status.TextColor3 = Color3.fromRGB(140, 214, 124)
 		end
 	end
 end
@@ -1231,7 +1248,7 @@ local function despawnCow(player, cowId)
 	emitter.SpreadAngle = Vector2.new(180, 180)
 	emitter.Rate = 0
 	emitter.Parent = puff
-	emitter:Emit(25)
+	emitter:Emit(14)
 	Debris:AddItem(puff, 2)
 
 	spot.Model:Destroy()
@@ -1386,7 +1403,7 @@ function sellMilk(player, popupPart)
 		"success"
 	)
 	if popupPart then
-		showPopup(popupPart, "+" .. CowData.FormatNumber(coins) .. " 🪙", Color3.fromRGB(255, 215, 60))
+		showPopup(popupPart, "+" .. CowData.FormatNumber(coins) .. " Coins", Palette.Colors.Gold)
 	end
 end
 
