@@ -209,8 +209,16 @@ function DataService.CountCows(player)
 	return count
 end
 
+-- Ein laufendes Kalb (Zucht) zählt schon als belegter Platz, sonst würde das Limit überschritten
 function DataService.HasCowSpace(player, amount)
-	return DataService.CountCows(player) + (amount or 1) <= CowData.Config.MaxCows
+	local data = profiles[player]
+	local reserved = (data and data.Breeding) and 1 or 0
+	return DataService.CountCows(player) + reserved + (amount or 1) <= CowData.Config.MaxCows
+end
+
+-- true, wenn die Daten des Spielers wirklich gespeichert werden (nicht Studio-Testdaten)
+function DataService.IsPersistent(player)
+	return canSave[player] == true
 end
 
 -- Überträgt die Werte an Attribute (für den Client) und leaderstats

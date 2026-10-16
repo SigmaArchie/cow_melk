@@ -1519,7 +1519,11 @@ MarketplaceService.ProcessReceipt = function(receipt)
 	end
 
 	-- Schon verarbeitet? (Schutz gegen doppelte Vergabe)
+	-- Erst "gekauft" melden, wenn der Beleg wirklich gespeichert ist (sonst ginge die Kuh bei einem Absturz verloren)
 	if data.Receipts[receipt.PurchaseId] then
+		if DataService.IsPersistent(player) and not DataService.Save(player) then
+			return Enum.ProductPurchaseDecision.NotProcessedYet
+		end
 		return Enum.ProductPurchaseDecision.PurchaseGranted
 	end
 
@@ -1546,8 +1550,11 @@ MarketplaceService.ProcessReceipt = function(receipt)
 		data.Receipts[oldestId] = nil
 	end
 
-	DataService.Save(player)
 	announceNewCow(player, cow, CowData.Crates[crateId].DisplayName)
+	if DataService.IsPersistent(player) and not DataService.Save(player) then
+		-- Kuh und Beleg liegen schon im Speicher; Roblox fragt später nochmal (dann greift die Prüfung oben)
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
 	return Enum.ProductPurchaseDecision.PurchaseGranted
 end
 

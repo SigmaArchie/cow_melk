@@ -342,8 +342,14 @@ local function act(action, cowId, arg)
 		return false
 	end
 	busy = true
-	local ok, message = Remotes.CowAction:InvokeServer(action, cowId, arg)
+	-- pcall: ein Fehler auf dem Server darf die Knöpfe nicht dauerhaft sperren
+	local called, ok, message = pcall(function()
+		return Remotes.CowAction:InvokeServer(action, cowId, arg)
+	end)
 	busy = false
+	if not called then
+		return false
+	end
 	if not ok and message then
 		showHint(message, true, 3)
 	end

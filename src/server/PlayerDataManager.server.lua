@@ -31,8 +31,10 @@ Remotes.TutorialDone.OnServerEvent:Connect(function(player)
 	end
 end)
 
+-- Verzögert, damit die anderen PlayerRemoving-Handler (z.B. Melken beenden -> Milch gutschreiben)
+-- ZUERST laufen und ihre Werte noch im gespeicherten Stand landen
 local function onPlayerRemoving(player)
-	DataService.Release(player)
+	task.defer(DataService.Release, player)
 end
 
 Players.PlayerAdded:Connect(onPlayerAdded)
