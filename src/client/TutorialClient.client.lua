@@ -1,29 +1,29 @@
 -- TutorialClient.client.lua
--- Die ersten Sekunden für NEUE Spieler (Attribut TutorialDone = false):
---   1. Kamera schwenkt 3 Sekunden über die Farm
---   2. Willkommens-Fenster: "Du hast eine GRATIS Kuh bekommen!"
---   3. Pfeil zur eigenen Farm        ("Deine Farm!")
---   4. Pfeil zur Kuh                 ("Klicke deine Kuh an zum Melken!")
---   5. nach der ersten Milch: Pfeil zum VERKAUFEN-Knopf
---   6. nach dem ersten Verkauf: Pfeil zum Kuh-Shop
+-- Die ersten Minuten für NEUE Spieler (Attribut TutorialDone = false):
+--   0. Kamera schwenkt 3 Sekunden über die Farm, Willkommens-Fenster mit dem Weg durchs Spiel
+--   1. Pfeil zur eigenen Farm        (Startkuh steht schon da)
+--   2. Pfeil zur Kuh                 (anklicken -> Melken)
+--   3. nach der ersten Milch: Pfeil zum VERKAUFEN-Knopf
+--   4. nach dem Verkauf: Pfeil zum Kuh-Shop -> zweite Kuh kaufen
+--   5. Pfeil zum Zucht-Stall: Zucht und Kisten kennenlernen
 -- Danach (oder bei "Überspringen") meldet der Client Remotes.TutorialDone -> wird gespeichert.
+-- Stil: Theme.lua. Das Tutorial braucht: ScreenGui "HUD" mit "SellButtonRef", ScreenGui "MenuUI"
+-- mit dem Fenster "Window", den Part "Sign" im Eingang der eigenen Farm (Decor) und die Shop-Gebäude.
 
 local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
 
 local CowData = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CowData"))
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
+local Theme = require(script.Parent:WaitForChild("Theme"))
 
+local Colors = Theme.Colors
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
-local YELLOW = Color3.fromRGB(255, 220, 40)
-local DARK = Color3.fromRGB(25, 27, 38)
-local TEXT = Color3.new(1, 1, 1)
-local GREEN = Color3.fromRGB(55, 190, 80)
+local TOTAL_STEPS = 5
 
 ------------------------------------------------------------------------
 -- Nur für neue Spieler
@@ -89,90 +89,102 @@ local function myFirstCowPosition(plot)
 	return nil
 end
 
-local function cowShopPosition()
-	local hub = layout:FindFirstChild("Hub")
-	local shop = hub and hub:FindFirstChild("CowShop")
-	local floor = shop and shop:FindFirstChild("Floor")
-	return floor and floor.Position + Vector3.new(0, 16, 0) or nil
+-- Position über einem Shop-Gebäude (Süd-Platz: Folder "Hub", Nord-Markt: "NorthMarket")
+local function shopPosition(shopName)
+	for _, folderName in ipairs({ "Hub", "NorthMarket" }) do
+		local folder = layout:FindFirstChild(folderName)
+		local shop = folder and folder:FindFirstChild(shopName)
+		local floor = shop and shop:FindFirstChild("Floor")
+		if floor then
+			return floor.Position + Vector3.new(0, 18, 0)
+		end
+	end
+	return nil
 end
 
 ------------------------------------------------------------------------
 -- GUI: Hinweis-Banner, Pfeil, Überspringen
 ------------------------------------------------------------------------
-local gui = Instance.new("ScreenGui")
-gui.Name = "Tutorial"
-gui.ResetOnSpawn = false
-gui.IgnoreGuiInset = true
-gui.DisplayOrder = 8
-gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+local gui = Theme.screenGui("Tutorial", 8, true)
 gui.Parent = playerGui
 
-local function corner(parent, radius)
-	local c = Instance.new("UICorner")
-	c.CornerRadius = radius or UDim.new(0, 14)
-	c.Parent = parent
-	return c
-end
-
-local banner = Instance.new("TextLabel")
-banner.Name = "Banner"
-banner.AnchorPoint = Vector2.new(0.5, 1)
-banner.Position = UDim2.new(0.5, 0, 1, -100) -- direkt über der Hotbar (feste Zone)
-banner.Size = UDim2.fromOffset(0, 54)
-banner.AutomaticSize = Enum.AutomaticSize.X
-banner.BackgroundColor3 = DARK
-banner.BackgroundTransparency = 0.05
-banner.Font = Enum.Font.FredokaOne
-banner.TextSize = 22
-banner.TextColor3 = TEXT
-banner.Text = ""
-banner.Visible = false
-banner.Parent = gui
-corner(banner)
-local bannerPadding = Instance.new("UIPadding")
-bannerPadding.PaddingLeft = UDim.new(0, 22)
-bannerPadding.PaddingRight = UDim.new(0, 22)
-bannerPadding.Parent = banner
-local bannerStroke = Instance.new("UIStroke")
-bannerStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-bannerStroke.Color = YELLOW
-bannerStroke.Thickness = 3
-bannerStroke.Parent = banner
+-- Banner direkt über der Hotbar (feste Zone), Schritt-Nummer + Text
+local banner = Theme.panel(gui, {
+	Name = "Banner",
+	AnchorPoint = Vector2.new(0.5, 1),
+	Position = UDim2.new(0.5, 0, 1, -100),
+	Size = UDim2.fromOffset(0, 0),
+	AutomaticSize = Enum.AutomaticSize.XY,
+	BackgroundColor3 = Colors.Panel,
+	OutlineColor = Colors.Blue,
+	Outline = Theme.Stroke.Normal,
+	Visible = false,
+	Radius = Theme.Radius.L,
+})
+local bannerLimit = Instance.new("UISizeConstraint")
+bannerLimit.MaxSize = Vector2.new(620, math.huge)
+bannerLimit.Parent = banner
+Theme.padding(banner, Theme.Spacing.M)
+local bannerList = Instance.new("UIListLayout")
+bannerList.Padding = UDim.new(0, 2)
+bannerList.SortOrder = Enum.SortOrder.LayoutOrder
+bannerList.Parent = banner
+local bannerStep = Theme.label(banner, {
+	LayoutOrder = 1,
+	Size = UDim2.fromOffset(0, 16),
+	AutomaticSize = Enum.AutomaticSize.X,
+	Font = Theme.BodyFont,
+	TextSize = Theme.TextSize.Small,
+	TextColor3 = Colors.Blue,
+	Text = "",
+})
+local bannerText = Theme.label(banner, {
+	LayoutOrder = 2,
+	Size = UDim2.fromOffset(0, 0),
+	AutomaticSize = Enum.AutomaticSize.XY,
+	TextSize = Theme.TextSize.Heading - 2,
+	TextWrapped = true,
+	Text = "",
+})
+local bannerTextLimit = Instance.new("UISizeConstraint")
+bannerTextLimit.MaxSize = Vector2.new(580, math.huge)
+bannerTextLimit.Parent = bannerText
 local bannerScale = Instance.new("UIScale")
 bannerScale.Parent = banner
 
--- gelber Pfeil (Dreieck-Zeichen), zeigt standardmäßig nach unten
-local arrow = Instance.new("TextLabel")
-arrow.Name = "Arrow"
-arrow.AnchorPoint = Vector2.new(0.5, 0.5)
-arrow.Size = UDim2.fromOffset(90, 90)
-arrow.BackgroundTransparency = 1
-arrow.Font = Enum.Font.GothamBlack
-arrow.TextSize = 80
-arrow.TextColor3 = YELLOW
-arrow.TextStrokeColor3 = Color3.fromRGB(60, 40, 0)
-arrow.TextStrokeTransparency = 0
-arrow.Text = "▼"
-arrow.Visible = false
-arrow.Parent = gui
+-- Pfeil (Dreieck-Zeichen), zeigt standardmäßig nach unten
+local arrow = Theme.label(gui, {
+	Name = "Arrow",
+	AnchorPoint = Vector2.new(0.5, 0.5),
+	Size = UDim2.fromOffset(90, 90),
+	Font = Enum.Font.GothamBlack,
+	TextSize = 76,
+	TextColor3 = Colors.Blue,
+	TextXAlignment = Enum.TextXAlignment.Center,
+	Text = "▼",
+	Visible = false,
+	Outline = 1.5,
+})
 local arrowScale = Instance.new("UIScale")
 arrowScale.Parent = arrow
-TweenService:Create(arrowScale, TweenInfo.new(0.45, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), { Scale = 1.25 }):Play()
+game:GetService("TweenService"):Create(
+	arrowScale,
+	TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+	{ Scale = 1.2 }
+):Play()
 
-local skipButton = Instance.new("TextButton")
-skipButton.Name = "Skip"
--- unten links über dem Übersicht-Knopf (unten rechts ist der Verkaufen-Knopf)
-skipButton.AnchorPoint = Vector2.new(0, 1)
-skipButton.Position = UDim2.new(0, 16, 1, -16)
-skipButton.Size = UDim2.fromOffset(150, 38)
-skipButton.BackgroundColor3 = Color3.fromRGB(70, 74, 96)
-skipButton.Font = Enum.Font.GothamBold
-skipButton.TextSize = 15
-skipButton.TextColor3 = TEXT
-skipButton.Text = "Tutorial überspringen"
-skipButton.Visible = false
-skipButton.Parent = gui
-corner(skipButton, UDim.new(0, 10))
+local skipButton = Theme.secondaryButton(gui, {
+	Name = "Skip",
+	-- unten links (unten rechts ist VERKAUFEN, unten Mitte die Hotbar)
+	AnchorPoint = Vector2.new(0, 1),
+	Position = UDim2.new(0, 16, 1, -16),
+	Size = UDim2.fromOffset(190, 40),
+	Text = "Tutorial überspringen",
+	TextSize = Theme.TextSize.Body - 2,
+	Font = Theme.BodyFont,
+	Radius = 10,
+})
+skipButton.Parent.Visible = false
 
 ------------------------------------------------------------------------
 -- Pfeil-Steuerung
@@ -181,11 +193,13 @@ local target = nil -- { Kind = "World", Get = function() -> Vector3 } oder { Kin
 local hideArrow = false -- z.B. während des Melkens
 local bob = 0
 
-local function setStep(text, newTarget)
-	banner.Text = text
+local function setStep(text, newTarget, stepNumber)
+	bannerText.Text = text
+	bannerStep.Text = stepNumber and ("SCHRITT %d VON %d"):format(stepNumber, TOTAL_STEPS) or ""
+	bannerStep.Visible = stepNumber ~= nil
 	banner.Visible = text ~= ""
-	bannerScale.Scale = 1.25
-	TweenService:Create(bannerScale, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+	bannerScale.Scale = 1.15
+	Theme.tween(bannerScale, { Scale = 1 }, 0.35, Enum.EasingStyle.Back)
 	target = newTarget
 end
 
@@ -254,122 +268,90 @@ end)
 local function showWelcome()
 	local overlay = Instance.new("Frame")
 	overlay.Size = UDim2.fromScale(1, 1)
-	overlay.BackgroundColor3 = Color3.new(0, 0, 0)
+	overlay.BackgroundColor3 = Colors.Outline
 	overlay.BackgroundTransparency = 1
+	overlay.BorderSizePixel = 0
 	overlay.ZIndex = 20
 	overlay.Parent = gui
-	TweenService:Create(overlay, TweenInfo.new(0.3), { BackgroundTransparency = 0.4 }):Play()
+	Theme.tween(overlay, { BackgroundTransparency = 0.4 }, 0.3)
 
-	local card = Instance.new("Frame")
-	card.AnchorPoint = Vector2.new(0.5, 0.5)
-	card.Position = UDim2.fromScale(0.5, 0.5)
-	card.Size = UDim2.fromOffset(460, 380)
-	card.BackgroundColor3 = DARK
-	card.ZIndex = 21
-	card.Parent = overlay
-	corner(card, UDim.new(0, 24))
-	local cardStroke = Instance.new("UIStroke")
-	cardStroke.Color = YELLOW
-	cardStroke.Thickness = 4
-	cardStroke.Parent = card
+	local holder = Instance.new("Frame")
+	holder.AnchorPoint = Vector2.new(0.5, 0.5)
+	holder.Position = UDim2.fromScale(0.5, 0.5)
+	holder.Size = UDim2.fromOffset(480, 430)
+	holder.BackgroundTransparency = 1
+	holder.ZIndex = 21
+	holder.Parent = overlay
+	Theme.softShadow(holder, Theme.Radius.XL)
 	local cardScale = Instance.new("UIScale")
 	cardScale.Scale = 0.3
-	cardScale.Parent = card
-	local viewport = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1000, 800)
-	local fit = math.min(1, (viewport.X - 30) / 460, (viewport.Y - 30) / 380)
-	TweenService:Create(cardScale, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = fit }):Play()
+	cardScale.Parent = holder
+	local area = gui.AbsoluteSize
+	local fit = math.clamp(math.min(1, (area.X - 30) / 480, (area.Y - 30) / 430), 0.4, 1)
+	Theme.tween(cardScale, { Scale = fit }, 0.5, Enum.EasingStyle.Back)
 
-	-- hüpfende Cartoon-Kuh (aus Frames)
-	local cow = Instance.new("Frame")
-	cow.AnchorPoint = Vector2.new(0.5, 0)
-	cow.Position = UDim2.new(0.5, 0, 0, 18)
-	cow.Size = UDim2.fromOffset(120, 110)
-	cow.BackgroundTransparency = 1
-	cow.ZIndex = 22
-	cow.Parent = card
-	local function blob(parent, size, position, color, z)
-		local f = Instance.new("Frame")
-		f.AnchorPoint = Vector2.new(0.5, 0.5)
-		f.Size = size
-		f.Position = position
-		f.BackgroundColor3 = color
-		f.BorderSizePixel = 0
-		f.ZIndex = z
-		f.Parent = parent
-		corner(f, UDim.new(1, 0))
-		return f
-	end
-	local ears = {
-		blob(cow, UDim2.fromOffset(40, 24), UDim2.fromOffset(14, 34), Color3.new(1, 1, 1), 22),
-		blob(cow, UDim2.fromOffset(40, 24), UDim2.fromOffset(106, 34), Color3.new(1, 1, 1), 22),
-	}
-	ears[1].Rotation = -25
-	ears[2].Rotation = 25
-	local head = blob(cow, UDim2.fromOffset(100, 96), UDim2.fromOffset(60, 56), Color3.new(1, 1, 1), 23)
-	local headStroke = Instance.new("UIStroke")
-	headStroke.Color = Color3.fromRGB(30, 30, 40)
-	headStroke.Thickness = 3
-	headStroke.Parent = head
-	blob(head, UDim2.fromOffset(34, 30), UDim2.fromOffset(26, 26), Color3.fromRGB(30, 30, 35), 24)
-	for _, x in ipairs({ 0.32, 0.68 }) do
-		local eye = blob(head, UDim2.fromOffset(24, 26), UDim2.fromScale(x, 0.4), Color3.new(1, 1, 1), 25)
-		blob(eye, UDim2.fromOffset(13, 15), UDim2.fromScale(0.55, 0.55), Color3.fromRGB(20, 20, 25), 26)
-	end
-	local snout = blob(head, UDim2.fromOffset(60, 34), UDim2.fromScale(0.5, 0.78), Color3.fromRGB(255, 170, 185), 25)
-	for _, x in ipairs({ 0.32, 0.68 }) do
-		blob(snout, UDim2.fromOffset(8, 11), UDim2.fromScale(x, 0.45), Color3.fromRGB(190, 90, 110), 26)
-	end
-	TweenService:Create(cow, TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {
-		Position = UDim2.new(0.5, 0, 0, 6),
+	local card = Theme.panel(holder, {
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Colors.Panel,
+		ZIndex = 22,
+		Radius = Theme.Radius.XL,
+		Outline = Theme.Stroke.Normal,
+		OutlineColor = Colors.Blue,
+	})
+
+	-- hüpfende Kuh (gezeichnetes Symbol)
+	local bounce = Instance.new("Frame")
+	bounce.AnchorPoint = Vector2.new(0.5, 0)
+	bounce.Position = UDim2.new(0.5, 0, 0, 22)
+	bounce.Size = UDim2.fromOffset(100, 100)
+	bounce.BackgroundTransparency = 1
+	bounce.ZIndex = 23
+	bounce.Parent = card
+	Theme.cowIcon(bounce, 92, UDim2.fromScale(0.5, 0.5), Color3.new(1, 1, 1), Color3.fromRGB(30, 30, 35))
+	game:GetService("TweenService"):Create(bounce, TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {
+		Position = UDim2.new(0.5, 0, 0, 10),
 		Rotation = 6,
 	}):Play()
 
-	local function cardText(text, y, size, font, color)
-		local label = Instance.new("TextLabel")
-		label.BackgroundTransparency = 1
-		label.Position = UDim2.fromOffset(20, y)
-		label.Size = UDim2.new(1, -40, 0, size + 14)
-		label.Font = font
-		label.TextSize = size
-		label.TextColor3 = color or TEXT
-		label.TextWrapped = true
-		label.Text = text
-		label.ZIndex = 22
-		label.Parent = card
-		return label
+	local function cardText(text, y, size, font, color, height)
+		return Theme.label(card, {
+			Position = UDim2.fromOffset(24, y),
+			Size = UDim2.new(1, -48, 0, height or size + 12),
+			Font = font,
+			TextSize = size,
+			TextColor3 = color or Colors.Text,
+			TextWrapped = true,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			Text = text,
+		})
 	end
-	cardText("Willkommen bei 🐄 COW FARM!", 140, 30, Enum.Font.FredokaOne, YELLOW)
-	cardText("Du hast eine GRATIS Kuh bekommen! 🎉", 190, 22, Enum.Font.FredokaOne)
-	cardText("Melke sie, verkaufe die Milch und baue die größte Farm!", 226, 16, Enum.Font.GothamBold,
-		Color3.fromRGB(200, 205, 220))
+	cardText("Willkommen bei COW FARM!", 134, 30, Theme.Font)
+	cardText("Du hast eine GRATIS Kuh bekommen.", 178, 20, Theme.Font, Colors.Blue)
+	-- der Weg durchs Spiel in einer Zeile
+	cardText("Melken  >  Verkaufen  >  Zweite Kuh kaufen  >  Zucht & Kisten", 218, 16, Theme.BodyFont, Colors.SubText, 44)
+	cardText("Der Pfeil zeigt dir jeden Schritt. Unten links kannst du das Tutorial überspringen.", 268, 14, Theme.TextFont, Colors.SubText, 40)
 
-	local go = Instance.new("TextButton")
-	go.AnchorPoint = Vector2.new(0.5, 1)
-	go.Position = UDim2.new(0.5, 0, 1, -24)
-	go.Size = UDim2.fromOffset(240, 64)
-	go.BackgroundColor3 = GREEN
-	go.Font = Enum.Font.FredokaOne
-	go.TextSize = 30
-	go.TextColor3 = TEXT
-	go.TextStrokeColor3 = Color3.fromRGB(20, 70, 30)
-	go.TextStrokeTransparency = 0
-	go.Text = "Los geht's! ▶"
-	go.ZIndex = 22
-	go.Parent = card
-	corner(go, UDim.new(1, 0))
-	local goScale = Instance.new("UIScale")
-	goScale.Parent = go
-	TweenService:Create(goScale, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), { Scale = 1.06 }):Play()
+	local go = Theme.primaryButton(card, {
+		Text = "Los geht's!",
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -24),
+		Size = UDim2.fromOffset(240, 60),
+		TextSize = 28,
+		Radius = Theme.Radius.L,
+		Lip = 6,
+	})
 
 	local closed = Instance.new("BindableEvent")
 	go.Activated:Connect(function()
-		TweenService:Create(overlay, TweenInfo.new(0.25), { BackgroundTransparency = 1 }):Play()
-		local shrink = TweenService:Create(cardScale, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.In), { Scale = 0 })
-		shrink:Play()
+		Theme.tween(overlay, { BackgroundTransparency = 1 }, 0.25)
+		local shrink = Theme.tween(cardScale, { Scale = 0 }, 0.25, Enum.EasingStyle.Back, Enum.EasingDirection.In)
 		shrink.Completed:Wait()
 		overlay:Destroy()
 		closed:Fire()
 	end)
+	if game:GetService("UserInputService").GamepadEnabled then
+		GuiService.SelectedObject = go -- Controller: A-Knopf drückt "Los geht's"
+	end
 	closed.Event:Wait()
 	closed:Destroy()
 end
@@ -382,6 +364,7 @@ local function cinematicIntro(plot)
 	if not camera then
 		return
 	end
+	local TweenService = game:GetService("TweenService")
 	local plotPos = plot and plot:GetPivot().Position or Vector3.new(0, 0, 60)
 	local startCFrame = CFrame.lookAt(Vector3.new(0, 90, -140), Vector3.new(0, 0, 40))
 	local endCFrame = CFrame.lookAt(plotPos + Vector3.new(-plotPos.X * 0.6, 45, -35), plotPos)
@@ -440,6 +423,12 @@ local function waitUntil(condition, timeout)
 	return not finished
 end
 
+local function menuWindowVisible()
+	local menu = playerGui:FindFirstChild("MenuUI")
+	local window = menu and menu:FindFirstChild("Window")
+	return window ~= nil and window.Visible
+end
+
 task.spawn(function()
 	local plot = waitForPlot(15)
 	-- kurz warten, bis der Charakter auf der Farm steht
@@ -452,26 +441,26 @@ task.spawn(function()
 	if finished then
 		return
 	end
-	skipButton.Visible = true
+	skipButton.Parent.Visible = true
 
-	-- Schritt: Deine Farm
-	setStep("🏡 Das ist DEINE Farm!", {
+	-- Schritt 1: Deine Farm (mit Startkuh)
+	setStep("Das ist DEINE Farm. Dort steht schon deine Gratis-Kuh!", {
 		Kind = "World",
 		Get = function()
 			return plotSignPosition(plot or findMyPlot())
 		end,
-	})
+	}, 1)
 	waitUntil(function()
 		return false
 	end, 3)
 
-	-- Schritt: Kuh melken
-	setStep("🐄 Klicke deine Kuh an und wähle „Melken“ (oder lauf auf die blaue Platte)!", {
+	-- Schritt 2: Kuh melken
+	setStep("Klicke deine Kuh an und wähle „Melken“ (oder lauf auf die blaue Platte). Wechsle ◄ ► ab (Q / E)!", {
 		Kind = "World",
 		Get = function()
 			return myFirstCowPosition(plot or findMyPlot())
 		end,
-	})
+	}, 2)
 	if not waitUntil(function()
 		return milkingStarted
 	end) then
@@ -479,42 +468,58 @@ task.spawn(function()
 	end
 	banner.Visible = false
 
-	-- Schritt: erste Milch -> verkaufen
+	-- Schritt 3: erste Milch -> verkaufen
 	if not waitUntil(function()
 		return firstMilk or (player:GetAttribute("Milk") or 0) > 0
 	end) then
 		return
 	end
 	local coinsBefore = player:GetAttribute("Coins") or 0
-	setStep("🎉 Erste Milch gesammelt! Jetzt verkaufen!", {
+	setStep("Erste Milch gesammelt! Drück VERKAUFEN, um Coins zu bekommen.", {
 		Kind = "Gui",
 		Get = function()
 			local hud = playerGui:FindFirstChild("HUD")
 			local ref = hud and hud:FindFirstChild("SellButtonRef")
 			return ref and ref.Value
 		end,
-	})
+	}, 3)
 	if not waitUntil(function()
 		return (player:GetAttribute("Coins") or 0) > coinsBefore and (player:GetAttribute("Milk") or 0) == 0
 	end) then
 		return
 	end
 
-	-- Schritt: zum Shop
+	-- Schritt 4: zweite Kuh kaufen
 	local earned = (player:GetAttribute("Coins") or 0) - coinsBefore
-	setStep(("💰 +%s Coins! Kauf mehr Kühe im Kuh-Shop!"):format(CowData.FormatNumber(earned)), {
+	local cowsBefore = player:GetAttribute("CowCount") or 1
+	local price = CowData.Rarities.Common.ShopPrice
+	setStep(("+%s Coins! Geh zum Kuh-Shop und kauf deine zweite Kuh (%s Coins)."):format(
+		CowData.FormatNumber(earned),
+		CowData.FormatNumber(price)
+	), {
 		Kind = "World",
-		Get = cowShopPosition,
-	})
+		Get = function()
+			return shopPosition("CowShop")
+		end,
+	}, 4)
 	waitUntil(function()
-		local menu = playerGui:FindFirstChild("MenuUI")
-		local window = menu and menu:FindFirstChild("Window")
-		return window ~= nil and window.Visible
-	end, 60)
+		return (player:GetAttribute("CowCount") or 0) > cowsBefore
+	end, 240)
+
+	-- Schritt 5: Zucht und Kisten kennenlernen
+	if not finished then
+		setStep("Im Zucht-Stall kreuzt du zwei Kühe zu einem Kalb. Seltene Kühe gibt es in den Kisten am Nord-Markt (Taste M = Karte).", {
+			Kind = "World",
+			Get = function()
+				return shopPosition("BreedingBarn")
+			end,
+		}, 5)
+		waitUntil(menuWindowVisible, 60)
+	end
 
 	if not finished then
-		setStep("✅ Super! Jetzt weißt du alles. Viel Spaß auf deiner Farm!", nil)
-		task.wait(3)
+		setStep("Super! Jetzt kennst du alles. Das Feld „Nächstes Ziel“ oben links hilft dir weiter. Viel Spaß!", nil)
+		task.wait(5)
 		finish()
 	end
 end)

@@ -17,6 +17,7 @@ local UserInputService = game:GetService("UserInputService")
 local CowData = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CowData"))
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local Theme = require(script.Parent:WaitForChild("Theme"))
+local Palette = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Palette"))
 local UIBus = require(script.Parent:WaitForChild("UIBus"))
 
 local Colors = Theme.Colors
@@ -124,33 +125,39 @@ for index = 1, HOTBAR_SIZE do
 	slot.AutoButtonColor = false
 	slot.Text = ""
 	slot.Size = UDim2.fromOffset(SLOT, SLOT)
-	slot.BackgroundColor3 = Color3.fromRGB(18, 20, 28)
-	slot.BackgroundTransparency = 0.35
+	slot.BackgroundColor3 = Colors.Panel
+	slot.BackgroundTransparency = 0.5
+	slot.BorderSizePixel = 0
 	slot.Parent = hotbar
-	Theme.corner(slot, 10)
-	local stroke = Theme.border(slot, 2, Color3.new(1, 1, 1), 0.75)
-	Theme.label(slot, {
+	Theme.corner(slot, Theme.Radius.M)
+	local stroke = Theme.border(slot, Theme.Stroke.Thin, Colors.Line, 0.5)
+	local number = Theme.label(slot, {
 		Position = UDim2.fromOffset(6, 3),
 		Size = UDim2.fromOffset(16, 16),
 		Font = Theme.BodyFont,
-		TextSize = 13,
+		TextSize = Theme.TextSize.Small,
+		TextColor3 = Colors.SubText,
 		Text = tostring(index),
-		Outline = 1,
 	})
 	local content = Instance.new("Frame")
 	content.Name = "Content"
 	content.Size = UDim2.fromScale(1, 1)
 	content.BackgroundTransparency = 1
 	content.Parent = slot
-	slots[index] = { Button = slot, Stroke = stroke, Content = content }
+	slots[index] = { Button = slot, Stroke = stroke, Content = content, Number = number }
 end
 
+-- Zustände eines Platzes:
+--   leer        – durchsichtig, gestrichelt wirkende dünne Linie, nur die Zahl
+--   belegt      – Karte mit Kuhkopf und Name, Rahmen in der Seltenheitsfarbe
+--   ausgewählt  – hellblauer, dicker Rahmen (Kuh wird gerade platziert)
 local function renderHotbar()
 	for index, widget in ipairs(slots) do
 		for _, child in ipairs(widget.Content:GetChildren()) do
 			child:Destroy()
 		end
 		local cow = hotbarCow(index)
+		local selected = selectedIndex == index
 		if cow then
 			cowIcon(widget.Content, cow.Rarity, 34, UDim2.new(0.5, 0, 0, 27))
 			Theme.label(widget.Content, {
@@ -159,17 +166,23 @@ local function renderHotbar()
 				Size = UDim2.new(1, -6, 0, 14),
 				TextXAlignment = Enum.TextXAlignment.Center,
 				Font = Theme.BodyFont,
-				TextSize = 11,
+				TextSize = Theme.TextSize.Tiny,
 				TextTruncate = Enum.TextTruncate.AtEnd,
-				TextColor3 = rarityInfo(cow.Rarity).UiColor,
+				TextColor3 = Palette.rarityColor(cow.Rarity),
 				Text = cow.Name,
-				Outline = 1,
 			})
+			widget.Button.BackgroundColor3 = selected and Colors.Steel or Colors.Card
+			widget.Button.BackgroundTransparency = 0.05
+			widget.Stroke.Color = selected and Colors.Blue or Palette.rarityColor(cow.Rarity)
+			widget.Stroke.Transparency = selected and 0 or 0.2
+		else
+			widget.Button.BackgroundColor3 = Colors.Panel
+			widget.Button.BackgroundTransparency = 0.5
+			widget.Stroke.Color = selected and Colors.Blue or Colors.Line
+			widget.Stroke.Transparency = selected and 0 or 0.5
 		end
-		local selected = selectedIndex == index
-		widget.Stroke.Transparency = selected and 0 or 0.75
-		widget.Stroke.Thickness = selected and 3 or 2
-		widget.Button.BackgroundTransparency = selected and 0.1 or 0.35
+		widget.Stroke.Thickness = selected and 3 or Theme.Stroke.Thin
+		widget.Number.TextColor3 = cow and Colors.Text or Colors.SubText
 	end
 end
 
@@ -210,7 +223,7 @@ local function showHint(text, isError, duration)
 	hintToken += 1
 	local token = hintToken
 	hintText.Text = text
-	hintText.TextColor3 = isError and Color3.fromRGB(255, 130, 130) or Colors.Text
+	hintText.TextColor3 = isError and Color3.fromRGB(255, 160, 150) or Colors.Text
 	cancelButton.Parent.Visible = placingCowId ~= nil
 	hint.Visible = true
 	if duration then
@@ -225,8 +238,8 @@ end
 ------------------------------------------------------------------------
 -- Platzier-Modus
 ------------------------------------------------------------------------
-local FREE_COLOR = Color3.fromRGB(110, 235, 110)
-local TAKEN_COLOR = Color3.fromRGB(240, 90, 80)
+local FREE_COLOR = Color3.fromRGB(120, 200, 110) -- freie Felder (sanftes Grün)
+local TAKEN_COLOR = Color3.fromRGB(214, 100, 96) -- belegte Felder (sanftes Rot)
 local myCells = {}
 local hoveredCell = nil
 
@@ -415,14 +428,7 @@ listPadding.PaddingRight = UDim.new(0, 14)
 listPadding.PaddingBottom = UDim.new(0, 10)
 listPadding.Parent = list
 
-local function locationText(cow)
-	if cow.Slot then
-		return "Farm · Feld " .. cow.Slot
-	elseif cow.Hotbar then
-		return "Hotbar · Platz " .. cow.Hotbar
-	end
-	return "Lager"
-end
+local popupCowId = nil -- Kuh, deren kleines Menü gerade offen ist (wird unten gesetzt)
 
 local function sortKey(cow)
 	local group = cow.Hotbar and 1 or (cow.Slot and 3 or 2)
@@ -453,41 +459,44 @@ local function renderWindow()
 
 	for order, cow in ipairs(cows) do
 		local info = rarityInfo(cow.Rarity)
-		local card = Theme.panel(list, {
+		local card = Theme.cowCard(list, {
 			Name = cow.Id,
 			LayoutOrder = order,
-			BackgroundColor3 = Colors.Card,
-			Radius = 12,
+			Info = info,
+			CowName = cow.Name,
+			Size = UDim2.fromOffset(226, 150),
 		})
-		-- farbiger Streifen oben = Seltenheit
-		local strip = Instance.new("Frame")
-		strip.Size = UDim2.new(1, 0, 0, 6)
-		strip.BackgroundColor3 = info.UiColor
-		strip.BorderSizePixel = 0
-		strip.Parent = card
-		Theme.corner(strip, 4)
+		-- Rahmen: ausgewählte Kuh (wird gerade platziert / Menü offen) in Blau
+		local cardStroke = card:FindFirstChildOfClass("UIStroke")
+		if cardStroke and (cow.Id == placingCowId or cow.Id == popupCowId) then
+			cardStroke.Color = Colors.Blue
+			cardStroke.Thickness = 3
+		end
 
-		cowIcon(card, cow.Rarity, 48, UDim2.fromOffset(38, 44))
-		Theme.label(card, {
-			Position = UDim2.fromOffset(72, 14),
-			Size = UDim2.new(1, -80, 0, 24),
-			TextSize = 21,
-			TextTruncate = Enum.TextTruncate.AtEnd,
-			Text = cow.Name,
+		-- Ort: Farm (grün) / Hotbar (blau) / Lager (grau) + Milch pro Zug
+		local where, whereColor = "Lager", Colors.Grey
+		if cow.Slot then
+			where, whereColor = "Farm · Feld " .. cow.Slot, Colors.Green
+		elseif cow.Hotbar then
+			where, whereColor = "Hotbar " .. cow.Hotbar, Colors.Blue
+		end
+		local whereTag = Theme.tag(card, {
+			Name = "Location",
+			Position = UDim2.fromOffset(12, 76),
+			Color = whereColor,
+			Height = 20,
+			Text = where,
 		})
-		Theme.tag(card, {
-			Position = UDim2.fromOffset(72, 42),
-			Color = info.UiColor,
-			Text = (info.IsSpecial and "★ " or "") .. info.DisplayName,
-		})
+		whereTag.TextColor3 = Colors.Cream
 		Theme.label(card, {
-			Position = UDim2.fromOffset(12, 74),
-			Size = UDim2.new(1, -24, 0, 16),
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, -12, 0, 77),
+			Size = UDim2.fromOffset(80, 18),
 			Font = Theme.BodyFont,
-			TextSize = 12,
+			TextSize = Theme.TextSize.Small,
 			TextColor3 = Colors.SubText,
-			Text = ("%s   ·   %d Milch pro Zug"):format(locationText(cow), info.MilkPerPull),
-			Outline = 0,
+			TextXAlignment = Enum.TextXAlignment.Right,
+			Text = info.MilkPerPull .. " / Zug",
 		})
 
 		local buttons = {}
@@ -593,7 +602,6 @@ local pickupButton = Theme.button(popup, {
 	Size = UDim2.new(0.5, -16, 0, 42),
 })
 
-local popupCowId = nil
 local popupToken = 0
 local popupTag = nil
 
@@ -626,10 +634,10 @@ Remotes.CowClicked.OnClientEvent:Connect(function(cow)
 	local waitTime = (cow.MilkReadyAt or 0) - (cow.ServerTime or os.time())
 	if waitTime > 0 then
 		popupStatus.Text = "Braucht noch " .. formatTime(waitTime) .. " Pause"
-		popupStatus.TextColor3 = Color3.fromRGB(255, 190, 90)
+		popupStatus.TextColor3 = Colors.Orange
 	else
 		popupStatus.Text = "Bereit zum Melken"
-		popupStatus.TextColor3 = Color3.fromRGB(130, 240, 140)
+		popupStatus.TextColor3 = Color3.fromRGB(140, 214, 124)
 	end
 
 	-- neben der Maus, aber ganz im Bild (Inset abziehen, weil diese GUI ihn nicht ignoriert)
