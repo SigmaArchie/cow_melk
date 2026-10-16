@@ -345,7 +345,7 @@ RunService.Heartbeat:Connect(function()
 end)
 
 ------------------------------------------------------------------------
--- Shops: Schild hüpft, Hinweis blinkt, Verkäufer winkt
+-- Shops: Hinweis "Klicken zum Öffnen" atmet ruhig, Verkäufer winkt
 ------------------------------------------------------------------------
 local function animateShop(building)
 	local billboard = building:WaitForChild("SignAnchor", 10)
@@ -355,12 +355,12 @@ local function animateShop(building)
 		local bounce = card:FindFirstChild("Bounce")
 		if bounce then
 			bounce.Scale = 1
-			loopTween(bounce, 0.6, { Scale = 1.1 }, Enum.EasingStyle.Quad)
+			loopTween(bounce, 1.2, { Scale = 1.04 }, Enum.EasingStyle.Sine) -- ruhiges Atmen statt Hüpfen
 		end
 		local hint = card:FindFirstChild("ClickHint")
 		local hintShadow = card:FindFirstChild("ClickHintShadow")
 		if hint then
-			loopTween(hint, 0.5, { TextTransparency = 0.8, TextStrokeTransparency = 1 }, Enum.EasingStyle.Linear)
+			loopTween(hint, 1.2, { TextTransparency = 0.35 }, Enum.EasingStyle.Sine)
 		end
 		if hintShadow then
 			loopTween(hintShadow, 0.5, { TextTransparency = 1 }, Enum.EasingStyle.Linear)
