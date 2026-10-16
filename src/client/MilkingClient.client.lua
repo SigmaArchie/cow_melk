@@ -2,53 +2,51 @@
 -- Melk-Minispiel auf dem Client (Gefühl wie ein Handy-Klickspiel):
 --   * Bildschirm wird abgedunkelt, Panel gleitet von unten herein
 --   * Cartoon-Kuhgesicht oben, zwei große runde Knöpfe ◄ / ► (Tasten Q / E, Controller L1 / R1)
---   * Eimer in der Mitte füllt sich sichtbar mit weißer Milch
+--   * Fortschrittsbalken + Eimer in der Mitte füllt sich sichtbar mit weißer Milch
 --   * richtiger Zug: Kamera wackelt leicht, Spritz-Sound, "+X" fliegt nach oben
 --   * falscher Zug (gleiche Seite zweimal): Knöpfe rot, stärkeres Wackeln, Fortschritt verloren
---   * fertig: Eimer kippt, großes "+X 🥛 MILCH!" springt auf den Bildschirm
+--   * fertig: Eimer kippt, großes "+X MILCH!" springt auf den Bildschirm
+--   * Aufstehen: Knopf, Controller B (am Handy: Knopf antippen)
 -- Der Server entscheidet (MilkPull) und schickt den echten Stand zurück (MilkingProgress).
+-- Stil und Bausteine kommen aus Theme.lua.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local TweenService = game:GetService("TweenService")
 local ContextActionService = game:GetService("ContextActionService")
 local RunService = game:GetService("RunService")
 local SoundService = game:GetService("SoundService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 
 local CowData = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CowData"))
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
+local Theme = require(script.Parent:WaitForChild("Theme"))
 local Config = CowData.Config
+local Colors = Theme.Colors
 
 local player = Players.LocalPlayer
 
 local ACTION_NAME = "CowFarmMilkPull"
 local CLIENT_PULL_INTERVAL = 0.12 -- etwas langsamer als der Server erlaubt
 
-local PANEL_BG = Color3.fromRGB(28, 30, 44)
-local TEXT = Color3.new(1, 1, 1)
-local SUBTEXT = Color3.fromRGB(205, 210, 225)
-local LEFT_COLOR = Color3.fromRGB(70, 150, 255)
-local RIGHT_COLOR = Color3.fromRGB(255, 140, 50)
-local WRONG_COLOR = Color3.fromRGB(230, 55, 55)
+local TEXT = Colors.Text
+local SUBTEXT = Colors.SubText
+local LEFT_COLOR = Colors.Blue
+local RIGHT_COLOR = Colors.Green
+local WRONG_COLOR = Colors.Red
 local MILK_COLOR = Color3.fromRGB(250, 252, 255)
-local GOOD_COLOR = Color3.fromRGB(120, 255, 140)
 local BUCKET_WOOD = Color3.fromRGB(150, 100, 60)
+local WRONG_TEXT = Color3.fromRGB(255, 160, 150)
 
 ------------------------------------------------------------------------
 -- Zustand
 ------------------------------------------------------------------------
 local session = nil -- { CowId, Needed, Pulls, MilkPerPull, Penalty, LastSide, LastPull, Spot, TeatsHome }
+local endToken = 0 -- zählt Sessions; verhindert, dass ein altes MilkingEnded eine neue Session abräumt
 
 ------------------------------------------------------------------------
 -- UI-Helfer
 ------------------------------------------------------------------------
-local function corner(parent, radius)
-	local c = Instance.new("UICorner")
-	c.CornerRadius = radius or UDim.new(0, 12)
-	c.Parent = parent
-	return c
-end
-
 local function frame(parent, props)
 	local f = Instance.new("Frame")
 	f.BorderSizePixel = 0
@@ -63,7 +61,7 @@ local function text(parent, props)
 	local l = Instance.new("TextLabel")
 	l.BackgroundTransparency = 1
 	l.TextColor3 = TEXT
-	l.Font = Enum.Font.FredokaOne
+	l.Font = Theme.Font
 	for k, v in pairs(props) do
 		l[k] = v
 	end
@@ -79,27 +77,32 @@ local function circle(parent, size, position, color, z)
 		BackgroundColor3 = color,
 		ZIndex = z or 1,
 	})
-	corner(c, UDim.new(1, 0))
+	Theme.corner(c, UDim.new(1, 0))
 	return c
+end
+
+-- Tastenbeschriftung je nach Eingabegerät (Tastatur / Controller / Touch)
+local function keyLabels()
+	local input = UserInputService:GetLastInputType()
+	if input.Name:sub(1, 7) == "Gamepad" then
+		return "L1", "R1", true
+	end
+	local touchOnly = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+	return "Q", "E", not touchOnly
 end
 
 ------------------------------------------------------------------------
 -- GUI aufbauen
 ------------------------------------------------------------------------
-local gui = Instance.new("ScreenGui")
-gui.Name = "MilkingUI"
-gui.ResetOnSpawn = false
-gui.IgnoreGuiInset = true
+local gui = Theme.screenGui("MilkingUI", 10)
 gui.Enabled = false
-gui.DisplayOrder = 10
-gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.Parent = player:WaitForChild("PlayerGui")
 
--- dunkler Schleier über dem ganzen Bildschirm
+-- dunkler Schleier über dem Bildschirm
 local overlay = frame(gui, {
 	Name = "Overlay",
 	Size = UDim2.fromScale(1, 1),
-	BackgroundColor3 = Color3.new(0, 0, 0),
+	BackgroundColor3 = Colors.Outline,
 	BackgroundTransparency = 1,
 })
 
@@ -107,25 +110,31 @@ local PANEL_SIZE = Vector2.new(440, 380)
 local PANEL_SHOWN = UDim2.new(0.5, 0, 1, -20)
 local PANEL_HIDDEN = UDim2.new(0.5, 0, 1, PANEL_SIZE.Y + 140)
 
+-- Halter trägt Schatten + Fläche und wird verschoben/skaliert
 local panel = frame(gui, {
 	Name = "Panel",
 	AnchorPoint = Vector2.new(0.5, 1),
 	Position = PANEL_HIDDEN,
 	Size = UDim2.fromOffset(PANEL_SIZE.X, PANEL_SIZE.Y),
-	BackgroundColor3 = PANEL_BG,
+	BackgroundTransparency = 1,
 })
-corner(panel, UDim.new(0, 26))
-local panelStroke = Instance.new("UIStroke")
-panelStroke.Color = TEXT
-panelStroke.Thickness = 3
-panelStroke.Parent = panel
+Theme.softShadow(panel, Theme.Radius.XL + 6)
 local panelScale = Instance.new("UIScale")
 panelScale.Parent = panel
+
+local card = Theme.panel(panel, {
+	Name = "Card",
+	Size = UDim2.fromScale(1, 1),
+	BackgroundColor3 = Colors.Panel,
+	Radius = Theme.Radius.XL + 6,
+	Outline = Theme.Stroke.Normal + 0.5, -- Farbe = Seltenheit der Kuh
+})
+local panelStroke = card:FindFirstChildOfClass("UIStroke")
 
 ------------------------------------------------------------------------
 -- Cartoon-Kuhgesicht (ragt oben aus dem Panel heraus)
 ------------------------------------------------------------------------
-local face = frame(panel, {
+local face = frame(card, {
 	Name = "CowFace",
 	AnchorPoint = Vector2.new(0.5, 0.5),
 	Position = UDim2.new(0.5, 0, 0, 6),
@@ -136,23 +145,17 @@ local face = frame(panel, {
 local faceScale = Instance.new("UIScale")
 faceScale.Parent = face
 
-local earLeft = circle(face, UDim2.fromOffset(44, 26), UDim2.new(0, 10, 0, 34), Color3.new(1, 1, 1), 5)
+local earLeft = circle(face, UDim2.fromOffset(44, 26), UDim2.fromOffset(10, 34), Color3.new(1, 1, 1), 5)
 earLeft.Rotation = -25
 local earRight = circle(face, UDim2.fromOffset(44, 26), UDim2.new(1, -10, 0, 34), Color3.new(1, 1, 1), 5)
 earRight.Rotation = 25
 local faceHead = circle(face, UDim2.fromOffset(110, 104), UDim2.fromScale(0.5, 0.52), Color3.new(1, 1, 1), 6)
-local faceStroke = Instance.new("UIStroke")
-faceStroke.Color = Color3.fromRGB(30, 30, 40)
-faceStroke.Thickness = 3
-faceStroke.Parent = faceHead
-local faceSpot = circle(faceHead, UDim2.fromOffset(40, 34), UDim2.new(0, 26, 0, 30), Color3.fromRGB(30, 30, 35), 7)
+Theme.border(faceHead, 2.5, Colors.Outline)
+local faceSpot = circle(faceHead, UDim2.fromOffset(40, 34), UDim2.fromOffset(26, 30), Color3.fromRGB(30, 30, 35), 7)
 local eyes = {}
 for _, x in ipairs({ 0.33, 0.67 }) do
 	local white = circle(faceHead, UDim2.fromOffset(28, 30), UDim2.fromScale(x, 0.4), Color3.new(1, 1, 1), 8)
-	local whiteStroke = Instance.new("UIStroke")
-	whiteStroke.Color = Color3.fromRGB(30, 30, 40)
-	whiteStroke.Thickness = 2
-	whiteStroke.Parent = white
+	Theme.border(white, 1.5, Colors.Outline)
 	circle(white, UDim2.fromOffset(15, 17), UDim2.fromScale(0.55, 0.55), Color3.fromRGB(20, 20, 25), 9)
 	circle(white, UDim2.fromOffset(6, 6), UDim2.fromScale(0.68, 0.38), Color3.new(1, 1, 1), 10)
 	table.insert(eyes, white)
@@ -178,33 +181,41 @@ task.spawn(function()
 	end
 end)
 
-local title = text(panel, {
+local title = text(card, {
 	Name = "Title",
-	Position = UDim2.fromOffset(0, 72),
+	Position = UDim2.fromOffset(0, 70),
 	Size = UDim2.new(1, 0, 0, 30),
 	TextSize = 26,
 	Text = "Melken",
 })
 
-local hint = text(panel, {
+local hint = text(card, {
 	Name = "Hint",
-	Position = UDim2.fromOffset(16, 102),
-	Size = UDim2.new(1, -32, 0, 22),
-	Font = Enum.Font.GothamBold,
-	TextSize = 15,
+	Position = UDim2.fromOffset(16, 100),
+	Size = UDim2.new(1, -32, 0, 20),
+	Font = Theme.BodyFont,
+	TextSize = Theme.TextSize.Body - 1,
 	TextColor3 = SUBTEXT,
 	TextWrapped = true,
 	Text = "Abwechselnd ◄ ► ziehen!",
 })
 
+-- Fortschritt (richtige Züge)
+local progress = Theme.progressBar(card, {
+	AnchorPoint = Vector2.new(0.5, 0),
+	Position = UDim2.new(0.5, 0, 0, 126),
+	Size = UDim2.new(0.62, 0, 0, 8),
+	Color = Colors.Green,
+})
+
 ------------------------------------------------------------------------
 -- Eimer in der Mitte
 ------------------------------------------------------------------------
-local bucketHolder = frame(panel, {
+local bucketHolder = frame(card, {
 	Name = "BucketHolder",
 	AnchorPoint = Vector2.new(0.5, 0),
-	Position = UDim2.new(0.5, 0, 0, 136),
-	Size = UDim2.fromOffset(120, 150),
+	Position = UDim2.new(0.5, 0, 0, 146),
+	Size = UDim2.fromOffset(120, 140),
 	BackgroundTransparency = 1,
 	ZIndex = 3,
 })
@@ -212,16 +223,13 @@ local bucket = frame(bucketHolder, {
 	Name = "Bucket",
 	AnchorPoint = Vector2.new(0.5, 1),
 	Position = UDim2.fromScale(0.5, 1),
-	Size = UDim2.fromOffset(110, 130),
+	Size = UDim2.fromOffset(110, 124),
 	BackgroundColor3 = BUCKET_WOOD,
 	ClipsDescendants = true,
 	ZIndex = 3,
 })
-corner(bucket, UDim.new(0, 18))
-local bucketStroke = Instance.new("UIStroke")
-bucketStroke.Color = Color3.fromRGB(80, 50, 30)
-bucketStroke.Thickness = 4
-bucketStroke.Parent = bucket
+Theme.corner(bucket, 18)
+Theme.border(bucket, 3, Color3.fromRGB(80, 50, 30))
 -- Innenraum (dunkler)
 local bucketInside = frame(bucket, {
 	Position = UDim2.fromOffset(8, 8),
@@ -229,7 +237,7 @@ local bucketInside = frame(bucket, {
 	BackgroundColor3 = Color3.fromRGB(70, 45, 28),
 	ZIndex = 3,
 })
-corner(bucketInside, UDim.new(0, 12))
+Theme.corner(bucketInside, 12)
 local milkFill = frame(bucketInside, {
 	Name = "Milk",
 	AnchorPoint = Vector2.new(0, 1),
@@ -238,7 +246,7 @@ local milkFill = frame(bucketInside, {
 	BackgroundColor3 = MILK_COLOR,
 	ZIndex = 4,
 })
-corner(milkFill, UDim.new(0, 12))
+Theme.corner(milkFill, 12)
 -- Metallreifen
 for _, y in ipairs({ 0.3, 0.75 }) do
 	frame(bucket, {
@@ -252,89 +260,102 @@ end
 local bucketText = text(bucket, {
 	Size = UDim2.fromScale(1, 1),
 	TextSize = 26,
-	TextStrokeTransparency = 0,
-	TextStrokeColor3 = Color3.fromRGB(30, 30, 40),
 	ZIndex = 6,
 	Text = "0/10",
 })
+Theme.textOutline(bucketText, 1.5)
 
 ------------------------------------------------------------------------
 -- Große runde Knöpfe
 ------------------------------------------------------------------------
-local BUTTON_SIZE = 116
+local BUTTON_SIZE = 112
 
-local function makeRoundButton(name, symbol, keyText, xScale, color)
+local function makeRoundButton(name, symbol, xScale, color)
 	local button = Instance.new("TextButton")
 	button.Name = name
 	button.AnchorPoint = Vector2.new(0.5, 0.5)
-	button.Position = UDim2.new(xScale, 0, 0, 212)
+	button.Position = UDim2.new(xScale, 0, 0, 218)
 	button.Size = UDim2.fromOffset(BUTTON_SIZE, BUTTON_SIZE)
 	button.BackgroundColor3 = color
 	button.AutoButtonColor = false
 	button.Font = Enum.Font.GothamBlack
-	button.TextSize = 50
+	button.TextSize = 48
 	button.TextColor3 = TEXT
-	button.TextStrokeTransparency = 0.5
 	button.Text = symbol
 	button.ZIndex = 3
-	button.Parent = panel
-	corner(button, UDim.new(1, 0))
+	button.Parent = card
+	Theme.corner(button, UDim.new(1, 0))
+	Theme.textOutline(button, 1.5)
 
-	local stroke = Instance.new("UIStroke")
-	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-	stroke.Color = TEXT
-	stroke.Thickness = 4
-	stroke.Parent = button
+	local stroke = Theme.border(button, 3, Theme.darken(color, 0.45))
 
 	local key = text(button, {
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.new(0.5, 0, 1, -4),
-		Size = UDim2.fromOffset(38, 26),
+		Size = UDim2.fromOffset(38, 24),
 		BackgroundTransparency = 0,
-		BackgroundColor3 = Color3.fromRGB(25, 27, 38),
-		Font = Enum.Font.GothamBlack,
-		TextSize = 16,
-		Text = keyText,
+		BackgroundColor3 = Colors.Deep,
+		Font = Theme.BodyFont,
+		TextSize = Theme.TextSize.Small,
+		Text = "",
 		ZIndex = 4,
 	})
-	corner(key, UDim.new(0, 8))
+	Theme.corner(key, 8)
 
 	local scale = Instance.new("UIScale")
 	scale.Parent = button
-	return { Button = button, Stroke = stroke, Scale = scale, Color = color, X = xScale }
+
+	local entry = { Button = button, Stroke = stroke, Scale = scale, Color = color, Key = key }
+	-- Hover (Maus) / Auswahl (Controller): kurz heller
+	button.MouseEnter:Connect(function()
+		Theme.tween(button, { BackgroundColor3 = Theme.lighten(entry.Color, 0.12) }, Theme.Time.Fast)
+	end)
+	button.MouseLeave:Connect(function()
+		Theme.tween(button, { BackgroundColor3 = entry.Color }, Theme.Time.Fast)
+	end)
+	return entry
 end
 
 local buttons = {
-	Left = makeRoundButton("Left", "◄", "Q", 0.17, LEFT_COLOR),
-	Right = makeRoundButton("Right", "►", "E", 0.83, RIGHT_COLOR),
+	Left = makeRoundButton("Left", "◄", 0.17, LEFT_COLOR),
+	Right = makeRoundButton("Right", "►", 0.83, RIGHT_COLOR),
 }
 
-local leaveButton = Instance.new("TextButton")
-leaveButton.Name = "Leave"
-leaveButton.AnchorPoint = Vector2.new(0.5, 1)
-leaveButton.Position = UDim2.new(0.5, 0, 1, -14)
-leaveButton.Size = UDim2.fromOffset(150, 34)
-leaveButton.BackgroundColor3 = Color3.fromRGB(70, 74, 96)
-leaveButton.Font = Enum.Font.GothamBold
-leaveButton.TextSize = 15
-leaveButton.TextColor3 = TEXT
-leaveButton.Text = "Aufstehen"
-leaveButton.Parent = panel
-corner(leaveButton, UDim.new(0, 10))
+local leaveButton = Theme.secondaryButton(card, {
+	Name = "Leave",
+	Text = "Aufstehen",
+	AnchorPoint = Vector2.new(0.5, 1),
+	Position = UDim2.new(0.5, 0, 1, -12),
+	Size = UDim2.fromOffset(150, 40),
+	TextSize = Theme.TextSize.Body,
+	Radius = 10,
+})
 
--- großer Abschluss-Text "+X 🥛 MILCH!"
+-- Tastenbeschriftung aktualisieren (Tastatur / Controller / Touch)
+local function updateKeyLabels()
+	local left, right, visible = keyLabels()
+	buttons.Left.Key.Text = left
+	buttons.Right.Key.Text = right
+	buttons.Left.Key.Visible = visible
+	buttons.Right.Key.Visible = visible
+	return left, right
+end
+
+-- großer Abschluss-Text "+X MILCH!"
 local bigReward = text(gui, {
 	Name = "BigReward",
 	AnchorPoint = Vector2.new(0.5, 0.5),
 	Position = UDim2.fromScale(0.5, 0.4),
 	Size = UDim2.fromOffset(600, 120),
-	TextSize = 80,
-	TextColor3 = Color3.fromRGB(255, 255, 255),
-	TextStrokeColor3 = Color3.fromRGB(40, 90, 200),
-	TextStrokeTransparency = 0,
+	TextSize = 76,
+	TextColor3 = TEXT,
 	Visible = false,
 	ZIndex = 20,
 })
+local bigRewardStroke = Theme.textOutline(bigReward, 1.5)
+bigRewardStroke.Color = Colors.Deep
+bigRewardStroke.Transparency = 0.2
+bigRewardStroke.Thickness = 3
 local bigRewardScale = Instance.new("UIScale")
 bigRewardScale.Parent = bigReward
 
@@ -498,63 +519,61 @@ local function updateUi()
 		return
 	end
 	local ratio = math.clamp(session.Pulls / session.Needed, 0, 1)
-	TweenService:Create(milkFill, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-		Size = UDim2.fromScale(1, ratio),
-	}):Play()
+	Theme.tween(milkFill, { Size = UDim2.fromScale(1, ratio) }, 0.25, Enum.EasingStyle.Back)
+	progress.SetRatio(ratio)
 	bucketText.Text = ("%d/%d"):format(session.Pulls, session.Needed)
 
 	-- der erwartete Knopf leuchtet, der andere ist gedimmt
 	local expected = expectedSide()
 	for side, entry in pairs(buttons) do
 		local active = expected == nil or expected == side
-		entry.Button.BackgroundTransparency = active and 0 or 0.55
-		entry.Stroke.Transparency = active and 0 or 0.7
+		Theme.tween(entry.Button, { BackgroundTransparency = active and 0 or 0.5 }, Theme.Time.Fast)
+		Theme.tween(entry.Stroke, { Transparency = active and 0 or 0.7 }, Theme.Time.Fast)
 	end
 end
 
 -- "+X" fliegt aus dem Eimer nach oben
 local function popNumber(message, color)
-	local pop = text(panel, {
+	local pop = text(card, {
 		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.new(0.5, math.random(-30, 30), 0, 150),
+		Position = UDim2.new(0.5, math.random(-30, 30), 0, 160),
 		Size = UDim2.fromOffset(120, 40),
-		TextSize = 34,
+		TextSize = 32,
 		TextColor3 = color,
-		TextStrokeTransparency = 0,
-		TextStrokeColor3 = Color3.fromRGB(20, 20, 30),
 		Text = message,
 		ZIndex = 12,
 	})
+	local stroke = Theme.textOutline(pop, 1.5)
 	local scale = Instance.new("UIScale")
 	scale.Scale = 0.5
 	scale.Parent = pop
-	TweenService:Create(scale, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1.2 }):Play()
-	TweenService:Create(pop, TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+	Theme.tween(scale, { Scale = 1.2 }, 0.2, Enum.EasingStyle.Back)
+	Theme.tween(pop, {
 		Position = pop.Position - UDim2.fromOffset(0, 90),
 		TextTransparency = 1,
-		TextStrokeTransparency = 1,
-	}):Play()
+	}, 0.8)
+	Theme.tween(stroke, { Transparency = 1 }, 0.8)
 	task.delay(0.85, function()
 		pop:Destroy()
 	end)
 end
 
 local function pressButton(entry)
-	entry.Scale.Scale = 0.85
-	TweenService:Create(entry.Scale, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+	entry.Scale.Scale = 0.88
+	Theme.tween(entry.Scale, { Scale = 1 }, 0.25, Enum.EasingStyle.Back)
 end
 
 local function wrongSide()
 	for _, entry in pairs(buttons) do
 		entry.Button.BackgroundColor3 = WRONG_COLOR
-		TweenService:Create(entry.Button, TweenInfo.new(0.45), { BackgroundColor3 = entry.Color }):Play()
+		Theme.tween(entry.Button, { BackgroundColor3 = entry.Color }, 0.45)
 	end
 	milkFill.BackgroundColor3 = WRONG_COLOR
-	TweenService:Create(milkFill, TweenInfo.new(0.45), { BackgroundColor3 = MILK_COLOR }):Play()
+	Theme.tween(milkFill, { BackgroundColor3 = MILK_COLOR }, 0.45)
 	shake(1.2)
-	popNumber("-" .. session.Penalty, WRONG_COLOR)
-	hint.Text = "❌ Falsche Seite! Jetzt die ANDERE Seite."
-	hint.TextColor3 = Color3.fromRGB(255, 140, 140)
+	popNumber("-" .. session.Penalty, WRONG_TEXT)
+	hint.Text = "Falsche Seite! Jetzt die ANDERE Seite."
+	hint.TextColor3 = WRONG_TEXT
 end
 
 local function pull(side)
@@ -583,7 +602,7 @@ local function pull(side)
 		popNumber("+" .. CowData.FormatNumber(session.MilkPerPull), MILK_COLOR)
 		playSound(Config.SquirtSoundId, 0.8, 0.95 + math.random() * 0.25)
 		faceScale.Scale = 1.08
-		TweenService:Create(faceScale, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+		Theme.tween(faceScale, { Scale = 1 }, 0.2, Enum.EasingStyle.Back)
 		if animationTrack then
 			animationTrack:AdjustSpeed(1.6)
 			task.delay(0.15, function()
@@ -607,6 +626,8 @@ local function onAction(_, inputState, inputObject)
 		pull("Left")
 	elseif key == Enum.KeyCode.E or key == Enum.KeyCode.ButtonR1 then
 		pull("Right")
+	elseif key == Enum.KeyCode.ButtonB then
+		Remotes.StopMilking:FireServer() -- Controller: aufstehen
 	end
 	return Enum.ContextActionResult.Sink
 end
@@ -626,20 +647,24 @@ end)
 ------------------------------------------------------------------------
 local function showPanel()
 	gui.Enabled = true
-	local viewport = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1000, 800)
-	panelScale.Scale = math.min(1, (viewport.X - 24) / PANEL_SIZE.X, (viewport.Y - 80) / (PANEL_SIZE.Y + 60))
+	local area = gui.AbsoluteSize
+	if area.X < 10 or area.Y < 10 then
+		area = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1000, 800)
+	end
+	-- passt auch auf kleine Handy-Bildschirme (Safe-Area ist schon abgezogen)
+	panelScale.Scale = math.clamp(math.min(1, (area.X - 24) / PANEL_SIZE.X, (area.Y - 60) / (PANEL_SIZE.Y + 60)), 0.5, 1)
 	bucket.Rotation = 0
 	panel.Position = PANEL_HIDDEN
-	TweenService:Create(overlay, TweenInfo.new(0.3), { BackgroundTransparency = 0.3 }):Play()
-	TweenService:Create(panel, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Position = PANEL_SHOWN }):Play()
+	Theme.tween(overlay, { BackgroundTransparency = 0.4 }, 0.3)
+	Theme.tween(panel, { Position = PANEL_SHOWN }, 0.45, Enum.EasingStyle.Back)
 end
 
-local function hidePanel()
-	TweenService:Create(overlay, TweenInfo.new(0.3), { BackgroundTransparency = 1 }):Play()
-	local slide = TweenService:Create(panel, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Position = PANEL_HIDDEN })
-	slide:Play()
+local function hidePanel(token)
+	Theme.tween(overlay, { BackgroundTransparency = 1 }, 0.3)
+	local slide = Theme.tween(panel, { Position = PANEL_HIDDEN }, 0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 	slide.Completed:Wait()
-	if not session then
+	-- nur ausblenden, wenn in der Zwischenzeit keine neue Session gestartet wurde
+	if endToken == token and not session then
 		gui.Enabled = false
 	end
 end
@@ -655,6 +680,8 @@ end
 -- Start / Fortschritt / Ende (vom Server)
 ------------------------------------------------------------------------
 Remotes.MilkingStarted.OnClientEvent:Connect(function(info)
+	endToken += 1
+	Theme.closeAllWindows() -- während des Melkens ist kein anderes Fenster offen
 	session = {
 		CowId = info.CowId,
 		Needed = info.PullsNeeded,
@@ -669,7 +696,7 @@ Remotes.MilkingStarted.OnClientEvent:Connect(function(info)
 	}
 
 	local rarityInfo = CowData.Rarities[info.Rarity] or CowData.Rarities.Common
-	title.Text = ("🐄 %s melken"):format(info.CowName)
+	title.Text = ("%s melken"):format(info.CowName)
 	panelStroke.Color = rarityInfo.UiColor
 	faceHead.BackgroundColor3 = rarityInfo.Color
 	earLeft.BackgroundColor3 = rarityInfo.Color
@@ -678,9 +705,11 @@ Remotes.MilkingStarted.OnClientEvent:Connect(function(info)
 	if rarityInfo.SpotColor then
 		faceSpot.BackgroundColor3 = rarityInfo.SpotColor
 	end
-	hint.Text = "Abwechselnd ◄ ► ziehen! (Q / E)"
+	local leftKey, rightKey = updateKeyLabels()
+	hint.Text = ("Abwechselnd ◄ ► ziehen! (%s / %s)"):format(leftKey, rightKey)
 	hint.TextColor3 = SUBTEXT
 	milkFill.Size = UDim2.fromScale(1, 0)
+	progress.SetRatio(0, false)
 	bigReward.Visible = false
 	updateUi()
 	showPanel()
@@ -693,7 +722,8 @@ Remotes.MilkingStarted.OnClientEvent:Connect(function(info)
 		Enum.KeyCode.Q,
 		Enum.KeyCode.E,
 		Enum.KeyCode.ButtonL1,
-		Enum.KeyCode.ButtonR1
+		Enum.KeyCode.ButtonR1,
+		Enum.KeyCode.ButtonB
 	)
 	startAnimation()
 end)
@@ -713,31 +743,34 @@ end)
 local function celebrate(milk)
 	-- Eimer kippt um
 	milkFill.Size = UDim2.fromScale(1, 1)
+	progress.SetRatio(1)
 	bucketText.Text = "VOLL!"
-	TweenService:Create(bucket, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.In), { Rotation = -100 }):Play()
+	Theme.tween(bucket, { Rotation = -100 }, 0.5, Enum.EasingStyle.Back, Enum.EasingDirection.In)
 	shake(0.8)
 
-	-- großes "+X 🥛 MILCH!" explodiert auf dem Bildschirm
-	bigReward.Text = ("+%s 🥛 MILCH!"):format(CowData.FormatNumber(milk))
+	-- großes "+X MILCH!" springt auf den Bildschirm
+	bigReward.Text = ("+%s MILCH!"):format(CowData.FormatNumber(milk))
 	bigReward.Visible = true
 	bigReward.TextTransparency = 0
-	bigReward.TextStrokeTransparency = 0
+	bigRewardStroke.Transparency = 0.2
 	bigReward.Rotation = -8
 	bigRewardScale.Scale = 0.2
-	TweenService:Create(bigRewardScale, TweenInfo.new(0.5, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out), { Scale = 1 }):Play()
-	TweenService:Create(bigReward, TweenInfo.new(0.5, Enum.EasingStyle.Back), { Rotation = 0 }):Play()
+	Theme.tween(bigRewardScale, { Scale = 1 }, 0.5, Enum.EasingStyle.Elastic)
+	Theme.tween(bigReward, { Rotation = 0 }, 0.5, Enum.EasingStyle.Back)
 	playSound(Config.MilkDoneSoundId, 1, 0.75)
 
 	task.delay(1.4, function()
-		local fade = TweenInfo.new(0.4)
-		TweenService:Create(bigReward, fade, { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
-		TweenService:Create(bigRewardScale, fade, { Scale = 1.4 }):Play()
+		Theme.tween(bigReward, { TextTransparency = 1 }, 0.4)
+		Theme.tween(bigRewardStroke, { Transparency = 1 }, 0.4)
+		Theme.tween(bigRewardScale, { Scale = 1.4 }, 0.4)
 		task.wait(0.45)
 		bigReward.Visible = false
 	end)
 end
 
 Remotes.MilkingEnded.OnClientEvent:Connect(function(completed, milk)
+	endToken += 1
+	local token = endToken
 	if session then
 		session.Finishing = true
 	end
@@ -748,13 +781,17 @@ Remotes.MilkingEnded.OnClientEvent:Connect(function(completed, milk)
 	if completed then
 		celebrate(milk or 0)
 		task.wait(1.8) -- großen Text ausklingen lassen
+		if endToken ~= token then
+			return -- inzwischen läuft schon eine neue Session: nichts abräumen
+		end
 	end
 	session = nil
-	hidePanel()
+	hidePanel(token)
 end)
 
 player.CharacterAdded:Connect(function()
 	-- neuer Charakter -> alte Session aufräumen
+	endToken += 1
 	cleanupSession()
 	gui.Enabled = false
 	overlay.BackgroundTransparency = 1

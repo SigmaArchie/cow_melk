@@ -1,10 +1,10 @@
 # Cow Farm – Projektübersicht (Roblox, Rojo)
 
-Stand: 10.10.2026
+Stand: 16.10.2026 (Pass 1: Bugfixes + UI-Design-System)
 
 Roblox-Farming-Simulator "Cow Farm": Kühe melken (Minispiel), Milch verkaufen, mehr Kühe kaufen / züchten / aus Kisten ziehen, Kühe auf der eigenen Farm in einem Raster aufstellen. Kein Schlachten, keine Fusion. Code in Luau, synchronisiert mit **Rojo 7.7.1** (Tools über rokit: `rojo`, `selene`). Alle Texte im Spiel und alle Code-Kommentare sind **Deutsch**. Schulprojekt (5. Klasse, GD).
 
-Status: `rojo build` fehlerfrei, `selene src` 0 Fehler (nur Stil-Warnungen). In Studio gespielt: Shops öffnen, Tutorial läuft. Die letzte UI-Überarbeitung (Theme.lua) ist noch **nicht** in Studio geprüft.
+Status: `rojo build` fehlerfrei, `selene src` 0 Fehler / 0 Warnungen. In Studio gespielt wurde zuletzt vor der UI-Überarbeitung (Shops öffnen, Tutorial). Das neue Theme (HUD, Fenster, Melk-Minispiel) ist **noch nicht in Studio geprüft** – es gab in Pass 1 keine Studio-Verbindung.
 
 Starten: im Projektordner `rojo serve`, in Studio Rojo-Plugin → Connect (localhost:34872). Nach Änderungen an `default.project.json` Rojo neu starten.
 
@@ -13,10 +13,9 @@ Starten: im Projektordner `rojo serve`, in Studio Rojo-Plugin → Connect (local
 ```
 default.project.json        Rojo-Baum
 rokit.toml / selene.toml    Tools (rojo, selene; std = "roblox")
-CowModell.blend             Kuh-Modell aus Blender (+ Hände, Eimer, Kamera; nur die Kuh wird benutzt)
 tools/export_cow.py         Blender-Script: exportiert nur die Kuh-Teile als FBX
-assets_src/CowModell.fbx    exportierte Kuh (33 Teile) – noch nicht in Studio importiert
-assets/                     -> ReplicatedStorage.Assets (hier kommt CowModel.rbxm hin)
+assets_src/CowModell.fbx    exportierte Kuh (33 Teile); die .blend-Datei liegt NICHT im Repo
+assets/CowModel.rbxm        -> ReplicatedStorage.Assets.CowModel (Blender-Kuh, 9,8 KB; Inhalt noch nicht in Studio geprüft)
 src/shared/  -> ReplicatedStorage.Shared
   CowData.lua               alle Spielwerte, Seltenheiten, Zucht, Kisten, Karte, Shops, Sounds, Plot-/Raster-Funktionen
   CowModelBuilder.lua       baut Kuh (Blender-Modell oder Ersatz aus Parts), Schemel, Eimer
@@ -27,12 +26,12 @@ src/server/  -> ServerScriptService.Server
   LoginStreak.server        Tagesbonus, 7 Tage am Stück -> Rainbow Cow
   MapBuilder.server         Süd-Platz, Allee, 2 Förderbänder, Nord-Markt, 4 Shop-Gebäude mit NPC
 src/client/  -> StarterPlayerScripts.Client
-  Theme.lua                 EIN UI-Stil für alles (Farben, Knöpfe, Fenster, Symbole, Skalierung)
+  Theme.lua                 EIN UI-Stil für alles (Farben, Schrift, Abstände, Knöpfe, Fenster, Balken, Abzeichen, Kuh-Karten, Meldungen, Symbole, Skalierung)
   UIBus.lua                 Signale zwischen Client-Scripts (Fenster öffnen sich gegenseitig)
-  CoinDisplay.client        HUD: Coins/Milch, Seitenknöpfe, Meldungen, VERKAUFEN
+  CoinDisplay.client        HUD (ScreenGui "HUD"): Coins/Milch, Seitenknöpfe, Meldungen, VERKAUFEN
   InventoryClient.client    Hotbar, Fenster "MEINE KÜHE", Platzier-Modus, Kuh-Menü
   OverviewClient.client     Fenster "KARTE" mit gezeichneter Karte + Reisen
-  MenuUI.client             Fenster Kuh-Shop, Kisten, Zucht-Stall, Tagesbonus, Auto-Melker
+  MenuUI.client             Fenster Kuh-Shop, Kisten, Zucht-Stall, Tagesbonus, Auto-Melker (ScreenGui "MenuUI", Fenster "Window")
   MilkingClient.client      Melk-Minispiel
   TutorialClient.client     Einführung für neue Spieler
   WorldAnimator.client      Welt-Animationen (Förderbänder, Kühe, Shops) + Sounds
@@ -72,11 +71,11 @@ Spieler-Attribute (Server setzt sie): `Coins`, `Milk`, `CowCount`, `LoginStreak`
   LoginStreak = {Streak, LastDay, Best}, Receipts = {[PurchaseId]=time},
   ReceivedStarterCow, TutorialDone }
 ```
-Laden mit 3 Versuchen, fehlende Felder werden aufgefüllt; alte Kühe ohne Ort werden beim Laden automatisch auf freie Felder verteilt. Studio ohne API-Zugriff → Testdaten (nicht gespeichert). Live: bei Ladefehler Kick.
+Laden mit 3 Versuchen, fehlende Felder werden aufgefüllt; Speichern erst NACH allen PlayerRemoving-Handlern (`task.defer`), damit z.B. Milch aus einem abgebrochenen Melken noch gespeichert wird; alte Kühe ohne Ort werden beim Laden automatisch auf freie Felder verteilt. Studio ohne API-Zugriff → Testdaten (nicht gespeichert). Live: bei Ladefehler Kick.
 
 ## Spielmechanik (Werte in CowData.lua)
 
-- Start: 100 Coins + Gratis-Common-Kuh. Milch = 2 Coins pro Liter. Max. 40 Kühe insgesamt; 36 Felder pro Farm, 6 Hotbar-Plätze, Rest im Lager.
+- Start: 100 Coins + Gratis-Common-Kuh. Milch = 2 Coins pro Liter. Max. 40 Kühe insgesamt (ein laufendes Kalb zählt als belegter Platz; Robux-Kisten und Login-Bonus ignorieren das Limit bewusst); 36 Felder pro Farm, 6 Hotbar-Plätze, Rest im Lager.
 - Seltenheiten (Milch pro Zug / Melk-Pause in s / Shoppreis): Common 2/20/100 · Uncommon 5/25/600 · Rare 12/30 · Epic 30/45 · Legendary 75/60 · Special: Golden 200 · Rainbow 160 · Ghost 130.
 - Kühe bekommen: Kuh-Shop (Common, Uncommon), Zucht, Kisten (Holzkiste 500 Coins, Silberkiste 3000 Coins oder Robux, Premium-Kiste nur Robux mit 5 % Ghost).
 - Zucht nach Durchschnitt der Eltern-Stufen; 2x Legendary: 1 % Golden (nur bei 2 echten Legendary). 5–20 Min, läuft auch offline.
@@ -100,14 +99,19 @@ Laden mit 3 Versuchen, fehlende Felder werden aufgefüllt; alte Kühe ohne Ort w
 
 ## Melk-Minispiel
 
-Kuh anklicken → Menü "Melken" (oder auf die blaue Platte laufen). Server teleportiert auf den Schemel. Panel mit Kuhgesicht, Eimer füllt sich, ◄ ► bzw. Q/E abwechselnd; falsche Seite = 1 Zug weniger. Nach 10 Zügen: Eimer kippt, "+X MILCH!", Kuh bekommt Pause (Timer über der Kuh). Server prüft alles.
+Kuh anklicken → Menü "Melken" (oder auf die blaue Platte laufen). Server teleportiert auf den Schemel. Panel mit Kuhgesicht, Fortschrittsbalken, Eimer füllt sich, ◄ ► bzw. Q/E (Controller L1/R1, Aufstehen = B) abwechselnd; falsche Seite = 1 Zug weniger. Nach 10 Zügen: Eimer kippt, "+X MILCH!", Kuh bekommt Pause (Timer über der Kuh). Server prüft alles.
 
 ## Benutzeroberfläche (Theme.lua)
 
-- Ein Stil: dunkle Flächen, dicke dunkle Umrandung, "dicke" Knöpfe mit dunklerer Unterkante, weiße Schrift mit Umriss, gezeichnete Symbole (Münze, Milchtüte, Kuh) statt Emojis. Alles skaliert mit der Bildschirmgröße (Basis 1280×720).
+- **Stil:** tiefes Marineblau für Flächen, Creme/Off-White für Schrift, Grasgrün für Haupt-Aktionen, Himmelblau als Akzent, Gold **nur** für Coins und seltene Belohnungen. Abgerundete Ecken, dünne einheitliche Umrandung (1,5–2 px), weiche Schatten (`Theme.softShadow`), kurze Tweens (0,12–0,35 s), keine dicken Schrift-Umrisse.
+- **Design-Werte** in `Theme`: `Colors`, `Font`/`BodyFont`/`TextFont`, `TextSize`, `Spacing`, `Radius`, `Stroke`, `Shadow`, `Time`.
+- **Bausteine:** `screenGui` (Safe-Area), `panel`, `label`, `tag`/`rarityBadge`, `button` (+ `primaryButton` grün, `secondaryButton` stahlblau, `destructiveButton` rot; Zustände Hover/gedrückt/ausgegraut), `progressBar`, `cowCard`, `createNotifier` (Meldungen), `window`, `coinIcon`/`milkIcon`/`cowIcon`, `autoScale`, `tween`.
+- **Fenster** (`Theme.window`): Kopfzeile mit Titel, Akzentlinie und Schließen-Knopf; immer nur eins offen, Hintergrund abgedunkelt, Klick daneben schließt, Controller: B schließt. `win.Root` ist der Halter (Name = `props.Name`, `.Visible` wird vom Tutorial geprüft), `win.Panel` die Fläche, `win.Body` der Inhalt.
+- **Eingabegeräte:** Maus/Touch über `Activated`, Controller über Auswahlrahmen (`SelectionImageObject`) und B; Tastenkürzel-Hinweise (M, I, Q/E) nur mit Tastatur bzw. L1/R1 mit Controller. Safe-Area: alle ScreenGuis laufen mit dem Roblox-Standard `CoreUISafe`, Fenster passen sich über `gui.AbsoluteSize` an.
 - Feste Zonen: **oben links** Coins/Milch · **links Mitte** KARTE (M) / KÜHE (I) / BONUS (Streak-Abzeichen) · **oben Mitte** Meldungen (max. 3, 2,5 s) · **unten Mitte** Hotbar (1–6) · **darüber** Hinweis-Leiste · **unten rechts** VERKAUFEN (pulsiert bei Milch).
-- Fenster (`Theme.window`): immer nur eins offen, Hintergrund abgedunkelt, Klick daneben schließt. Fenster: KARTE, MEINE KÜHE, KUH-SHOP, KISTEN, ZUCHT-STALL, TAGESBONUS, AUTO-MELKER.
-- Wichtig für Code: an Roblox-Objekte keine eigenen Funktionen hängen (z. B. `frame.SetColor = …` wirft einen Fehler) – `Theme.button` gibt dafür `setColor` als 3. Wert zurück.
+- Fenster: KARTE, MEINE KÜHE, KUH-SHOP, KISTEN, ZUCHT-STALL, TAGESBONUS, AUTO-MELKER.
+- Noch im alten Look bzw. nur über das neue Theme-Palette angepasst (Pass 2/3): Hotbar/Kuh-Menü (InventoryClient), Karte (OverviewClient), Tutorial, Welt-Beschriftungen (Schilder, Kuh-Namensschilder, Pop-ups im Server-Code).
+- Wichtig für Code: an Roblox-Objekte keine eigenen Funktionen hängen (z. B. `frame.SetColor = …` wirft einen Fehler) – `Theme.button` gibt dafür `setColor` (3. Wert) und `api` (4. Wert: `SetColor`, `SetDisabled`, `SetText`) zurück. `api.SetDisabled(true)` graut nur optisch aus; der Klick kommt weiter an, damit der Aufrufer eine Erklärung zeigen kann.
 
 ## Tutorial (nur neue Spieler)
 
@@ -119,8 +123,15 @@ Funktioniert vermutlich: Coins `4590662766`, Muhen `535690488`. **Aus** (IDs war
 
 ## Offen / nächste Schritte
 
-1. In Studio prüfen: neues HUD, Fenster, Hotbar, Kuh aufheben/platzieren, Karte + Reisen, Förderbänder, Nord-Markt.
-2. Blender-Kuh importieren: `assets_src/CowModell.fbx` → Studio "Import 3D" → Modell `CowModel` nennen → "Save to File" als `assets/CowModel.rbxm`.
-3. Funktionierende Sound-IDs eintragen.
-4. Balancing (erster Kauf nach ca. 2–3 Minuten), Upgrades (größerer Eimer, schnellere Pause), evtl. Bestenliste.
-5. Gamepass-/Produkt-IDs eintragen, Spiel veröffentlichen, "Enable Studio Access to API Services" für den DataStore.
+1. In Studio prüfen (nie getestet, siehe Pass 1): neues HUD, alle Fenster, Melk-Minispiel (PC, Handy-Emulator, Controller), Hotbar, Kuh aufheben/platzieren, Karte + Reisen, Förderbänder, Nord-Markt, `CowModel.rbxm`.
+2. Funktionierende Sound-IDs eintragen.
+3. Balancing (erster Kauf nach ca. 2–3 Minuten), Upgrades (größerer Eimer, schnellere Pause), evtl. Bestenliste.
+4. Gamepass-/Produkt-IDs eintragen (Platzhalter siehe oben), Spiel veröffentlichen, "Enable Studio Access to API Services" für den DataStore.
+5. Pass 2: Welt, Shop-Gebäude, Schilder, Kühe; Inventar/Karte/Tutorial auf das neue Theme umstellen.
+
+## Bekannte Risiken (Stand Pass 1)
+
+- `GetInventory` hat kein Rate-Limit (nur Lesezugriff, aber ein Client könnte es oft aufrufen).
+- Der Auto-Melker ignoriert die Melk-Pause der Kühe (so gewollt, aber stark; Balancing prüfen).
+- Studio ohne API-Zugriff speichert nichts (bewusst); live kickt ein fehlgeschlagenes Laden den Spieler.
+- Beim Verlassen: schlägt das Speichern 3x fehl, gehen die Daten seit dem letzten Autosave (120 s) verloren.
