@@ -3,8 +3,8 @@
 --   * Förderbänder (Tag "ConveyorTile"): RunService.Heartbeat, nach Serverzeit synchron
 --   * Kühe (Tag "Cow"): schweben, Kopf dreht, Schwanz wedelt, Ohren flattern, schauen sich um
 --     -> Werte per TweenService-Schleifen, angewendet einmal pro Frame mit workspace:BulkMoveTo
---   * Regenbogen-Kuh: wechselt jede Sekunde die Farbe
---   * Shops: Schild hüpft, "KLICKEN ZUM ÖFFNEN" blinkt, Verkäufer winkt
+--   * Regenbogen-Kuh: sanfter Farbwechsel alle 3 Sekunden
+--   * Shops: Hinweis "Klicken zum Öffnen" atmet ruhig, Verkäufer winkt
 --   * Sounds: Hintergrund-Musik, Kühe muhen ab und zu
 
 local CollectionService = game:GetService("CollectionService")
@@ -101,12 +101,12 @@ end)
 local cows = {} -- [model] = state
 
 local RAINBOW = {
-	Color3.fromRGB(255, 85, 85),
-	Color3.fromRGB(255, 165, 60),
-	Color3.fromRGB(255, 230, 70),
-	Color3.fromRGB(90, 220, 110),
-	Color3.fromRGB(80, 170, 255),
-	Color3.fromRGB(175, 100, 255),
+	Color3.fromRGB(246, 128, 128),
+	Color3.fromRGB(246, 178, 104),
+	Color3.fromRGB(240, 224, 124),
+	Color3.fromRGB(132, 208, 144),
+	Color3.fromRGB(124, 182, 244),
+	Color3.fromRGB(186, 144, 240),
 }
 
 local function newValue(state, initial)
@@ -243,7 +243,7 @@ local function startCow(cow)
 		end
 	end)
 
-	-- Regenbogen: jede Sekunde nächste Farbe
+	-- Regenbogen: sanfter Farbwechsel (alle 3 s, mit langem Übergang)
 	if cow:GetAttribute("Rarity") == "Rainbow" then
 		local tintParts = {}
 		for _, part in ipairs(cow:GetDescendants()) do
@@ -256,7 +256,7 @@ local function startCow(cow)
 			while state.Alive do
 				index = index % #RAINBOW + 1
 				for _, part in ipairs(tintParts) do
-					TweenService:Create(part, TweenInfo.new(0.5, Enum.EasingStyle.Sine), { Color = RAINBOW[index] }):Play()
+					TweenService:Create(part, TweenInfo.new(2.8, Enum.EasingStyle.Sine), { Color = RAINBOW[index] }):Play()
 				end
 				task.wait(1)
 			end

@@ -25,6 +25,8 @@ local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 
 local Config = CowData.Config
 local Map = CowData.Map
+local Palette = require(Shared:WaitForChild("Palette"))
+local World = Palette.World
 local rng = Random.new()
 
 local sellMilk -- weiter unten definiert (wird vom Milch-Stand benutzt)
@@ -90,14 +92,12 @@ local GRID_CELLS = CowData.GetGridCellCount() -- Felder pro Farm (6 x 6 = 36)
 local HOTBAR_SIZE = Config.HotbarSize
 local COW_OFFSET_X = 1.8 -- Kuh steht im Feld etwas rechts, links ist Platz für Schemel + Melk-Platte
 
-local GRASS_LIGHT = Color3.fromRGB(118, 186, 86)
-local GRASS_DARK = Color3.fromRGB(104, 170, 76)
-local CURB = Color3.fromRGB(215, 210, 200)
-local FENCE_WHITE = Color3.fromRGB(245, 245, 240)
-local PATH = Color3.fromRGB(176, 140, 98)
-local FENCE = Color3.fromRGB(140, 95, 55) -- Holzfarbe (Milch-Stand)
-local FENCE_DARK = Color3.fromRGB(95, 62, 38) -- Tor + Pfosten Milch-Stand
-local HAY = Color3.fromRGB(230, 200, 100)
+local GRASS_LIGHT = World.GrassLight
+local GRASS_DARK = World.GrassDark
+local CURB = World.Stone
+local FENCE_WHITE = World.Fence
+local PATH = World.StonePath
+local HAY = World.Hay
 
 local layoutFolder = workspace:FindFirstChild("CowFarmLayout")
 if not layoutFolder then
@@ -131,7 +131,7 @@ end
 -- Lage der Plots steht in CowData (der Client braucht sie auch für die Übersichtskarte)
 local getPlotOrigin = CowData.GetPlotOrigin
 
--- Weißer Zaun: Pfosten alle 5 Studs + 2 durchgehende Latten
+-- Zaun: Pfosten alle ~6 Studs + 2 durchgehende Latten (ohne Pfostenkappen, spart Teile)
 local function buildFenceLine(parent, origin, from, to)
 	local delta = to - from
 	local length = delta.Magnitude
@@ -139,23 +139,15 @@ local function buildFenceLine(parent, origin, from, to)
 		return
 	end
 	local direction = delta.Unit
-	local posts = math.max(1, math.floor(length / 5 + 0.5))
+	local posts = math.max(1, math.floor(length / 6 + 0.5))
 	for i = 0, posts do
 		local position = from + direction * (length * i / posts)
 		makePart({
 			Name = "Post",
-			Size = Vector3.new(0.5, 3.4, 0.5),
+			Size = Vector3.new(0.6, 3.4, 0.6),
 			CFrame = origin * CFrame.new(position + Vector3.new(0, GROUND + 1.7, 0)),
 			Color = FENCE_WHITE,
-			Material = Enum.Material.SmoothPlastic,
-			Parent = parent,
-		})
-		makePart({
-			Name = "PostCap",
-			Size = Vector3.new(0.65, 0.2, 0.65),
-			CFrame = origin * CFrame.new(position + Vector3.new(0, GROUND + 3.5, 0)),
-			Color = FENCE_WHITE,
-			Material = Enum.Material.SmoothPlastic,
+			Material = Enum.Material.Wood,
 			Parent = parent,
 		})
 	end
@@ -164,16 +156,54 @@ local function buildFenceLine(parent, origin, from, to)
 	for _, height in ipairs({ 1.3, 2.7 }) do
 		makePart({
 			Name = "Rail",
-			Size = Vector3.new(0.2, 0.35, length),
+			Size = Vector3.new(0.22, 0.4, length),
 			CFrame = origin * (lookAt + Vector3.new(0, GROUND + height, 0)),
 			Color = FENCE_WHITE,
-			Material = Enum.Material.SmoothPlastic,
+			Material = Enum.Material.Wood,
 			Parent = parent,
 		})
 	end
 end
 
--- Milch-Stand: Theke mit gestreiftem Dach, Milchkannen und ProximityPrompt.
+-- kleine Deko-Teile: nie im Weg (CanCollide = false)
+local function decorPart(parent, name, size, cframe, color, material, extra)
+	local part = makePart({
+		Name = name,
+		Size = size,
+		CFrame = cframe,
+		Color = color,
+		Material = material or Enum.Material.SmoothPlastic,
+		CanCollide = false,
+		CanQuery = false,
+		Parent = parent,
+	})
+	if extra then
+		for key, value in pairs(extra) do
+			part[key] = value
+		end
+	end
+	return part
+end
+
+-- Blumenbeet am Eingang: Steinrand, Erde, Grün und wenige bunte Blüten
+local function buildFarmFlowers(parent, origin, localCenter, sizeX, sizeZ, seed)
+	local flowerRng = Random.new(seed)
+	local at = function(x, y, z)
+		return origin * CFrame.new(localCenter + Vector3.new(x, y, z))
+	end
+	decorPart(parent, "BedBorder", Vector3.new(sizeX + 0.8, 0.5, sizeZ + 0.8), at(0, GROUND + 0.25, 0), World.StoneDark, Enum.Material.Cobblestone)
+	decorPart(parent, "BedSoil", Vector3.new(sizeX, 0.7, sizeZ), at(0, GROUND + 0.35, 0), World.Soil, Enum.Material.Ground)
+	decorPart(parent, "BedGreen", Vector3.new(sizeX - 0.6, 0.7, sizeZ - 0.6), at(0, GROUND + 0.7, 0), World.Leaf, Enum.Material.Grass)
+	for _ = 1, 6 do
+		decorPart(parent, "Flower", Vector3.new(0.7, 0.7, 0.7),
+			at(flowerRng:NextNumber(-sizeX / 2 + 0.6, sizeX / 2 - 0.6), GROUND + 1.2, flowerRng:NextNumber(-sizeZ / 2 + 0.6, sizeZ / 2 - 0.6)),
+			World.Flowers[flowerRng:NextInteger(1, #World.Flowers)], Enum.Material.SmoothPlastic,
+			{ Shape = Enum.PartType.Ball, CastShadow = false })
+	end
+end
+
+-- Milch-Verkaufsstation: Holzpodest, Theke mit Preistafel, Kasse, Kannen, grün-cremefarbenes Dach
+-- und ein großes Schild. ProximityPrompt (F) am Tresen.
 -- base: Boden-Position, -Z = Kundenseite
 local function buildSellStand(player, parent, base)
 	local stand = Instance.new("Model")
@@ -191,45 +221,91 @@ local function buildSellStand(player, parent, base)
 		})
 	end
 
-	local counter = standPart("Counter", Vector3.new(6, 3, 2.4), CFrame.new(0, 1.5, 0), FENCE)
-	standPart("CounterTop", Vector3.new(6.4, 0.3, 2.8), CFrame.new(0, 3.15, 0), Color3.fromRGB(190, 140, 90))
-	for _, x in ipairs({ -2.9, 2.9 }) do
-		standPart("Post", Vector3.new(0.4, 4.6, 0.4), CFrame.new(x, 5.4, 1.0), FENCE_DARK)
-	end
+	-- Podest, damit die Station als Einheit wirkt
+	standPart("Deck", Vector3.new(8, 0.3, 5), CFrame.new(0, 0.15, 0.2), World.WoodLight, Enum.Material.WoodPlanks)
 
-	-- rot-weiß gestreiftes Dach
+	local counter = standPart("Counter", Vector3.new(6, 3, 2.4), CFrame.new(0, 1.8, 0), World.Wood)
+	standPart("CounterTop", Vector3.new(6.4, 0.3, 2.8), CFrame.new(0, 3.45, 0), World.WoodLight)
+	for _, x in ipairs({ -2.9, 2.9 }) do
+		standPart("Post", Vector3.new(0.4, 4.6, 0.4), CFrame.new(x, 5.6, 1.0), World.WoodDark)
+	end
+	standPart("BackPanel", Vector3.new(6, 3.4, 0.3), CFrame.new(0, 5.6, 1.9), World.WoodDark)
+
+	-- gestreiftes Dach in Grün und Creme
 	for i = 0, 6 do
-		local stripeColor = i % 2 == 0 and Color3.fromRGB(215, 50, 50) or Color3.fromRGB(250, 250, 250)
-		standPart("Roof", Vector3.new(1, 0.35, 3.8), CFrame.new(-3 + i, 7.8, 0.2) * CFrame.Angles(math.rad(-12), 0, 0),
+		local stripeColor = i % 2 == 0 and Palette.Colors.Green or Palette.Colors.Cream
+		standPart("Roof", Vector3.new(1, 0.35, 3.8), CFrame.new(-3 + i, 8.1, 0.2) * CFrame.Angles(math.rad(-12), 0, 0),
 			stripeColor, Enum.Material.Fabric)
 	end
 
-	-- Schild (weiße Schrift auf dunklem Grund)
-	local sign = standPart("Sign", Vector3.new(5, 1.1, 0.2), CFrame.new(0, 6.8, -1.3), Color3.fromRGB(35, 40, 60))
+	-- großes Schild unter dem Dach (Creme auf dunklem Holz)
+	local sign = standPart("Sign", Vector3.new(5.6, 1.4, 0.3), CFrame.new(0, 6.9, -1.4), World.WoodDark)
 	local surface = Instance.new("SurfaceGui")
 	surface.Face = Enum.NormalId.Front
 	surface.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
-	surface.PixelsPerStud = 50
-	surface.LightInfluence = 0
+	surface.PixelsPerStud = 60
+	surface.LightInfluence = 0.2
 	surface.Parent = sign
 	local signText = Instance.new("TextLabel")
 	signText.Size = UDim2.fromScale(1, 1)
 	signText.BackgroundTransparency = 1
-	signText.Font = Enum.Font.FredokaOne
+	signText.Font = Palette.Fonts.Heading
 	signText.TextScaled = true
-	signText.TextColor3 = Color3.new(1, 1, 1)
-	signText.Text = "🥛 Milch-Verkauf"
+	signText.TextColor3 = Palette.Colors.Cream
+	signText.Text = "🥛 MILCH-VERKAUF"
 	signText.Parent = surface
+	local signPadding = Instance.new("UIPadding")
+	signPadding.PaddingLeft = UDim.new(0.05, 0)
+	signPadding.PaddingRight = UDim.new(0.05, 0)
+	signPadding.PaddingTop = UDim.new(0.14, 0)
+	signPadding.PaddingBottom = UDim.new(0.14, 0)
+	signPadding.Parent = signText
+
+	-- Preistafel an der Theke (Gold nur für die Coins)
+	local board = standPart("PriceBoard", Vector3.new(4.4, 1.5, 0.15), CFrame.new(0, 1.8, -1.28), Palette.Colors.Deep, Enum.Material.SmoothPlastic)
+	local boardSurface = Instance.new("SurfaceGui")
+	boardSurface.Face = Enum.NormalId.Front
+	boardSurface.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	boardSurface.PixelsPerStud = 60
+	boardSurface.LightInfluence = 0.2
+	boardSurface.Parent = board
+	local boardText = Instance.new("TextLabel")
+	boardText.Size = UDim2.fromScale(1, 1)
+	boardText.BackgroundTransparency = 1
+	boardText.Font = Palette.Fonts.Body
+	boardText.TextScaled = true
+	boardText.RichText = true
+	boardText.TextColor3 = Palette.Colors.Cream
+	boardText.Text = ('1 Milch = <font color="rgb(244,192,64)">%s Coins</font>'):format(CowData.FormatNumber(Config.MilkSellPrice))
+	boardText.Parent = boardSurface
+	local boardPadding = Instance.new("UIPadding")
+	boardPadding.PaddingLeft = UDim.new(0.06, 0)
+	boardPadding.PaddingRight = UDim.new(0.06, 0)
+	boardPadding.PaddingTop = UDim.new(0.2, 0)
+	boardPadding.PaddingBottom = UDim.new(0.2, 0)
+	boardPadding.Parent = boardText
 
 	-- Milchkannen auf der Theke
-	for i, x in ipairs({ -2, -1.2, 2 }) do
+	for i, x in ipairs({ -2.2, -1.3, 1.2 }) do
 		local height = i == 2 and 1.0 or 1.3
 		standPart("MilkCan", Vector3.new(height, 0.7, 0.7),
-			CFrame.new(x, 3.3 + height / 2, 0.3) * CFrame.Angles(0, 0, math.rad(90)),
+			CFrame.new(x, 3.6 + height / 2, 0.3) * CFrame.Angles(0, 0, math.rad(90)),
 			Color3.fromRGB(200, 205, 212), Enum.Material.Metal, Enum.PartType.Cylinder)
 		standPart("MilkCanLid", Vector3.new(0.12, 0.5, 0.5),
-			CFrame.new(x, 3.3 + height + 0.06, 0.3) * CFrame.Angles(0, 0, math.rad(90)),
-			Color3.fromRGB(250, 250, 245), Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+			CFrame.new(x, 3.6 + height + 0.06, 0.3) * CFrame.Angles(0, 0, math.rad(90)),
+			Palette.Colors.Cream, Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+	end
+
+	-- Kasse mit Goldmünzen (Gold = Coins)
+	standPart("CashBox", Vector3.new(1.2, 0.7, 0.9), CFrame.new(2.3, 3.8, -0.2), World.WoodDark)
+	for k = 0, 2 do
+		standPart("Coin", Vector3.new(0.12, 0.55, 0.55), CFrame.new(2.3, 4.2 + k * 0.13, -0.2) * CFrame.Angles(0, 0, math.rad(90)),
+			Palette.Colors.Gold, Enum.Material.Metal, Enum.PartType.Cylinder)
+	end
+
+	-- zwei Kisten daneben
+	for _, offset in ipairs({ Vector3.new(-4.6, 0.95, -0.2), Vector3.new(-4.6, 2.7, -0.2) }) do
+		standPart("Crate", Vector3.new(1.7, 1.7, 1.7), CFrame.new(offset), World.WoodLight, Enum.Material.WoodPlanks)
 	end
 
 	local prompt = Instance.new("ProximityPrompt")
@@ -244,7 +320,7 @@ local function buildSellStand(player, parent, base)
 	-- aktuelle Milchmenge im Prompt anzeigen
 	local function updatePrompt()
 		local milk = player:GetAttribute("Milk") or 0
-		prompt.ObjectText = ("Milch-Stand · %s 🥛 = %s 🪙"):format(
+		prompt.ObjectText = ("Milch-Stand · %s Milch = %s Coins"):format(
 			CowData.FormatNumber(milk),
 			CowData.FormatNumber(math.floor(milk * Config.MilkSellPrice))
 		)
@@ -257,7 +333,7 @@ local function buildSellStand(player, parent, base)
 
 	prompt.Triggered:Connect(function(who)
 		if who ~= player then
-			DataService.Notify(who, "Das ist nicht dein Milch-Stand! 🥛", "error")
+			DataService.Notify(who, "Das ist nicht dein Milch-Stand!", "error")
 			return
 		end
 		sellMilk(player, counter)
@@ -330,22 +406,35 @@ local function getFarm(player)
 	buildFenceLine(decor, origin, Vector3.new(-fx, 0, fz), Vector3.new(-GATE_WIDTH / 2, 0, fz))
 	buildFenceLine(decor, origin, Vector3.new(GATE_WIDTH / 2, 0, fz), Vector3.new(fx, 0, fz))
 
-	-- Torbogen mit Namensschild (weiße Schrift auf dunklem Holz)
+	-- Torbogen mit Namensschild (Creme auf dunklem Holz), Laternen auf den Pfosten
 	for _, x in ipairs({ -GATE_WIDTH / 2, GATE_WIDTH / 2 }) do
 		makePart({
 			Name = "GatePost",
-			Size = Vector3.new(1, 9.5, 1),
-			CFrame = origin * CFrame.new(x, GROUND + 4.75, fz),
-			Color = FENCE_DARK,
+			Size = Vector3.new(1.2, 8.4, 1.2),
+			CFrame = origin * CFrame.new(x, GROUND + 4.2, fz),
+			Color = World.WoodDark,
 			Material = Enum.Material.Wood,
 			Parent = decor,
 		})
+		decorPart(decor, "GateCap", Vector3.new(1.7, 0.3, 1.7), origin * CFrame.new(x, GROUND + 8.55, fz), Color3.fromRGB(52, 54, 62), Enum.Material.Metal)
+		decorPart(decor, "GateLamp", Vector3.new(1.1, 1.3, 1.1), origin * CFrame.new(x, GROUND + 9.2, fz), World.Lantern)
+	end
+	makePart({
+		Name = "GateBeam",
+		Size = Vector3.new(GATE_WIDTH + 2.4, 0.9, 1),
+		CFrame = origin * CFrame.new(0, GROUND + 8.1, fz),
+		Color = World.Wood,
+		Material = Enum.Material.Wood,
+		Parent = decor,
+	})
+	for _, x in ipairs({ -3, 3 }) do
+		decorPart(decor, "GateStrut", Vector3.new(0.5, 0.4, 0.5), origin * CFrame.new(x, GROUND + 8.7, fz), World.WoodDark, Enum.Material.Wood)
 	end
 	local sign = makePart({
 		Name = "Sign",
-		Size = Vector3.new(GATE_WIDTH + 2, 2.4, 0.5),
-		CFrame = origin * CFrame.new(0, GROUND + 9, fz),
-		Color = FENCE_DARK,
+		Size = Vector3.new(GATE_WIDTH - 2, 2.4, 0.4),
+		CFrame = origin * CFrame.new(0, GROUND + 10, fz),
+		Color = World.WoodDark,
 		Material = Enum.Material.Wood,
 		Parent = decor,
 	})
@@ -353,18 +442,33 @@ local function getFarm(player)
 		local surface = Instance.new("SurfaceGui")
 		surface.Face = face
 		surface.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
-		surface.PixelsPerStud = 40
-		surface.LightInfluence = 0
+		surface.PixelsPerStud = 50
+		surface.LightInfluence = 0.2
 		surface.Parent = sign
 		local text = Instance.new("TextLabel")
-		text.Size = UDim2.fromScale(1, 1)
+		text.Size = UDim2.fromScale(1, 0.86)
 		text.BackgroundTransparency = 1
-		text.Font = Enum.Font.FredokaOne
+		text.Font = Palette.Fonts.Heading
 		text.TextScaled = true
-		text.TextColor3 = Color3.new(1, 1, 1)
-		text.TextStrokeTransparency = 0.4
+		text.TextColor3 = Palette.Colors.Cream
 		text.Text = "🐄 Farm von " .. player.DisplayName
 		text.Parent = surface
+		local limit = Instance.new("UITextSizeConstraint")
+		limit.MaxTextSize = 80
+		limit.Parent = text
+		local padding = Instance.new("UIPadding")
+		padding.PaddingLeft = UDim.new(0.05, 0)
+		padding.PaddingRight = UDim.new(0.05, 0)
+		padding.PaddingTop = UDim.new(0.1, 0)
+		padding.Parent = text
+		-- grüner Streifen unten
+		local stripe = Instance.new("Frame")
+		stripe.AnchorPoint = Vector2.new(0.5, 1)
+		stripe.Position = UDim2.fromScale(0.5, 0.94)
+		stripe.Size = UDim2.fromScale(0.8, 0.06)
+		stripe.BackgroundColor3 = Palette.Colors.Green
+		stripe.BorderSizePixel = 0
+		stripe.Parent = surface
 	end
 
 	-- Weg vom Tor bis zur ersten Kuhreihe
@@ -373,10 +477,45 @@ local function getFarm(player)
 		Size = Vector3.new(GATE_WIDTH - 2, 0.06, 26),
 		CFrame = origin * CFrame.new(0, GROUND + 0.03, halfD - 13),
 		Color = PATH,
-		Material = Enum.Material.Ground,
+		Material = Enum.Material.Cobblestone,
 		CanCollide = false,
 		Parent = decor,
 	})
+
+	-- Deko VOR der Kuhfläche (Kühe stehen lokal in z = -50 .. 22; z > 28 ist frei)
+	buildFarmFlowers(decor, origin, Vector3.new(-9, 0, halfD - 7), 6, 3, slot * 11)
+	buildFarmFlowers(decor, origin, Vector3.new(9, 0, halfD - 7), 6, 3, slot * 11 + 1)
+	for _, bale in ipairs({ Vector3.new(-26, 0.9, 46), Vector3.new(-29.6, 0.9, 46), Vector3.new(-27.8, 2.7, 46) }) do
+		makePart({
+			Name = "HayBale",
+			Size = Vector3.new(3.4, 1.8, 3),
+			CFrame = origin * CFrame.new(bale.X, GROUND + bale.Y, bale.Z),
+			Color = HAY,
+			Material = Enum.Material.Fabric,
+			Parent = decor,
+		})
+	end
+	for _, barrel in ipairs({ Vector3.new(-19, 40), Vector3.new(-21.4, 41.2), Vector3.new(-19.8, 43.2) }) do
+		makePart({
+			Name = "Barrel",
+			Shape = Enum.PartType.Cylinder,
+			Size = Vector3.new(2.2, 1.9, 1.9),
+			CFrame = origin * CFrame.new(barrel.X, GROUND + 1.1, barrel.Y) * CFrame.Angles(0, 0, math.rad(90)),
+			Color = World.Wood,
+			Material = Enum.Material.Wood,
+			Parent = decor,
+		})
+	end
+	makePart({
+		Name = "Trough",
+		Size = Vector3.new(4.5, 1.2, 1.6),
+		CFrame = origin * CFrame.new(27, GROUND + 0.6, 46),
+		Color = World.Wood,
+		Material = Enum.Material.Wood,
+		Parent = decor,
+	})
+	decorPart(decor, "TroughWater", Vector3.new(4, 0.1, 1.1), origin * CFrame.new(27, GROUND + 1.2, 46), Palette.Colors.Blue,
+		Enum.Material.Glass, { Transparency = 0.3 })
 
 	-- Raster: ein helles Feld pro Kuh-Platz (Client hebt freie Felder beim Platzieren hervor)
 	local grid = Instance.new("Folder")
