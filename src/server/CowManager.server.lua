@@ -890,6 +890,9 @@ Remotes.MilkPull.OnServerEvent:Connect(function(player, side)
 end)
 
 Remotes.StopMilking.OnServerEvent:Connect(function(player)
+	if not debounce(player, "StopMilking", 0.2) then
+		return
+	end
 	endMilking(player, false)
 end)
 
@@ -1560,7 +1563,7 @@ end
 ------------------------------------------------------------------------
 local autoMilker = {} -- [player] = true
 
-Remotes.GetInventory.OnServerInvoke = function(player)
+local function buildInventory(player)
 	local data = DataService.Get(player)
 	if not data then
 		return nil
@@ -1593,6 +1596,23 @@ Remotes.GetInventory.OnServerInvoke = function(player)
 		HotbarSize = HOTBAR_SIZE,
 		CellCount = GRID_CELLS,
 	}
+end
+
+-- Rate-Limit: mehrere Anfragen innerhalb von 0,2 s ohne Änderung am Inventar bekommen dieselbe Antwort
+-- (die Client-Scripts fragen oft gleichzeitig; so kostet Spam kaum Rechenzeit)
+local inventoryCache = {} -- [player] = { Time, Version, Result }
+local INVENTORY_CACHE_TIME = 0.2
+
+Remotes.GetInventory.OnServerInvoke = function(player)
+	local now = os.clock()
+	local version = DataService.GetInventoryVersion(player)
+	local cache = inventoryCache[player]
+	if cache and cache.Version == version and now - cache.Time < INVENTORY_CACHE_TIME then
+		return cache.Result
+	end
+	local result = buildInventory(player)
+	inventoryCache[player] = { Time = now, Version = version, Result = result }
+	return result
 end
 
 ------------------------------------------------------------------------
@@ -1755,6 +1775,7 @@ Players.PlayerRemoving:Connect(function(player)
 	endMilking(player, false)
 	removeFarm(player)
 	lastCall[player] = nil
+	inventoryCache[player] = nil
 	autoMilker[player] = nil
 end)
 

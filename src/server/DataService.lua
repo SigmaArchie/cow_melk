@@ -15,6 +15,7 @@ local MAX_RETRIES = 3
 local DataService = {}
 
 local profiles = {} -- [Player] = data
+local inventoryVersions = {} -- [Player] = Zahl (zählt Inventar-Änderungen, siehe GetInventoryVersion)
 local canSave = {} -- [Player] = true, wenn der DataStore erfolgreich geladen wurde
 local rng = Random.new()
 
@@ -178,6 +179,7 @@ function DataService.Release(player)
 	DataService.Save(player)
 	profiles[player] = nil
 	canSave[player] = nil
+	inventoryVersions[player] = nil
 end
 
 ------------------------------------------------------------------------
@@ -328,7 +330,13 @@ function DataService.Notify(player, text, kind)
 	end
 end
 
+-- Zählt mit, wie oft sich das Inventar geändert hat (der Server merkt sich damit seine Antworten)
+function DataService.GetInventoryVersion(player)
+	return inventoryVersions[player] or 0
+end
+
 function DataService.FireInventoryChanged(player)
+	inventoryVersions[player] = (inventoryVersions[player] or 0) + 1
 	if player and player.Parent then
 		Remotes.InventoryChanged:FireClient(player)
 	end
