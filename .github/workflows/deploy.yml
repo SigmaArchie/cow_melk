@@ -1,0 +1,24 @@
+name: Deploy to Roblox
+
+# Bewusst nur von Hand startbar (Actions -> Deploy to Roblox -> Run workflow),
+# damit nicht jeder Push das Live-Spiel überschreibt. Zum Automatisieren:
+#   on:
+#     push:
+#       branches: [main]
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: CompeyDev/setup-rokit@v0.1.2
+      - run: rojo build -o game.rbxl
+      - name: Publish place
+        run: |
+          curl --fail -X POST \
+            "https://apis.roblox.com/universes/v1/${{ secrets.UNIVERSE_ID }}/places/${{ secrets.PLACE_ID }}/versions?versionType=Published" \
+            -H "x-api-key: ${{ secrets.ROBLOX_API_KEY }}" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary @game.rbxl

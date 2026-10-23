@@ -131,11 +131,12 @@ Funktioniert vermutlich: Coins `4590662766`, Muhen `535690488`. **Aus** (IDs war
 2. Funktionierende Sound-IDs eintragen.
 3. Balancing (erster Kauf nach ca. 2–3 Minuten), Upgrades (größerer Eimer, schnellere Pause), evtl. Bestenliste.
 4. Gamepass-/Produkt-IDs eintragen (Platzhalter siehe oben), Spiel veröffentlichen, "Enable Studio Access to API Services" für den DataStore.
-5. Pass 3: Inventar/Hotbar, Karte und Tutorial auf das neue Theme umstellen; Feinschliff nach dem Studio-Test.
+5. Pass 3 (Inventar/Hotbar, Karte, Tutorial auf dem Theme) ist im Code fertig; Feinschliff nach dem Studio-Test.
+6. UI-Icons (Milch, Eimer, Münze, Kisten, Kuh) aus Blender rendern, in Roblox hochladen und als Asset-IDs eintragen.
 
 ## Bekannte Risiken (Stand Pass 1)
 
-- `GetInventory` hat kein Rate-Limit (nur Lesezugriff, aber ein Client könnte es oft aufrufen).
+- `GetInventory` ist per Cache begrenzt (0,2 s, solange sich das Inventar nicht ändert); echtes Anfrage-Limit pro Spieler gibt es nicht.
 - Der Auto-Melker ignoriert die Melk-Pause der Kühe (so gewollt, aber stark; Balancing prüfen).
 - Studio ohne API-Zugriff speichert nichts (bewusst); live kickt ein fehlgeschlagenes Laden den Spieler.
 - Beim Verlassen: schlägt das Speichern 3x fehl, gehen die Daten seit dem letzten Autosave (120 s) verloren.
