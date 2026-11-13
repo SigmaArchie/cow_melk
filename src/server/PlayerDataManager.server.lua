@@ -17,7 +17,7 @@ local function onPlayerAdded(player)
 	-- Neue Spieler bekommen eine Gratis-Kuh (Begrüßung + Tutorial zeigt TutorialClient)
 	if not data.ReceivedStarterCow then
 		data.ReceivedStarterCow = true
-		DataService.AddCow(player, CowData.Config.StarterCow)
+		DataService.AddCow(player, CowData.Config.StarterCow) -- kommt als Kalb und wächst wie jede Kuh
 	end
 end
 

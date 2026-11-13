@@ -317,7 +317,12 @@ local function buildConveyor(name, x, direction)
 
 	-- gelb-schwarze Seitenleisten
 	for _, side in ipairs({ -1, 1 }) do
-		hazardStrip(model, Vector3.new(x + side * (width / 2 + 0.3), (BELT_TOP + 0.3) / 2, VISIBLE_CENTER_Z), visibleLength, BELT_TOP + 0.3)
+		hazardStrip(
+			model,
+			Vector3.new(x + side * (width / 2 + 0.3), (BELT_TOP + 0.3) / 2, VISIBLE_CENTER_Z),
+			visibleLength,
+			BELT_TOP + 0.3
+		)
 	end
 
 	-- Kacheln
@@ -489,22 +494,55 @@ local function prop(parent, name, size, cframe, color, material, extra)
 end
 
 local function buildTree(parent, position, scale)
-	prop(parent, "Trunk", Vector3.new(1.2, 6, 1.2) * scale, CFrame.new(position + Vector3.new(0, 3 * scale, 0)),
-		World.WoodDark, Enum.Material.Wood)
+	prop(
+		parent,
+		"Trunk",
+		Vector3.new(1.2, 6, 1.2) * scale,
+		CFrame.new(position + Vector3.new(0, 3 * scale, 0)),
+		World.WoodDark,
+		Enum.Material.Wood
+	)
 	for _, offset in ipairs({ Vector3.new(0, 7, 0), Vector3.new(1.5, 6, 0.8), Vector3.new(-1.3, 6.2, -0.9) }) do
-		prop(parent, "Leaves", Vector3.new(5, 5, 5) * scale, CFrame.new(position + offset * scale),
-			World.Leaf, Enum.Material.Grass, { Shape = Enum.PartType.Ball, CanCollide = false })
+		prop(
+			parent,
+			"Leaves",
+			Vector3.new(5, 5, 5) * scale,
+			CFrame.new(position + offset * scale),
+			World.Leaf,
+			Enum.Material.Grass,
+			{ Shape = Enum.PartType.Ball, CanCollide = false }
+		)
 	end
 end
 
 -- Laterne mit warmem Licht (withLight = false spart die Lichtquelle)
 local function buildLantern(parent, position, withLight)
-	prop(parent, "LanternPost", Vector3.new(0.4, 6.4, 0.4), CFrame.new(position + Vector3.new(0, 3.2, 0)),
-		Color3.fromRGB(52, 54, 62), Enum.Material.Metal)
-	prop(parent, "LanternCap", Vector3.new(1.7, 0.25, 1.7), CFrame.new(position + Vector3.new(0, 7.45, 0)),
-		Color3.fromRGB(52, 54, 62), Enum.Material.Metal, SOFT)
-	local lamp = prop(parent, "LanternLamp", Vector3.new(1.2, 1.4, 1.2), CFrame.new(position + Vector3.new(0, 6.8, 0)),
-		World.Lantern, Enum.Material.SmoothPlastic, SOFT)
+	prop(
+		parent,
+		"LanternPost",
+		Vector3.new(0.4, 6.4, 0.4),
+		CFrame.new(position + Vector3.new(0, 3.2, 0)),
+		Color3.fromRGB(52, 54, 62),
+		Enum.Material.Metal
+	)
+	prop(
+		parent,
+		"LanternCap",
+		Vector3.new(1.7, 0.25, 1.7),
+		CFrame.new(position + Vector3.new(0, 7.45, 0)),
+		Color3.fromRGB(52, 54, 62),
+		Enum.Material.Metal,
+		SOFT
+	)
+	local lamp = prop(
+		parent,
+		"LanternLamp",
+		Vector3.new(1.2, 1.4, 1.2),
+		CFrame.new(position + Vector3.new(0, 6.8, 0)),
+		World.Lantern,
+		Enum.Material.SmoothPlastic,
+		SOFT
+	)
 	if withLight then
 		local pointLight = Instance.new("PointLight")
 		pointLight.Color = Color3.fromRGB(255, 226, 170)
@@ -517,39 +555,107 @@ end
 
 -- Bank: Sitzfläche, Lehne, zwei Füße. Blick in Richtung -Z des CFrames
 local function buildBench(parent, cframe)
-	prop(parent, "BenchSeat", Vector3.new(4.4, 0.35, 1.5), cframe * CFrame.new(0, 1.55, 0), World.WoodLight, Enum.Material.Wood)
-	prop(parent, "BenchBack", Vector3.new(4.4, 1.1, 0.25), cframe * CFrame.new(0, 2.4, 0.68), World.Wood, Enum.Material.Wood, SOFT)
+	prop(
+		parent,
+		"BenchSeat",
+		Vector3.new(4.4, 0.35, 1.5),
+		cframe * CFrame.new(0, 1.55, 0),
+		World.WoodLight,
+		Enum.Material.Wood
+	)
+	prop(
+		parent,
+		"BenchBack",
+		Vector3.new(4.4, 1.1, 0.25),
+		cframe * CFrame.new(0, 2.4, 0.68),
+		World.Wood,
+		Enum.Material.Wood,
+		SOFT
+	)
 	for _, x in ipairs({ -1.8, 1.8 }) do
-		prop(parent, "BenchLeg", Vector3.new(0.35, 1.5, 1.3), cframe * CFrame.new(x, 0.75, 0), World.WoodDark, Enum.Material.Wood)
+		prop(
+			parent,
+			"BenchLeg",
+			Vector3.new(0.35, 1.5, 1.3),
+			cframe * CFrame.new(x, 0.75, 0),
+			World.WoodDark,
+			Enum.Material.Wood
+		)
 	end
 end
 
 -- Blumenbeet: Steinrand, Erde, Grünpolster und ein paar bunte Blüten (wenige Teile)
 local function buildFlowerBed(parent, center, sizeX, sizeZ)
-	prop(parent, "BedBorder", Vector3.new(sizeX + 0.9, 0.5, sizeZ + 0.9), CFrame.new(center + Vector3.new(0, 0.45, 0)),
-		World.StoneDark, Enum.Material.Cobblestone, SOFT)
-	prop(parent, "BedSoil", Vector3.new(sizeX, 0.6, sizeZ), CFrame.new(center + Vector3.new(0, 0.5, 0)),
-		World.Soil, Enum.Material.Ground, SOFT)
-	prop(parent, "BedGreen", Vector3.new(sizeX - 0.6, 0.8, sizeZ - 0.6), CFrame.new(center + Vector3.new(0, 0.85, 0)),
-		World.Leaf, Enum.Material.Grass, SOFT)
+	prop(
+		parent,
+		"BedBorder",
+		Vector3.new(sizeX + 0.9, 0.5, sizeZ + 0.9),
+		CFrame.new(center + Vector3.new(0, 0.45, 0)),
+		World.StoneDark,
+		Enum.Material.Cobblestone,
+		SOFT
+	)
+	prop(
+		parent,
+		"BedSoil",
+		Vector3.new(sizeX, 0.6, sizeZ),
+		CFrame.new(center + Vector3.new(0, 0.5, 0)),
+		World.Soil,
+		Enum.Material.Ground,
+		SOFT
+	)
+	prop(
+		parent,
+		"BedGreen",
+		Vector3.new(sizeX - 0.6, 0.8, sizeZ - 0.6),
+		CFrame.new(center + Vector3.new(0, 0.85, 0)),
+		World.Leaf,
+		Enum.Material.Grass,
+		SOFT
+	)
 	local count = math.clamp(math.floor(sizeX * sizeZ / 5), 4, 12)
 	for _ = 1, count do
 		local color = World.Flowers[rng:NextInteger(1, #World.Flowers)]
-		local offset = Vector3.new(rng:NextNumber(-sizeX / 2 + 0.6, sizeX / 2 - 0.6), 1.45, rng:NextNumber(-sizeZ / 2 + 0.6, sizeZ / 2 - 0.6))
-		prop(parent, "Flower", Vector3.new(0.7, 0.7, 0.7), CFrame.new(center + offset), color, Enum.Material.SmoothPlastic,
-			{ Shape = Enum.PartType.Ball, CanCollide = false, CanQuery = false, CastShadow = false })
+		local offset = Vector3.new(
+			rng:NextNumber(-sizeX / 2 + 0.6, sizeX / 2 - 0.6),
+			1.45,
+			rng:NextNumber(-sizeZ / 2 + 0.6, sizeZ / 2 - 0.6)
+		)
+		prop(
+			parent,
+			"Flower",
+			Vector3.new(0.7, 0.7, 0.7),
+			CFrame.new(center + offset),
+			color,
+			Enum.Material.SmoothPlastic,
+			{ Shape = Enum.PartType.Ball, CanCollide = false, CanQuery = false, CastShadow = false }
+		)
 	end
 end
 
 -- Steinweg: flacher Streifen knapp über dem Platz (stört beim Laufen nicht)
 local function buildPath(parent, center, sizeX, sizeZ)
-	prop(parent, "PathStone", Vector3.new(sizeX, 0.06, sizeZ), CFrame.new(center.X, 0.23, center.Z),
-		World.StonePath, Enum.Material.Cobblestone, SOFT)
+	prop(
+		parent,
+		"PathStone",
+		Vector3.new(sizeX, 0.06, sizeZ),
+		CFrame.new(center.X, 0.23, center.Z),
+		World.StonePath,
+		Enum.Material.Cobblestone,
+		SOFT
+	)
 end
 
 local function buildPathRing(parent, center, diameter)
-	prop(parent, "PathRing", Vector3.new(0.06, diameter, diameter), CFrame.new(center.X, 0.23, center.Z) * CFrame.Angles(0, 0, math.rad(90)),
-		World.StonePath, Enum.Material.Cobblestone, { Shape = Enum.PartType.Cylinder, CanCollide = false, CanQuery = false })
+	prop(
+		parent,
+		"PathRing",
+		Vector3.new(0.06, diameter, diameter),
+		CFrame.new(center.X, 0.23, center.Z) * CFrame.Angles(0, 0, math.rad(90)),
+		World.StonePath,
+		Enum.Material.Cobblestone,
+		{ Shape = Enum.PartType.Cylinder, CanCollide = false, CanQuery = false }
+	)
 end
 
 ------------------------------------------------------------------------
@@ -578,10 +684,14 @@ do
 
 	-- Bäume am Platzrand
 	for _, position in ipairs({
-		Vector3.new(-55, 0, -5), Vector3.new(55, 0, -5),
-		Vector3.new(-55, 0, -95), Vector3.new(55, 0, -95),
-		Vector3.new(-20, 0, -95), Vector3.new(20, 0, -95),
-		Vector3.new(-56, 0, -72), Vector3.new(56, 0, -72),
+		Vector3.new(-55, 0, -5),
+		Vector3.new(55, 0, -5),
+		Vector3.new(-55, 0, -95),
+		Vector3.new(55, 0, -95),
+		Vector3.new(-20, 0, -95),
+		Vector3.new(20, 0, -95),
+		Vector3.new(-56, 0, -72),
+		Vector3.new(56, 0, -72),
 	}) do
 		buildTree(hub, position, 1)
 	end
@@ -612,11 +722,21 @@ local function buildRoof(ctx, profile, overhang, color, material, width)
 			local center = mid + normal * 0.3
 			local phi = math.atan2(dir.Y, dir.X)
 			if half == 1 then
-				ctx.part("Roof", Vector3.new(width, 0.6, length), CFrame.new(0, center.Y, center.X) * CFrame.Angles(-phi, 0, 0),
-					color, material)
+				ctx.part(
+					"Roof",
+					Vector3.new(width, 0.6, length),
+					CFrame.new(0, center.Y, center.X) * CFrame.Angles(-phi, 0, 0),
+					color,
+					material
+				)
 			else
-				ctx.part("Roof", Vector3.new(width, 0.6, length), CFrame.new(0, center.Y, -center.X) * CFrame.Angles(phi, 0, 0),
-					color, material)
+				ctx.part(
+					"Roof",
+					Vector3.new(width, 0.6, length),
+					CFrame.new(0, center.Y, -center.X) * CFrame.Angles(phi, 0, 0),
+					color,
+					material
+				)
 			end
 		end
 	end
@@ -634,7 +754,13 @@ local function buildGables(ctx, profile, eaveY, color, material)
 				local zMid = (a.X + b.X) / 2
 				local flip = half == 1 and 1 or -1
 				if hA > 0.05 then
-					ctx.part("GableFill", Vector3.new(1, hA, span), CFrame.new(x, eaveY + hA / 2, zMid * flip), color, material)
+					ctx.part(
+						"GableFill",
+						Vector3.new(1, hA, span),
+						CFrame.new(x, eaveY + hA / 2, zMid * flip),
+						color,
+						material
+					)
 				end
 				local rise = hB - hA
 				if rise > 0.05 then
@@ -668,11 +794,35 @@ local function buildShell(ctx, cfg)
 	local frontWidth = (W - doorW) / 2
 	for _, side in ipairs({ -1, 1 }) do
 		part("WallSide", Vector3.new(1, H, D), CFrame.new(side * (W / 2 - 0.5), H / 2, 0), wall, material)
-		part("WallFront", Vector3.new(frontWidth, H, 1), CFrame.new(side * (doorW / 2 + frontWidth / 2), H / 2, -D / 2 + 0.5), wall, material)
-		part("DoorFrame", Vector3.new(0.5, doorH, 1.3), CFrame.new(side * (doorW / 2 + 0.25), doorH / 2, -D / 2 + 0.5), trim, Enum.Material.Wood)
+		part(
+			"WallFront",
+			Vector3.new(frontWidth, H, 1),
+			CFrame.new(side * (doorW / 2 + frontWidth / 2), H / 2, -D / 2 + 0.5),
+			wall,
+			material
+		)
+		part(
+			"DoorFrame",
+			Vector3.new(0.5, doorH, 1.3),
+			CFrame.new(side * (doorW / 2 + 0.25), doorH / 2, -D / 2 + 0.5),
+			trim,
+			Enum.Material.Wood
+		)
 	end
-	part("WallOverDoor", Vector3.new(doorW, H - doorH, 1), CFrame.new(0, doorH + (H - doorH) / 2, -D / 2 + 0.5), wall, material)
-	part("DoorFrameTop", Vector3.new(doorW + 1, 0.5, 1.3), CFrame.new(0, doorH + 0.25, -D / 2 + 0.5), trim, Enum.Material.Wood)
+	part(
+		"WallOverDoor",
+		Vector3.new(doorW, H - doorH, 1),
+		CFrame.new(0, doorH + (H - doorH) / 2, -D / 2 + 0.5),
+		wall,
+		material
+	)
+	part(
+		"DoorFrameTop",
+		Vector3.new(doorW + 1, 0.5, 1.3),
+		CFrame.new(0, doorH + 0.25, -D / 2 + 0.5),
+		trim,
+		Enum.Material.Wood
+	)
 	for _, x in ipairs({ -W / 2, W / 2 }) do
 		for _, z in ipairs({ -D / 2, D / 2 }) do
 			part("Corner", Vector3.new(1.3, H, 1.3), CFrame.new(x, H / 2, z), trim, Enum.Material.Wood)
@@ -681,22 +831,60 @@ local function buildShell(ctx, cfg)
 
 	-- Theke innen (durch die Tür sichtbar)
 	part("Counter", Vector3.new(9, 3.2, 2), CFrame.new(0, 1.8, D / 2 - 4), World.WoodDark, Enum.Material.Wood)
-	part("CounterTop", Vector3.new(9.4, 0.3, 2.4), CFrame.new(0, 3.55, D / 2 - 4), ctx.opts.Color, Enum.Material.SmoothPlastic)
+	part(
+		"CounterTop",
+		Vector3.new(9.4, 0.3, 2.4),
+		CFrame.new(0, 3.55, D / 2 - 4),
+		ctx.opts.Color,
+		Enum.Material.SmoothPlastic
+	)
 end
 
 -- Fenster mit Rahmen (liegt auf der Außenwand, keine Öffnung)
 local function buildWindow(ctx, x, y, w, h, trim)
-	ctx.part("WindowFrame", Vector3.new(w + 0.6, h + 0.6, 0.15), CFrame.new(x, y, -ctx.D / 2 - 0.05), trim, Enum.Material.Wood, SOFT)
-	ctx.part("Window", Vector3.new(w, h, 0.2), CFrame.new(x, y, -ctx.D / 2 - 0.15), Color3.fromRGB(170, 212, 245), Enum.Material.Glass,
-		{ Transparency = 0.35, CanCollide = false, CanQuery = false })
-	ctx.part("WindowBar", Vector3.new(w, 0.18, 0.1), CFrame.new(x, y, -ctx.D / 2 - 0.28), trim, Enum.Material.Wood, SOFT)
+	ctx.part(
+		"WindowFrame",
+		Vector3.new(w + 0.6, h + 0.6, 0.15),
+		CFrame.new(x, y, -ctx.D / 2 - 0.05),
+		trim,
+		Enum.Material.Wood,
+		SOFT
+	)
+	ctx.part(
+		"Window",
+		Vector3.new(w, h, 0.2),
+		CFrame.new(x, y, -ctx.D / 2 - 0.15),
+		Color3.fromRGB(170, 212, 245),
+		Enum.Material.Glass,
+		{ Transparency = 0.35, CanCollide = false, CanQuery = false }
+	)
+	ctx.part(
+		"WindowBar",
+		Vector3.new(w, 0.18, 0.1),
+		CFrame.new(x, y, -ctx.D / 2 - 0.28),
+		trim,
+		Enum.Material.Wood,
+		SOFT
+	)
 end
 
 -- Holzschild an der Wand: Rückbrett + Brett mit Text (Symbol + Name), gut lesbar aus ~40 Studs
 local function buildSign(ctx, x, y, width, height)
 	local zFront = -ctx.D / 2 - 0.15
-	ctx.part("SignBacker", Vector3.new(width + 0.6, height + 0.6, 0.3), CFrame.new(x, y, zFront), World.Wood, Enum.Material.Wood)
-	local board = ctx.part("Sign", Vector3.new(width, height, 0.3), CFrame.new(x, y, zFront - 0.25), World.WoodDark, Enum.Material.Wood)
+	ctx.part(
+		"SignBacker",
+		Vector3.new(width + 0.6, height + 0.6, 0.3),
+		CFrame.new(x, y, zFront),
+		World.Wood,
+		Enum.Material.Wood
+	)
+	local board = ctx.part(
+		"Sign",
+		Vector3.new(width, height, 0.3),
+		CFrame.new(x, y, zFront - 0.25),
+		World.WoodDark,
+		Enum.Material.Wood
+	)
 
 	local surface = Instance.new("SurfaceGui")
 	surface.Face = Enum.NormalId.Front
@@ -734,8 +922,14 @@ end
 
 -- kleiner, ruhiger Hinweis "Klicken zum Öffnen" (die Namen bleiben, WorldAnimator findet sie so)
 local function buildHint(ctx)
-	local anchor = ctx.part("SignAnchor", Vector3.new(1, 1, 1), CFrame.new(-3.6, 5.4, -ctx.D / 2 - 1.8), World.WoodDark, nil,
-		{ Transparency = 1, CanCollide = false, CanQuery = false, CastShadow = false })
+	local anchor = ctx.part(
+		"SignAnchor",
+		Vector3.new(1, 1, 1),
+		CFrame.new(-3.6, 5.4, -ctx.D / 2 - 1.8),
+		World.WoodDark,
+		nil,
+		{ Transparency = 1, CanCollide = false, CanQuery = false, CastShadow = false }
+	)
 	local billboard = Instance.new("BillboardGui")
 	billboard.Name = "ShopBillboard"
 	billboard.Size = UDim2.fromScale(5.2, 1.1) -- in Studs: wird mit Abstand kleiner wie ein echtes Schild
@@ -809,12 +1003,27 @@ local function buildShopKeeper(ctx)
 		npcPart("Eye", Vector3.new(0.18, 0.25, 0.05), CFrame.new(side * 0.25, 4.75, 0.63), Color3.fromRGB(20, 20, 25))
 	end
 	npcPart("Smile", Vector3.new(0.45, 0.08, 0.05), CFrame.new(0, 4.4, 0.62), Color3.fromRGB(150, 60, 60))
-	npcPart("HatBrim", Vector3.new(0.15, 2.6, 2.6), CFrame.new(0, 5.25, 0) * CFrame.Angles(0, 0, math.rad(90)),
-		Color3.fromRGB(235, 200, 110), Enum.PartType.Cylinder)
-	npcPart("HatCrown", Vector3.new(0.8, 1.3, 1.3), CFrame.new(0, 5.65, 0) * CFrame.Angles(0, 0, math.rad(90)),
-		Color3.fromRGB(235, 200, 110), Enum.PartType.Cylinder)
-	npcPart("HatBand", Vector3.new(0.25, 1.36, 1.36), CFrame.new(0, 5.4, 0) * CFrame.Angles(0, 0, math.rad(90)),
-		ctx.opts.Color, Enum.PartType.Cylinder)
+	npcPart(
+		"HatBrim",
+		Vector3.new(0.15, 2.6, 2.6),
+		CFrame.new(0, 5.25, 0) * CFrame.Angles(0, 0, math.rad(90)),
+		Color3.fromRGB(235, 200, 110),
+		Enum.PartType.Cylinder
+	)
+	npcPart(
+		"HatCrown",
+		Vector3.new(0.8, 1.3, 1.3),
+		CFrame.new(0, 5.65, 0) * CFrame.Angles(0, 0, math.rad(90)),
+		Color3.fromRGB(235, 200, 110),
+		Enum.PartType.Cylinder
+	)
+	npcPart(
+		"HatBand",
+		Vector3.new(0.25, 1.36, 1.36),
+		CFrame.new(0, 5.4, 0) * CFrame.Angles(0, 0, math.rad(90)),
+		ctx.opts.Color,
+		Enum.PartType.Cylinder
+	)
 	npc.PrimaryPart = npcTorso
 	npc.Parent = ctx.model
 	CollectionService:AddTag(npc, "ShopKeeper")
@@ -822,8 +1031,14 @@ end
 
 -- warmes Licht innen (ein kleiner Schein statt einer Neon-Kugel)
 local function buildInnerLight(ctx, y)
-	local lamp = ctx.part("Lamp", Vector3.new(1, 1, 1), CFrame.new(0, y, 0), World.Lantern, Enum.Material.SmoothPlastic,
-		{ Shape = Enum.PartType.Ball, CanCollide = false, CanQuery = false })
+	local lamp = ctx.part(
+		"Lamp",
+		Vector3.new(1, 1, 1),
+		CFrame.new(0, y, 0),
+		World.Lantern,
+		Enum.Material.SmoothPlastic,
+		{ Shape = Enum.PartType.Ball, CanCollide = false, CanQuery = false }
+	)
 	local inside = Instance.new("PointLight")
 	inside.Color = Color3.fromRGB(255, 208, 130)
 	inside.Brightness = 2
@@ -844,10 +1059,23 @@ local function styleBarn(ctx)
 	local braceAngle = math.atan2(6.6, 4.8)
 	for _, side in ipairs({ -1, 1 }) do
 		local x = side * 7
-		ctx.part("BarnDoor", Vector3.new(4.8, 6.6, 0.3), CFrame.new(x, 3.5, -D / 2 - 0.1), opts.Color, Enum.Material.WoodPlanks, SOFT)
+		ctx.part(
+			"BarnDoor",
+			Vector3.new(4.8, 6.6, 0.3),
+			CFrame.new(x, 3.5, -D / 2 - 0.1),
+			opts.Color,
+			Enum.Material.WoodPlanks,
+			SOFT
+		)
 		for _, dir in ipairs({ -1, 1 }) do
-			ctx.part("DoorBrace", Vector3.new(braceLength, 0.4, 0.2), CFrame.new(x, 3.5, -D / 2 - 0.3) * CFrame.Angles(0, 0, dir * braceAngle),
-				trim, Enum.Material.Wood, SOFT)
+			ctx.part(
+				"DoorBrace",
+				Vector3.new(braceLength, 0.4, 0.2),
+				CFrame.new(x, 3.5, -D / 2 - 0.3) * CFrame.Angles(0, 0, dir * braceAngle),
+				trim,
+				Enum.Material.Wood,
+				SOFT
+			)
 		end
 	end
 
@@ -857,7 +1085,14 @@ local function styleBarn(ctx)
 	buildGables(ctx, profile, H, opts.WallColor, Enum.Material.WoodPlanks)
 	ctx.part("Ridge", Vector3.new(ctx.W + 2.2, 0.6, 0.9), CFrame.new(0, H + 7.15, 0), trim, Enum.Material.Wood, SOFT)
 	-- Wetterfahne
-	ctx.part("VanePost", Vector3.new(0.25, 2.6, 0.25), CFrame.new(0, H + 8.4, 0), World.WoodDark, Enum.Material.Wood, SOFT)
+	ctx.part(
+		"VanePost",
+		Vector3.new(0.25, 2.6, 0.25),
+		CFrame.new(0, H + 8.4, 0),
+		World.WoodDark,
+		Enum.Material.Wood,
+		SOFT
+	)
 	ctx.part("VaneArrow", Vector3.new(0.15, 0.5, 1.8), CFrame.new(0, H + 9.5, 0), opts.Color, Enum.Material.Metal, SOFT)
 
 	buildSign(ctx, 0, 8.75, 10.5, 1.9)
@@ -865,8 +1100,14 @@ local function styleBarn(ctx)
 
 	-- davor: Fässer und Heu seitlich (nicht auf dem Weg)
 	for _, x in ipairs({ -12.2, -13.6 }) do
-		ctx.part("Barrel", Vector3.new(2.2, 1.8, 1.8), CFrame.new(x, 1.1, -D / 2 + 1.5) * CFrame.Angles(0, 0, math.rad(90)),
-			World.Wood, Enum.Material.Wood, { Shape = Enum.PartType.Cylinder })
+		ctx.part(
+			"Barrel",
+			Vector3.new(2.2, 1.8, 1.8),
+			CFrame.new(x, 1.1, -D / 2 + 1.5) * CFrame.Angles(0, 0, math.rad(90)),
+			World.Wood,
+			Enum.Material.Wood,
+			{ Shape = Enum.PartType.Cylinder }
+		)
 	end
 	ctx.part("HayBale", Vector3.new(3.4, 1.8, 2.6), CFrame.new(12.6, 0.9, -D / 2 + 2), World.Hay, Enum.Material.Fabric)
 end
@@ -877,17 +1118,47 @@ local function styleStall(ctx)
 	local part = ctx.part
 
 	part("Floor", Vector3.new(W, 0.4, D), CFrame.new(0, 0.2, 0), Color3.fromRGB(165, 124, 86), Enum.Material.WoodPlanks)
-	part("WallBack", Vector3.new(W, 9.6, 0.8), CFrame.new(0, 4.8, D / 2 - 0.4), opts.WallColor, Enum.Material.WoodPlanks)
+	part(
+		"WallBack",
+		Vector3.new(W, 9.6, 0.8),
+		CFrame.new(0, 4.8, D / 2 - 0.4),
+		opts.WallColor,
+		Enum.Material.WoodPlanks
+	)
 	for _, side in ipairs({ -1, 1 }) do
-		part("WallSide", Vector3.new(0.8, 3.6, D), CFrame.new(side * (W / 2 - 0.4), 1.8, 0), opts.WallColor, Enum.Material.WoodPlanks)
-		part("FrontPost", Vector3.new(1.1, 9.6, 1.1), CFrame.new(side * (W / 2 - 0.55), 4.8, -D / 2 + 1), World.WoodDark, Enum.Material.Wood)
-		part("BackPost", Vector3.new(1.1, 11.4, 1.1), CFrame.new(side * (W / 2 - 0.55), 5.7, D / 2 - 0.55), World.WoodDark, Enum.Material.Wood)
+		part(
+			"WallSide",
+			Vector3.new(0.8, 3.6, D),
+			CFrame.new(side * (W / 2 - 0.4), 1.8, 0),
+			opts.WallColor,
+			Enum.Material.WoodPlanks
+		)
+		part(
+			"FrontPost",
+			Vector3.new(1.1, 9.6, 1.1),
+			CFrame.new(side * (W / 2 - 0.55), 4.8, -D / 2 + 1),
+			World.WoodDark,
+			Enum.Material.Wood
+		)
+		part(
+			"BackPost",
+			Vector3.new(1.1, 11.4, 1.1),
+			CFrame.new(side * (W / 2 - 0.55), 5.7, D / 2 - 0.55),
+			World.WoodDark,
+			Enum.Material.Wood
+		)
 	end
 	part("FrontBeam", Vector3.new(W, 1.8, 1), CFrame.new(0, 8.7, -D / 2 + 1), World.Wood, Enum.Material.Wood)
 
 	-- Verkaufstheke vorne
 	part("Counter", Vector3.new(W - 5, 3.2, 1.8), CFrame.new(0, 1.8, -D / 2 + 3), World.WoodDark, Enum.Material.Wood)
-	part("CounterTop", Vector3.new(W - 4.6, 0.3, 2.3), CFrame.new(0, 3.55, -D / 2 + 3), opts.Color, Enum.Material.SmoothPlastic)
+	part(
+		"CounterTop",
+		Vector3.new(W - 4.6, 0.3, 2.3),
+		CFrame.new(0, 3.55, -D / 2 + 3),
+		opts.Color,
+		Enum.Material.SmoothPlastic
+	)
 
 	-- gestreiftes Dach (leicht nach hinten ansteigend), Streifen quer zur Länge
 	local frontY, backY = 10.0, 11.7
@@ -897,18 +1168,35 @@ local function styleStall(ctx)
 	local stripes = 8
 	for i = 0, stripes - 1 do
 		local width = (W + 2) / stripes
-		part("RoofStripe", Vector3.new(width, 0.35, length),
-			CFrame.new(-(W + 2) / 2 + (i + 0.5) * width, (frontY + backY) / 2, (frontZ + backZ) / 2) * CFrame.Angles(-tilt, 0, 0),
-			i % 2 == 0 and opts.Color or Pal.Cream, Enum.Material.Fabric)
+		part(
+			"RoofStripe",
+			Vector3.new(width, 0.35, length),
+			CFrame.new(-(W + 2) / 2 + (i + 0.5) * width, (frontY + backY) / 2, (frontZ + backZ) / 2)
+				* CFrame.Angles(-tilt, 0, 0),
+			i % 2 == 0 and opts.Color or Pal.Cream,
+			Enum.Material.Fabric
+		)
 	end
 
 	buildSign(ctx, 0, 8.7, 11, 1.5)
 
 	-- Kisten: auf der Theke und als Stapel dahinter
 	local function crate(x, y, z, size, color)
-		part("Crate", Vector3.new(size, size, size), CFrame.new(x, y, z) * CFrame.Angles(0, rng:NextNumber(-0.25, 0.25), 0),
-			color, Enum.Material.WoodPlanks)
-		part("CrateBand", Vector3.new(size + 0.1, 0.3, size + 0.1), CFrame.new(x, y, z), World.WoodDark, Enum.Material.Wood, SOFT)
+		part(
+			"Crate",
+			Vector3.new(size, size, size),
+			CFrame.new(x, y, z) * CFrame.Angles(0, rng:NextNumber(-0.25, 0.25), 0),
+			color,
+			Enum.Material.WoodPlanks
+		)
+		part(
+			"CrateBand",
+			Vector3.new(size + 0.1, 0.3, size + 0.1),
+			CFrame.new(x, y, z),
+			World.WoodDark,
+			Enum.Material.Wood,
+			SOFT
+		)
 	end
 	crate(-4.5, 4.6, -D / 2 + 3, 2, World.WoodLight)
 	crate(-2.1, 4.35, -D / 2 + 3, 1.5, World.Wood)
@@ -921,8 +1209,14 @@ local function styleStall(ctx)
 	-- Regal an der Rückwand mit kleinen Kisten in Seltenheitsfarben (Hinweis, was drin sein kann)
 	part("Shelf", Vector3.new(W - 6, 0.3, 1.4), CFrame.new(0, 6.2, D / 2 - 1.5), World.WoodDark, Enum.Material.Wood)
 	for i, rarity in ipairs({ "Common", "Uncommon", "Rare", "Epic", "Legendary" }) do
-		part("ShelfBox", Vector3.new(1.4, 1.2, 1.0), CFrame.new(-5.6 + (i - 1) * 2.8, 6.95, D / 2 - 1.5),
-			Palette.rarityColor(rarity), Enum.Material.SmoothPlastic, SOFT)
+		part(
+			"ShelfBox",
+			Vector3.new(1.4, 1.2, 1.0),
+			CFrame.new(-5.6 + (i - 1) * 2.8, 6.95, D / 2 - 1.5),
+			Palette.rarityColor(rarity),
+			Enum.Material.SmoothPlastic,
+			SOFT
+		)
 	end
 	buildInnerLight(ctx, 8.4)
 end
@@ -938,11 +1232,23 @@ local function styleStable(ctx)
 	for _, side in ipairs({ -1, 1 }) do
 		local x = side * 6.4
 		buildWindow(ctx, x, 3.9, 3.2, 2.4, trim)
-		ctx.part("FlowerBox", Vector3.new(3.8, 0.7, 0.9), CFrame.new(x, 2.3, -D / 2 - 0.65), World.Wood, Enum.Material.Wood, SOFT)
+		ctx.part(
+			"FlowerBox",
+			Vector3.new(3.8, 0.7, 0.9),
+			CFrame.new(x, 2.3, -D / 2 - 0.65),
+			World.Wood,
+			Enum.Material.Wood,
+			SOFT
+		)
 		for k = -1, 1 do
-			ctx.part("Flower", Vector3.new(0.7, 0.7, 0.7), CFrame.new(x + k * 1.1, 2.9, -D / 2 - 0.65),
-				World.Flowers[rng:NextInteger(1, #World.Flowers)], Enum.Material.SmoothPlastic,
-				{ Shape = Enum.PartType.Ball, CanCollide = false, CanQuery = false, CastShadow = false })
+			ctx.part(
+				"Flower",
+				Vector3.new(0.7, 0.7, 0.7),
+				CFrame.new(x + k * 1.1, 2.9, -D / 2 - 0.65),
+				World.Flowers[rng:NextInteger(1, #World.Flowers)],
+				Enum.Material.SmoothPlastic,
+				{ Shape = Enum.PartType.Ball, CanCollide = false, CanQuery = false, CastShadow = false }
+			)
 		end
 	end
 
@@ -951,17 +1257,36 @@ local function styleStable(ctx)
 	local profile = { Vector2.new(-D / 2, H), Vector2.new(0, ridgeY) }
 	buildRoof(ctx, profile, 1.8, opts.RoofColor, Enum.Material.Slate, ctx.W + 3)
 	buildGables(ctx, profile, H, opts.WallColor, Enum.Material.WoodPlanks)
-	ctx.part("Ridge", Vector3.new(ctx.W + 3.2, 0.6, 0.9), CFrame.new(0, ridgeY + 0.4, 0), trim, Enum.Material.Wood, SOFT)
+	ctx.part(
+		"Ridge",
+		Vector3.new(ctx.W + 3.2, 0.6, 0.9),
+		CFrame.new(0, ridgeY + 0.4, 0),
+		trim,
+		Enum.Material.Wood,
+		SOFT
+	)
 
 	buildSign(ctx, 0, 6.95, 9, 1.7)
 	buildInnerLight(ctx, H - 1.5)
 
 	-- Heuballen und Trog neben dem Stall
 	ctx.part("HayBale", Vector3.new(3.4, 1.8, 2.6), CFrame.new(-12.4, 0.9, -D / 2 + 2), World.Hay, Enum.Material.Fabric)
-	ctx.part("HayBale", Vector3.new(3.4, 1.8, 2.6), CFrame.new(-12.4, 2.7, -D / 2 + 2.2), World.Hay, Enum.Material.Fabric)
+	ctx.part(
+		"HayBale",
+		Vector3.new(3.4, 1.8, 2.6),
+		CFrame.new(-12.4, 2.7, -D / 2 + 2.2),
+		World.Hay,
+		Enum.Material.Fabric
+	)
 	ctx.part("Trough", Vector3.new(4, 1.1, 1.4), CFrame.new(12.4, 0.55, -D / 2 + 2), World.Wood, Enum.Material.Wood)
-	ctx.part("TroughWater", Vector3.new(3.5, 0.1, 0.9), CFrame.new(12.4, 1.1, -D / 2 + 2), Pal.Blue, Enum.Material.Glass,
-		{ Transparency = 0.3, CanCollide = false, CanQuery = false })
+	ctx.part(
+		"TroughWater",
+		Vector3.new(3.5, 0.1, 0.9),
+		CFrame.new(12.4, 1.1, -D / 2 + 2),
+		Pal.Blue,
+		Enum.Material.Glass,
+		{ Transparency = 0.3, CanCollide = false, CanQuery = false }
+	)
 end
 
 -- Stil 4: Auto-Melker = kleine Werkstatt aus Wellblech mit Silo, Schornstein und Milchkannen
@@ -970,7 +1295,12 @@ local function styleWorkshop(ctx)
 	local H = 9
 	local trim = Color3.fromRGB(64, 70, 82)
 	buildShell(ctx, {
-		W = 15, H = H, DoorW = 6, DoorH = 6.5, WallColor = opts.WallColor, Trim = trim,
+		W = 15,
+		H = H,
+		DoorW = 6,
+		DoorH = 6.5,
+		WallColor = opts.WallColor,
+		Trim = trim,
 		WallMaterial = Enum.Material.Metal,
 	})
 	local W = ctx.W
@@ -981,9 +1311,13 @@ local function styleWorkshop(ctx)
 	local slope = rise / D
 	local roofLength = (backZ - frontZ) * math.sqrt(1 + slope ^ 2)
 	local midZ = (frontZ + backZ) / 2
-	ctx.part("Roof", Vector3.new(W + 2, 0.6, roofLength),
+	ctx.part(
+		"Roof",
+		Vector3.new(W + 2, 0.6, roofLength),
 		CFrame.new(0, H + slope * (midZ + D / 2) + 0.3, midZ) * CFrame.Angles(-math.atan(slope), 0, 0),
-		opts.RoofColor, Enum.Material.Metal)
+		opts.RoofColor,
+		Enum.Material.Metal
+	)
 	for _, x in ipairs({ -(W / 2 - 0.5), W / 2 - 0.5 }) do
 		makeWedge({
 			Name = "Gable",
@@ -996,28 +1330,65 @@ local function styleWorkshop(ctx)
 	end
 
 	-- Schornstein
-	ctx.part("Chimney", Vector3.new(4.5, 1.2, 1.2), CFrame.new(-4, H + 3.8, 4) * CFrame.Angles(0, 0, math.rad(90)),
-		World.StoneDark, Enum.Material.Brick, { Shape = Enum.PartType.Cylinder, CanCollide = false })
+	ctx.part(
+		"Chimney",
+		Vector3.new(4.5, 1.2, 1.2),
+		CFrame.new(-4, H + 3.8, 4) * CFrame.Angles(0, 0, math.rad(90)),
+		World.StoneDark,
+		Enum.Material.Brick,
+		{ Shape = Enum.PartType.Cylinder, CanCollide = false }
+	)
 
 	-- Silo daneben (Zylinder + Kuppel + Ringe)
 	local siloX, siloH, siloR = W / 2 + 2.4, 14, 2.2
-	ctx.part("Silo", Vector3.new(siloH, siloR * 2, siloR * 2), CFrame.new(siloX, siloH / 2, 0) * CFrame.Angles(0, 0, math.rad(90)),
-		Color3.fromRGB(205, 210, 216), Enum.Material.Metal, { Shape = Enum.PartType.Cylinder })
-	ctx.part("SiloDome", Vector3.new(siloR * 2, siloR * 2, siloR * 2), CFrame.new(siloX, siloH, 0), opts.RoofColor, Enum.Material.Metal,
-		{ Shape = Enum.PartType.Ball, CanCollide = false })
+	ctx.part(
+		"Silo",
+		Vector3.new(siloH, siloR * 2, siloR * 2),
+		CFrame.new(siloX, siloH / 2, 0) * CFrame.Angles(0, 0, math.rad(90)),
+		Color3.fromRGB(205, 210, 216),
+		Enum.Material.Metal,
+		{ Shape = Enum.PartType.Cylinder }
+	)
+	ctx.part(
+		"SiloDome",
+		Vector3.new(siloR * 2, siloR * 2, siloR * 2),
+		CFrame.new(siloX, siloH, 0),
+		opts.RoofColor,
+		Enum.Material.Metal,
+		{ Shape = Enum.PartType.Ball, CanCollide = false }
+	)
 	for _, y in ipairs({ 4, 9 }) do
-		ctx.part("SiloBand", Vector3.new(0.35, siloR * 2 + 0.2, siloR * 2 + 0.2), CFrame.new(siloX, y, 0) * CFrame.Angles(0, 0, math.rad(90)),
-			trim, Enum.Material.Metal, { Shape = Enum.PartType.Cylinder, CanCollide = false })
+		ctx.part(
+			"SiloBand",
+			Vector3.new(0.35, siloR * 2 + 0.2, siloR * 2 + 0.2),
+			CFrame.new(siloX, y, 0) * CFrame.Angles(0, 0, math.rad(90)),
+			trim,
+			Enum.Material.Metal,
+			{ Shape = Enum.PartType.Cylinder, CanCollide = false }
+		)
 	end
-	ctx.part("SiloLadder", Vector3.new(0.3, 12, 0.3), CFrame.new(siloX, 6.5, -siloR - 0.1), World.Metal, Enum.Material.Metal, SOFT)
+	ctx.part(
+		"SiloLadder",
+		Vector3.new(0.3, 12, 0.3),
+		CFrame.new(siloX, 6.5, -siloR - 0.1),
+		World.Metal,
+		Enum.Material.Metal,
+		SOFT
+	)
 
 	buildSign(ctx, 0, 7.9, 8.2, 1.6)
 	buildInnerLight(ctx, H - 1.6)
 
 	-- Milchkannen vor der Werkstatt
 	for i, x in ipairs({ -10.4, -9.2, -10.9 }) do
-		ctx.part("MilkCan", Vector3.new(1.5, 1.1, 1.1), CFrame.new(x, 0.75, -D / 2 + 1.2 + (i % 2) * 1.4) * CFrame.Angles(0, 0, math.rad(90)),
-			Color3.fromRGB(205, 210, 218), Enum.Material.Metal, { Shape = Enum.PartType.Cylinder })
+		ctx.part(
+			"MilkCan",
+			Vector3.new(1.5, 1.1, 1.1),
+			CFrame.new(x, 0.75, -D / 2 + 1.2 + (i % 2) * 1.4) * CFrame.Angles(0, 0, math.rad(90)),
+			Color3.fromRGB(205, 210, 218),
+			Enum.Material.Metal,
+			{ Shape = Enum.PartType.Cylinder }
+		)
 	end
 end
 
@@ -1134,9 +1505,23 @@ do
 		buildLantern(north, Vector3.new(side * 50, 0, Map.NorthPlazaZ + 20), true)
 		buildTree(north, Vector3.new(side * 55, 0, Map.NorthPlazaZ - 40), 1)
 		buildTree(north, Vector3.new(side * 55, 0, Map.NorthPlazaZ + 42), 1)
-		prop(north, "HayBale", Vector3.new(4, 2.4, 3.2), CFrame.new(side * 50, 1.3, Map.NorthPlazaZ + 40), World.Hay, Enum.Material.Fabric)
+		prop(
+			north,
+			"HayBale",
+			Vector3.new(4, 2.4, 3.2),
+			CFrame.new(side * 50, 1.3, Map.NorthPlazaZ + 40),
+			World.Hay,
+			Enum.Material.Fabric
+		)
 	end
-	prop(north, "HayBale", Vector3.new(4, 2.4, 3.2), CFrame.new(0, 1.3, Map.NorthPlazaZ + 42), World.Hay, Enum.Material.Fabric)
+	prop(
+		north,
+		"HayBale",
+		Vector3.new(4, 2.4, 3.2),
+		CFrame.new(0, 1.3, Map.NorthPlazaZ + 42),
+		World.Hay,
+		Enum.Material.Fabric
+	)
 end
 
 ------------------------------------------------------------------------

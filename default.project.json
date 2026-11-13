@@ -10,6 +10,9 @@
       "Shared": {
         "$path": "src/shared"
       },
+      "Packages": {
+        "$path": { "optional": "Packages" }
+      },
       "Remotes": {
         "$className": "Folder",
         "SellMilk": { "$className": "RemoteEvent" },
@@ -29,7 +32,16 @@
         "TutorialDone": { "$className": "RemoteEvent" },
         "CowAction": { "$className": "RemoteFunction" },
         "CowClicked": { "$className": "RemoteEvent" },
-        "TeleportTo": { "$className": "RemoteEvent" }
+        "TeleportTo": { "$className": "RemoteEvent" },
+        "GetShopStock": { "$className": "RemoteFunction" },
+        "ShopRestocked": { "$className": "RemoteEvent" },
+        "BucketAction": { "$className": "RemoteFunction" }
+      }
+    },
+
+    "ServerStorage": {
+      "ServerPackages": {
+        "$path": { "optional": "ServerPackages" }
       }
     },
 

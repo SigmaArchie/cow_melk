@@ -1,7 +1,8 @@
 -- InventoryClient.client.lua
--- Kühe verwalten:
---   * Hotbar unten in der Mitte (6 Plätze, Tasten 1-6) im Roblox-Stil
---   * Fenster "MEINE KÜHE" (Taste I oder Knopf KÜHE): alle Kühe mit Knöpfen
+-- Kühe und Milch-Eimer verwalten:
+--   * Hotbar unten in der Mitte (9 Plätze, Tasten 1-9) im Roblox-Stil – für Kühe UND Milch-Eimer.
+--     Eimer zeigen Liter und Mutationen; anklicken -> Eimer in der Hand + Details + "Verkaufen"
+--   * Fenster "MEINE KÜHE" (Taste I oder Knopf KÜHE) mit zwei Reitern: Kühe / Eimer
 --   * Platzier-Modus: Hotbar-Platz wählen -> freie Felder auf der eigenen Farm leuchten grün
 --     -> Feld anklicken. Abbrechen: Rechtsklick, Taste X oder "Abbrechen".
 --   * Klick auf eine eigene Kuh: kleines Menü (Melken / Aufheben)
@@ -59,16 +60,63 @@ local function findCow(cowId)
 	return nil
 end
 
-local function hotbarCow(index)
+-- Was liegt auf dem Platz? Gibt (Kuh oder Eimer, "cow" | "bucket") zurück
+local function hotbarItem(index)
 	if not inventory then
-		return nil
+		return nil, nil
 	end
 	for _, cow in ipairs(inventory.Cows) do
 		if cow.Hotbar == index then
-			return cow
+			return cow, "cow"
+		end
+	end
+	for _, bucket in ipairs(inventory.Buckets or {}) do
+		if bucket.Hotbar == index then
+			return bucket, "bucket"
+		end
+	end
+	return nil, nil
+end
+
+local function findBucket(bucketId)
+	if not inventory then
+		return nil
+	end
+	for _, bucket in ipairs(inventory.Buckets or {}) do
+		if bucket.Id == bucketId then
+			return bucket
 		end
 	end
 	return nil
+end
+
+-- Farbe der wertvollsten Mutation (normale Milch = Creme)
+local function bucketColor(bucket)
+	local top = bucket.Mutations and bucket.Mutations[1]
+	return top and CowData.MilkTypes[top].Color or CowData.MilkTypes.Normal.Color
+end
+
+-- "Eimer von Berta · 120 L · Schokomilch + Goldmilch (x21) · Wert 4.800 Coins"
+local function bucketDescription(bucket)
+	local parts = {}
+	table.insert(parts, bucket.CowName and ("Eimer von %s"):format(bucket.CowName) or "Eimer")
+	table.insert(
+		parts,
+		("%s L (%s)"):format(CowData.FormatNumber(bucket.Liters), CowData.GetBucketSizeName(bucket.Liters))
+	)
+	if #bucket.Mutations > 0 then
+		table.insert(
+			parts,
+			("%s (%s)"):format(
+				CowData.FormatMutations(bucket.Mutations, #bucket.Mutations > 1),
+				CowData.FormatMultiplier(CowData.GetMutationMultiplier(bucket.Mutations))
+			)
+		)
+	else
+		table.insert(parts, "keine Mutation")
+	end
+	table.insert(parts, "Wert " .. CowData.FormatNumber(bucket.Value) .. " Coins")
+	return table.concat(parts, "  ·  ")
 end
 
 local function formatTime(seconds)
@@ -83,6 +131,60 @@ end
 local function cowIcon(parent, rarity, size, position)
 	local info = rarityInfo(rarity)
 	return Theme.cowIcon(parent, size, position, info.Color, info.SpotColor, info.Transparency and 0.3 or 0)
+end
+
+-- Gezeichneter Melkeimer: Henkel, Metall-Körper, Rand, Milch in der Farbe der Mutation
+local function bucketIcon(parent, size, position, milkColor, bandColor)
+	local z = Theme.zOf(parent) + 1
+	local holder = Instance.new("Frame")
+	holder.Name = "BucketIcon"
+	holder.AnchorPoint = Vector2.new(0.5, 0.5)
+	holder.Position = position
+	holder.Size = UDim2.fromOffset(size, size)
+	holder.BackgroundTransparency = 1
+	holder.ZIndex = z
+	holder.Parent = parent
+
+	local handle = Instance.new("Frame")
+	handle.AnchorPoint = Vector2.new(0.5, 0)
+	handle.Position = UDim2.fromScale(0.5, 0.02)
+	handle.Size = UDim2.fromScale(0.62, 0.6)
+	handle.BackgroundTransparency = 1
+	handle.ZIndex = z
+	handle.Parent = holder
+	Theme.corner(handle, UDim.new(1, 0))
+	Theme.border(handle, math.max(1.5, size / 16), Palette.World.Metal)
+
+	local body = Instance.new("Frame")
+	body.AnchorPoint = Vector2.new(0.5, 1)
+	body.Position = UDim2.fromScale(0.5, 0.98)
+	body.Size = UDim2.fromScale(0.72, 0.6)
+	body.BackgroundColor3 = Palette.World.Metal
+	body.BorderSizePixel = 0
+	body.ZIndex = z + 1
+	body.Parent = holder
+	Theme.corner(body, math.max(3, math.floor(size / 8)))
+	Theme.border(body, Theme.Stroke.Thin, Colors.Outline)
+
+	local milk = Instance.new("Frame")
+	milk.AnchorPoint = Vector2.new(0.5, 0)
+	milk.Position = UDim2.fromScale(0.5, 0.1)
+	milk.Size = UDim2.fromScale(0.84, 0.34)
+	milk.BackgroundColor3 = milkColor
+	milk.BorderSizePixel = 0
+	milk.ZIndex = z + 2
+	milk.Parent = body
+	Theme.corner(milk, math.max(2, math.floor(size / 12)))
+
+	local band = Instance.new("Frame")
+	band.AnchorPoint = Vector2.new(0.5, 0)
+	band.Position = UDim2.fromScale(0.5, 0.66)
+	band.Size = UDim2.fromScale(1, 0.1)
+	band.BackgroundColor3 = bandColor or Theme.darken(Palette.World.Metal, 0.2)
+	band.BorderSizePixel = 0
+	band.ZIndex = z + 2
+	band.Parent = body
+	return holder
 end
 
 ------------------------------------------------------------------------
@@ -151,15 +253,18 @@ end
 --   leer        – durchsichtig, gestrichelt wirkende dünne Linie, nur die Zahl
 --   belegt      – Karte mit Kuhkopf und Name, Rahmen in der Seltenheitsfarbe
 --   ausgewählt  – hellblauer, dicker Rahmen (Kuh wird gerade platziert)
+local selectedBucketId = nil -- Eimer, dessen Details gerade unten stehen
+
 local function renderHotbar()
 	for index, widget in ipairs(slots) do
 		for _, child in ipairs(widget.Content:GetChildren()) do
 			child:Destroy()
 		end
-		local cow = hotbarCow(index)
+		local item, kind = hotbarItem(index)
 		local selected = selectedIndex == index
-		if cow then
-			cowIcon(widget.Content, cow.Rarity, 34, UDim2.new(0.5, 0, 0, 27))
+		local accent = Colors.Line
+		if kind == "cow" then
+			cowIcon(widget.Content, item.Rarity, 34, UDim2.new(0.5, 0, 0, 27))
 			Theme.label(widget.Content, {
 				AnchorPoint = Vector2.new(0.5, 1),
 				Position = UDim2.new(0.5, 0, 1, -3),
@@ -168,12 +273,53 @@ local function renderHotbar()
 				Font = Theme.BodyFont,
 				TextSize = Theme.TextSize.Tiny,
 				TextTruncate = Enum.TextTruncate.AtEnd,
-				TextColor3 = Palette.rarityColor(cow.Rarity),
-				Text = cow.Name,
+				TextColor3 = Palette.rarityColor(item.Rarity),
+				Text = item.Name,
 			})
+			accent = Palette.rarityColor(item.Rarity)
+		elseif kind == "bucket" then
+			-- Eimer: oben die Mutation(en), Mitte der Eimer, unten die Liter
+			local color = bucketColor(item)
+			-- größerer Eimer = größeres Symbol (wie das Modell in der Hand)
+			local iconSize = 22 + math.floor((CowData.GetBucketScale(item.Liters) - 0.8) / 1.4 * 14 + 0.5)
+			bucketIcon(widget.Content, iconSize, UDim2.new(0.5, 0, 0, 33), color, #item.Mutations > 0 and color or nil)
+			local top = item.Mutations[1]
+			local tagText = ""
+			if item.Auto then
+				tagText = "Auto"
+			elseif top then
+				tagText = CowData.MilkTypes[top].ShortName
+					.. (#item.Mutations > 1 and (" +" .. (#item.Mutations - 1)) or "")
+			end
+			Theme.label(widget.Content, {
+				AnchorPoint = Vector2.new(1, 0),
+				Position = UDim2.new(1, -4, 0, 3),
+				Size = UDim2.new(1, -22, 0, 13),
+				TextXAlignment = Enum.TextXAlignment.Right,
+				Font = Theme.BodyFont,
+				TextSize = Theme.TextSize.Tiny,
+				TextTruncate = Enum.TextTruncate.AtEnd,
+				TextColor3 = item.Auto and Colors.Teal or color,
+				Text = tagText,
+			})
+			Theme.label(widget.Content, {
+				AnchorPoint = Vector2.new(0.5, 1),
+				Position = UDim2.new(0.5, 0, 1, -3),
+				Size = UDim2.new(1, -6, 0, 14),
+				TextXAlignment = Enum.TextXAlignment.Center,
+				Font = Theme.BodyFont,
+				TextSize = Theme.TextSize.Tiny,
+				TextTruncate = Enum.TextTruncate.AtEnd,
+				TextColor3 = Colors.Text,
+				Text = CowData.FormatNumber(item.Liters) .. " L",
+			})
+			accent = #item.Mutations > 0 and color or Colors.Line
+		end
+
+		if item then
 			widget.Button.BackgroundColor3 = selected and Colors.Steel or Colors.Card
 			widget.Button.BackgroundTransparency = 0.05
-			widget.Stroke.Color = selected and Colors.Blue or Palette.rarityColor(cow.Rarity)
+			widget.Stroke.Color = selected and Colors.Blue or accent
 			widget.Stroke.Transparency = selected and 0 or 0.2
 		else
 			widget.Button.BackgroundColor3 = Colors.Panel
@@ -182,7 +328,7 @@ local function renderHotbar()
 			widget.Stroke.Transparency = selected and 0 or 0.5
 		end
 		widget.Stroke.Thickness = selected and 3 or Theme.Stroke.Thin
-		widget.Number.TextColor3 = cow and Colors.Text or Colors.SubText
+		widget.Number.TextColor3 = item and Colors.Text or Colors.SubText
 	end
 end
 
@@ -218,6 +364,19 @@ local cancelButton = Theme.button(hint, {
 	Lip = 4,
 })
 
+-- "Verkaufen" für den ausgewählten Eimer (liegt an derselben Stelle wie "Abbrechen")
+local sellBucketButton = Theme.button(hint, {
+	Text = "Verkaufen",
+	Color = Colors.Green,
+	AnchorPoint = Vector2.new(1, 0.5),
+	Position = UDim2.new(1, -10, 0.5, 0),
+	Size = UDim2.fromOffset(132, 40),
+	TextSize = 18,
+	Radius = 10,
+	Lip = 4,
+})
+sellBucketButton.Parent.Visible = false
+
 local hintToken = 0
 local function showHint(text, isError, duration)
 	hintToken += 1
@@ -225,14 +384,40 @@ local function showHint(text, isError, duration)
 	hintText.Text = text
 	hintText.TextColor3 = isError and Color3.fromRGB(255, 160, 150) or Colors.Text
 	cancelButton.Parent.Visible = placingCowId ~= nil
+	sellBucketButton.Parent.Visible = placingCowId == nil and selectedBucketId ~= nil
 	hint.Visible = true
 	if duration then
 		task.delay(duration, function()
 			if hintToken == token and not placingCowId then
-				hint.Visible = false
+				if selectedBucketId and findBucket(selectedBucketId) then
+					showHint(bucketDescription(findBucket(selectedBucketId)))
+				else
+					hint.Visible = false
+				end
 			end
 		end)
 	end
+end
+
+-- Eimer tragen: der ausgewählte Hotbar-Eimer kommt beim Server in die rechte Hand (nil = loslassen)
+local heldBucketId = nil
+local function setHeld(bucketId)
+	if heldBucketId == bucketId then
+		return
+	end
+	heldBucketId = bucketId
+	task.spawn(function()
+		local called, ok, message = pcall(function()
+			return Remotes:WaitForChild("BucketAction", 5):InvokeServer("hold", bucketId)
+		end)
+		if bucketId ~= nil and (not called or ok == false) then
+			warn("[InventoryClient] Eimer tragen ging nicht:", called and message or ok)
+			showHint(("Eimer tragen ging nicht: %s"):format(tostring(called and message or "keine Antwort")), true, 3)
+			if heldBucketId == bucketId then
+				heldBucketId = nil
+			end
+		end
+	end)
 end
 
 ------------------------------------------------------------------------
@@ -283,6 +468,8 @@ end
 local function stopPlacing()
 	placingCowId = nil
 	selectedIndex = nil
+	selectedBucketId = nil
+	setHeld(nil)
 	hoveredCell = nil
 	hint.Visible = false
 	paintCells()
@@ -295,6 +482,8 @@ local function startPlacing(cowId)
 		return
 	end
 	Theme.closeAllWindows()
+	selectedBucketId = nil
+	setHeld(nil)
 	placingCowId = cowId
 	selectedIndex = cow.Hotbar
 	collectMyCells()
@@ -303,14 +492,28 @@ local function startPlacing(cowId)
 	showHint(("%s platzieren: klicke ein grünes Feld auf deiner Farm"):format(cow.Name))
 end
 
+-- Eimer auswählen: Details + "Verkaufen" in der Leiste über der Hotbar
+local function selectBucket(bucket)
+	if placingCowId then
+		stopPlacing()
+	end
+	selectedBucketId = bucket.Id
+	selectedIndex = bucket.Hotbar
+	setHeld(bucket.Id) -- Eimer in die Hand
+	renderHotbar()
+	showHint(bucketDescription(bucket))
+end
+
 local function selectHotbar(index)
 	if selectedIndex == index then
 		stopPlacing()
 		return
 	end
-	local cow = hotbarCow(index)
-	if cow then
-		startPlacing(cow.Id)
+	local item, kind = hotbarItem(index)
+	if kind == "cow" then
+		startPlacing(item.Id)
+	elseif kind == "bucket" then
+		selectBucket(item)
 	else
 		stopPlacing()
 	end
@@ -319,6 +522,18 @@ end
 for index, widget in ipairs(slots) do
 	widget.Button.Activated:Connect(function()
 		selectHotbar(index)
+	end)
+	-- Maus über einem Eimer: Details zeigen (solange nichts ausgewählt ist)
+	widget.Button.MouseEnter:Connect(function()
+		local item, kind = hotbarItem(index)
+		if kind == "bucket" and not placingCowId and not selectedIndex then
+			showHint(bucketDescription(item))
+		end
+	end)
+	widget.Button.MouseLeave:Connect(function()
+		if not placingCowId and not selectedIndex then
+			hint.Visible = false
+		end
 	end)
 end
 cancelButton.Activated:Connect(stopPlacing)
@@ -369,6 +584,33 @@ local function act(action, cowId, arg)
 	return ok
 end
 
+-- Eimer-Aktionen: "sell" | "hotbar" | "store"
+local function bucketAct(action, bucketId, arg)
+	if busy then
+		return false
+	end
+	busy = true
+	local called, ok, message = pcall(function()
+		return Remotes:WaitForChild("BucketAction", 5):InvokeServer(action, bucketId, arg)
+	end)
+	busy = false
+	if not called then
+		showHint("Das hat nicht geklappt – versuch es nochmal.", true, 3)
+		return false
+	end
+	if not ok and message then
+		showHint(message, true, 3)
+	end
+	return ok
+end
+
+sellBucketButton.Activated:Connect(function()
+	local bucketId = selectedBucketId
+	if bucketId and bucketAct("sell", bucketId) then
+		stopPlacing()
+	end
+end)
+
 local function tryPlaceAt(screenPosition)
 	local camera = workspace.CurrentCamera
 	if not camera or not placingCowId then
@@ -398,7 +640,7 @@ local window = Theme.window(gui, {
 })
 
 local summary = Theme.label(window.Body, {
-	Size = UDim2.new(1, 0, 0, 22),
+	Size = UDim2.new(1, -250, 0, 22),
 	Font = Theme.BodyFont,
 	TextSize = 15,
 	TextColor3 = Colors.SubText,
@@ -435,7 +677,9 @@ local function sortKey(cow)
 	return group * 100 - (rarityInfo(cow.Rarity).Tier or 0)
 end
 
-local function renderWindow()
+local windowTab = "cows" -- "cows" | "buckets"
+
+local function renderCows()
 	for _, child in ipairs(list:GetChildren()) do
 		if child:IsA("GuiObject") then
 			child:Destroy()
@@ -488,37 +732,62 @@ local function renderWindow()
 			Text = where,
 		})
 		whereTag.TextColor3 = Colors.Cream
+		-- rechts: Milch pro Zug, bei Kälbern Stufe + Zeit bis ausgewachsen
+		local now = workspace:GetServerTimeNow()
+		local grown = CowData.IsGrown(cow, now)
+		local _, _, stage = CowData.GetGrowth(cow, now)
 		Theme.label(card, {
 			AnchorPoint = Vector2.new(1, 0),
 			Position = UDim2.new(1, -12, 0, 77),
-			Size = UDim2.fromOffset(80, 18),
+			Size = UDim2.fromOffset(92, 18),
 			Font = Theme.BodyFont,
 			TextSize = Theme.TextSize.Small,
-			TextColor3 = Colors.SubText,
+			TextColor3 = grown and Colors.SubText or Colors.Orange,
 			TextXAlignment = Enum.TextXAlignment.Right,
-			Text = info.MilkPerPull .. " / Zug",
+			Text = grown and (CowData.FormatAmount(info.MilkPerPull) .. " / Zug")
+				or (stage.Short .. " " .. formatTime(CowData.GetTimeToGrown(cow, now))),
 		})
 
 		local buttons = {}
 		if cow.Slot then
-			table.insert(buttons, { "Aufheben", Colors.Blue, function()
-				act("pickup", cow.Id)
-			end })
-			table.insert(buttons, { "Ins Lager", Colors.Grey, function()
-				act("store", cow.Id)
-			end })
-		else
-			table.insert(buttons, { "Platzieren", Colors.Green, function()
-				startPlacing(cow.Id)
-			end })
-			if cow.Hotbar then
-				table.insert(buttons, { "Ins Lager", Colors.Grey, function()
+			table.insert(buttons, {
+				"Aufheben",
+				Colors.Blue,
+				function()
+					act("pickup", cow.Id)
+				end,
+			})
+			table.insert(buttons, {
+				"Ins Lager",
+				Colors.Grey,
+				function()
 					act("store", cow.Id)
-				end })
+				end,
+			})
+		else
+			table.insert(buttons, {
+				"Platzieren",
+				Colors.Green,
+				function()
+					startPlacing(cow.Id)
+				end,
+			})
+			if cow.Hotbar then
+				table.insert(buttons, {
+					"Ins Lager",
+					Colors.Grey,
+					function()
+						act("store", cow.Id)
+					end,
+				})
 			else
-				table.insert(buttons, { "In Hotbar", Colors.Blue, function()
-					act("hotbar", cow.Id)
-				end })
+				table.insert(buttons, {
+					"In Hotbar",
+					Colors.Blue,
+					function()
+						act("hotbar", cow.Id)
+					end,
+				})
 			end
 		end
 		for i, def in ipairs(buttons) do
@@ -534,6 +803,172 @@ local function renderWindow()
 			button.Activated:Connect(def[3])
 		end
 	end
+end
+
+-- Reiter "Eimer": alle Milch-Eimer (Hotbar + Eimer-Lager), wertvollste zuerst
+local function renderBuckets()
+	for _, child in ipairs(list:GetChildren()) do
+		if child:IsA("GuiObject") then
+			child:Destroy()
+		end
+	end
+	if not inventory then
+		return
+	end
+	local buckets = inventory.Buckets or {}
+	local liters, value = 0, 0
+	for _, bucket in ipairs(buckets) do
+		liters += bucket.Liters
+		value += bucket.Value
+	end
+	summary.Text = ("%d / %d Eimer   ·   %s L   ·   Wert %s Coins"):format(
+		#buckets,
+		inventory.MaxBuckets or 100,
+		CowData.FormatNumber(liters),
+		CowData.FormatNumber(value)
+	)
+
+	for order, bucket in ipairs(buckets) do
+		local color = bucketColor(bucket)
+		local mutated = #bucket.Mutations > 0
+		local card = Theme.panel(list, {
+			Name = bucket.Id,
+			LayoutOrder = order,
+			Size = UDim2.fromOffset(226, 150),
+			BackgroundColor3 = Colors.Card,
+			Radius = Theme.Radius.M,
+		})
+		local cardStroke = card:FindFirstChildOfClass("UIStroke")
+		if cardStroke and bucket.Id == selectedBucketId then
+			cardStroke.Color = Colors.Blue
+			cardStroke.Thickness = 3
+		end
+		local strip = Instance.new("Frame")
+		strip.Size = UDim2.new(1, 0, 0, 5)
+		strip.BackgroundColor3 = mutated and color or Colors.Line
+		strip.BorderSizePixel = 0
+		strip.ZIndex = card.ZIndex
+		strip.Parent = card
+		Theme.corner(strip, 3)
+
+		bucketIcon(card, 46, UDim2.fromOffset(36, 44), color, mutated and color or nil)
+		Theme.label(card, {
+			Position = UDim2.fromOffset(68, 12),
+			Size = UDim2.new(1, -76, 0, 22),
+			TextSize = Theme.TextSize.Heading - 4,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			TextColor3 = mutated and color or Colors.Text,
+			Text = bucket.Auto and "Auto-Melker" or CowData.FormatMutations(bucket.Mutations, #bucket.Mutations > 1),
+		})
+		Theme.label(card, {
+			Position = UDim2.fromOffset(68, 36),
+			Size = UDim2.new(1, -76, 0, 16),
+			Font = Theme.BodyFont,
+			TextSize = Theme.TextSize.Small,
+			TextColor3 = Colors.SubText,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			Text = CowData.FormatNumber(bucket.Liters)
+				.. " L"
+				.. ((bucket.CowName and not bucket.Auto) and (" · von " .. bucket.CowName) or ""),
+		})
+		Theme.label(card, {
+			Position = UDim2.fromOffset(68, 54),
+			Size = UDim2.new(1, -76, 0, 16),
+			Font = Theme.BodyFont,
+			TextSize = Theme.TextSize.Small,
+			TextColor3 = Colors.Gold,
+			Text = "Wert " .. CowData.FormatNumber(bucket.Value) .. (mutated and ("  (" .. CowData.FormatMultiplier(
+				CowData.GetMutationMultiplier(bucket.Mutations)
+			) .. ")") or ""),
+		})
+
+		local where, whereColor = "Eimer-Lager", Colors.Grey
+		if bucket.Hotbar then
+			where, whereColor = "Hotbar " .. bucket.Hotbar, Colors.Blue
+		end
+		local whereTag = Theme.tag(card, {
+			Name = "Location",
+			Position = UDim2.fromOffset(12, 78),
+			Color = whereColor,
+			Height = 20,
+			Text = where,
+		})
+		whereTag.TextColor3 = Colors.Cream
+
+		local buttons = {
+			{
+				"Verkaufen",
+				Colors.Green,
+				function()
+					bucketAct("sell", bucket.Id)
+				end,
+			},
+		}
+		if bucket.Hotbar then
+			table.insert(buttons, {
+				"Ins Lager",
+				Colors.Grey,
+				function()
+					bucketAct("store", bucket.Id)
+				end,
+			})
+		else
+			table.insert(buttons, {
+				"In Hotbar",
+				Colors.Blue,
+				function()
+					bucketAct("hotbar", bucket.Id)
+				end,
+			})
+		end
+		for i, def in ipairs(buttons) do
+			local button = Theme.button(card, {
+				Text = def[1],
+				Color = def[2],
+				TextSize = 16,
+				Radius = 9,
+				Lip = 4,
+				Size = UDim2.new(0.5, -15, 0, 36),
+				Position = UDim2.new((i - 1) * 0.5, i == 1 and 10 or 5, 1, -46),
+			})
+			button.Activated:Connect(def[3])
+		end
+	end
+end
+
+-- Reiter oben rechts: KÜHE / EIMER
+local tabButtons = {}
+local function renderWindow()
+	for tab, entry in pairs(tabButtons) do
+		entry.SetColor(tab == windowTab and Colors.Orange or Colors.Steel)
+	end
+	local bucketCount = inventory and inventory.Buckets and #inventory.Buckets or 0
+	tabButtons.buckets.Face.Text = ("EIMER (%d)"):format(bucketCount)
+	if windowTab == "buckets" then
+		window:SetTitle("MEINE EIMER")
+		renderBuckets()
+	else
+		window:SetTitle("MEINE KÜHE")
+		renderCows()
+	end
+end
+
+for i, def in ipairs({ { "cows", "KÜHE" }, { "buckets", "EIMER" } }) do
+	local face, _, setColor = Theme.button(window.Body, {
+		Text = def[2],
+		Color = Colors.Steel,
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, i == 1 and -128 or -4, 0, -4),
+		Size = UDim2.fromOffset(118, 30),
+		TextSize = 15,
+		Radius = 8,
+		Lip = 3,
+	})
+	tabButtons[def[1]] = { Face = face, SetColor = setColor }
+	face.Activated:Connect(function()
+		windowTab = def[1]
+		renderWindow()
+	end)
 end
 
 local function toggleWindow()
@@ -570,6 +1005,17 @@ local popupStatus = Theme.label(popup, {
 	Size = UDim2.new(1, -28, 0, 18),
 	Font = Theme.BodyFont,
 	TextSize = 13,
+	Text = "",
+	Outline = 0,
+})
+-- Wachstum: "Kalb · 25 % Milch · groß in 4:12"
+local popupGrowth = Theme.label(popup, {
+	Position = UDim2.fromOffset(14, 85),
+	Size = UDim2.new(1, -28, 0, 16),
+	Font = Theme.BodyFont,
+	TextSize = 12,
+	TextColor3 = Colors.Orange,
+	TextTruncate = Enum.TextTruncate.AtEnd,
 	Text = "",
 	Outline = 0,
 })
@@ -631,6 +1077,19 @@ Remotes.CowClicked.OnClientEvent:Connect(function(cow)
 		Color = info.UiColor,
 		Text = (info.IsSpecial and "★ " or "") .. info.DisplayName,
 	})
+	local now = cow.ServerTime or os.time()
+	if CowData.IsGrown(cow, now) then
+		popupGrowth.Text = "Ausgewachsen · volle Milch"
+		popupGrowth.TextColor3 = Color3.fromRGB(140, 214, 124)
+	else
+		local _, _, stage = CowData.GetGrowth(cow, now)
+		popupGrowth.TextColor3 = Colors.Orange
+		popupGrowth.Text = ("%s · %d %% Milch · groß in %s"):format(
+			stage.Name,
+			math.floor(stage.Milk * 100 + 0.5),
+			formatTime(CowData.GetTimeToGrown(cow, now))
+		)
+	end
 	local waitTime = (cow.MilkReadyAt or 0) - (cow.ServerTime or os.time())
 	if waitTime > 0 then
 		popupStatus.Text = "Braucht noch " .. formatTime(waitTime) .. " Pause"
@@ -683,6 +1142,9 @@ local NUMBER_KEYS = {
 	[Enum.KeyCode.Four] = 4,
 	[Enum.KeyCode.Five] = 5,
 	[Enum.KeyCode.Six] = 6,
+	[Enum.KeyCode.Seven] = 7,
+	[Enum.KeyCode.Eight] = 8,
+	[Enum.KeyCode.Nine] = 9,
 }
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
@@ -698,7 +1160,9 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		if placingCowId then
 			stopPlacing()
 		end
-	elseif input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+	elseif
+		input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch
+	then
 		if placingCowId then
 			tryPlaceAt(input.Position)
 		elseif popup.Visible then
@@ -712,6 +1176,16 @@ end)
 -- Aktualisieren
 ------------------------------------------------------------------------
 table.insert(refreshCallbacks, function()
+	-- ausgewählter Eimer verkauft oder ins Lager gelegt? -> Auswahl weg, sonst Details auffrischen
+	if selectedBucketId and not placingCowId then
+		local bucket = findBucket(selectedBucketId)
+		if bucket and bucket.Hotbar then
+			selectedIndex = bucket.Hotbar
+			showHint(bucketDescription(bucket))
+		else
+			stopPlacing()
+		end
+	end
 	renderHotbar()
 	if window:IsOpen() then
 		renderWindow()
@@ -724,6 +1198,33 @@ table.insert(refreshCallbacks, function()
 			paintCells()
 		end
 	end
+end)
+
+-- Beim Melken braucht man beide Hände: getragenen Eimer ablegen
+Remotes.MilkingStarted.OnClientEvent:Connect(function()
+	if selectedBucketId then
+		stopPlacing()
+	end
+end)
+
+-- Nach dem Melken: den neuen Eimer gleich in die Hand nehmen (wenn er in der Hotbar liegt)
+Remotes.MilkingEnded.OnClientEvent:Connect(function(_, _, _, bucketId)
+	if type(bucketId) ~= "string" then
+		return
+	end
+	task.spawn(function()
+		local start = os.clock()
+		while os.clock() - start < 3 do
+			local bucket = findBucket(bucketId)
+			if bucket then
+				if bucket.Hotbar and not placingCowId then
+					selectBucket(bucket)
+				end
+				return
+			end
+			task.wait(0.1)
+		end
+	end)
 end)
 
 Remotes.InventoryChanged.OnClientEvent:Connect(function()

@@ -1,8 +1,22 @@
 # Project place file
 /cow_melk.rbxlx
+*.rbxl
+*.rbxlx
 
 # Roblox Studio lock files
-/*.rbxlx.lock
-/*.rbxl.lock
+*.rbxl.lock
+*.rbxlx.lock
 
+# Wally
+Packages/
+ServerPackages/
+DevPackages/
+wally.lock
+
+# Toolchain
 sourcemap.json
+roblox.yml
+
+# OS
+.DS_Store
+Thumbs.db

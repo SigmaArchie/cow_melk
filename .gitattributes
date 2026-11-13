@@ -1,0 +1,3 @@
+# Luau-Dateien immer mit LF speichern (passt zu stylua.toml, sonst meckert "stylua --check" unter Windows)
+*.lua text eol=lf
+*.luau text eol=lf

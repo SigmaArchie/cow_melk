@@ -173,8 +173,7 @@ local function drawMap()
 		if slot then
 			local origin = CowData.GetPlotOrigin(slot).Position
 			local mine = other == player
-			local plot = rect(origin.X, origin.Z, Map.PlotDepth, Map.PlotWidth,
-				mine and World.GrassLight or World.Leaf)
+			local plot = rect(origin.X, origin.Z, Map.PlotDepth, Map.PlotWidth, mine and World.GrassLight or World.Leaf)
 			Theme.corner(plot, 6)
 			Theme.border(plot, mine and 3 or 1.5, mine and Colors.Blue or Colors.Outline)
 			Theme.label(plot, {

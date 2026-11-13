@@ -74,6 +74,15 @@ Palette.Rarity = {
 	Golden = Color3.fromRGB(255, 214, 80), -- Premium-Gold
 	Rainbow = Color3.fromRGB(236, 130, 190), -- sanftes Rosa (die Kuh selbst wechselt die Farbe)
 	Ghost = Color3.fromRGB(150, 236, 176), -- durchscheinendes Grün
+	-- Arten aus dem Kuh-Shop (Farbe der Seltenheitsstufe)
+	Jersey = Color3.fromRGB(116, 200, 116), -- Ungewöhnlich
+	Chocolate = Color3.fromRGB(88, 160, 240), -- Selten
+	Strawberry = Color3.fromRGB(172, 112, 232), -- Episch
+	Highland = Color3.fromRGB(172, 112, 232), -- Episch
+	Thunder = Color3.fromRGB(250, 170, 70), -- Legendär
+	Moon = Color3.fromRGB(232, 110, 196), -- Mythisch
+	Dragon = Color3.fromRGB(255, 214, 80), -- Göttlich
+	Crystal = Color3.fromRGB(130, 224, 255), -- Prismatisch
 }
 
 -- Farbe für den Namen/Rahmen einer Seltenheit (unbekannt -> Common)

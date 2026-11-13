@@ -395,11 +395,9 @@ RunService:BindToRenderStep(SHAKE_BIND, Enum.RenderPriority.Camera.Value + 1, fu
 	local camera = workspace.CurrentCamera
 	if camera then
 		local s = shakeStrength
-		camera.CFrame = camera.CFrame * CFrame.new(
-			(math.random() - 0.5) * s,
-			(math.random() - 0.5) * s,
-			0
-		) * CFrame.Angles(0, 0, (math.random() - 0.5) * s * 0.05)
+		camera.CFrame = camera.CFrame
+			* CFrame.new((math.random() - 0.5) * s, (math.random() - 0.5) * s, 0)
+			* CFrame.Angles(0, 0, (math.random() - 0.5) * s * 0.05)
 	end
 	shakeStrength = math.max(0, shakeStrength - deltaTime * 2.5)
 end)
@@ -466,7 +464,9 @@ local function squirtEffect(side)
 				session.TeatsHome[teat] = home
 			end
 			teat.CFrame = home - Vector3.new(0, 0.15, 0) -- nach unten ziehen (Welt-Achse, passt für jedes Modell)
-			TweenService:Create(teat, TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { CFrame = home }):Play()
+			TweenService
+				:Create(teat, TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { CFrame = home })
+				:Play()
 
 			if bottom then
 				local drop = Instance.new("Part")
@@ -480,10 +480,11 @@ local function squirtEffect(side)
 				local start = teat.Position - Vector3.new(0, 0.35, 0)
 				drop.CFrame = CFrame.new(start)
 				drop.Parent = workspace
-				local tween = TweenService:Create(drop, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-					CFrame = CFrame.new(Vector3.new(start.X, bottom.Position.Y + 0.5, start.Z)),
-					Size = Vector3.new(0.1, 0.35, 0.1),
-				})
+				local tween =
+					TweenService:Create(drop, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+						CFrame = CFrame.new(Vector3.new(start.X, bottom.Position.Y + 0.5, start.Z)),
+						Size = Vector3.new(0.1, 0.35, 0.1),
+					})
 				tween:Play()
 				tween.Completed:Connect(function()
 					drop:Destroy()
@@ -599,7 +600,7 @@ local function pull(side)
 		hint.TextColor3 = SUBTEXT
 		squirtEffect(side)
 		shake(0.35)
-		popNumber("+" .. CowData.FormatNumber(session.MilkPerPull), MILK_COLOR)
+		popNumber("+" .. CowData.FormatAmount(session.MilkPerPull), MILK_COLOR)
 		playSound(Config.SquirtSoundId, 0.8, 0.95 + math.random() * 0.25)
 		faceScale.Scale = 1.08
 		Theme.tween(faceScale, { Scale = 1 }, 0.2, Enum.EasingStyle.Back)
@@ -652,7 +653,8 @@ local function showPanel()
 		area = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1000, 800)
 	end
 	-- passt auch auf kleine Handy-Bildschirme (Safe-Area ist schon abgezogen)
-	panelScale.Scale = math.clamp(math.min(1, (area.X - 24) / PANEL_SIZE.X, (area.Y - 60) / (PANEL_SIZE.Y + 60)), 0.5, 1)
+	panelScale.Scale =
+		math.clamp(math.min(1, (area.X - 24) / PANEL_SIZE.X, (area.Y - 60) / (PANEL_SIZE.Y + 60)), 0.5, 1)
 	bucket.Rotation = 0
 	panel.Position = PANEL_HIDDEN
 	Theme.tween(overlay, { BackgroundTransparency = 0.4 }, 0.3)
@@ -740,7 +742,8 @@ Remotes.MilkingProgress.OnClientEvent:Connect(function(pulls, lastSide)
 	end
 end)
 
-local function celebrate(milk)
+-- mutations = Liste der Mutationen des neuen Eimers (CowData.RollMilkMutations), wertvollste zuerst
+local function celebrate(milk, mutations)
 	-- Eimer kippt um
 	milkFill.Size = UDim2.fromScale(1, 1)
 	progress.SetRatio(1)
@@ -749,7 +752,23 @@ local function celebrate(milk)
 	shake(0.8)
 
 	-- großes "+X MILCH!" springt auf den Bildschirm
-	bigReward.Text = ("+%s MILCH!"):format(CowData.FormatNumber(milk))
+	if type(mutations) ~= "table" then
+		mutations = {}
+	end
+	if #mutations > 0 then
+		local topInfo = CowData.MilkTypes[mutations[1]] or CowData.MilkTypes.Normal
+		bigReward.Text = ("+%s L %s! %s"):format(
+			CowData.FormatNumber(milk),
+			CowData.FormatMutations(mutations, true):upper(),
+			CowData.FormatMultiplier(CowData.GetMutationMultiplier(mutations))
+		)
+		bigReward.TextColor3 = topInfo.Color
+		bigReward.TextSize = 46 -- längerer Text (z.B. "+120 L SCHOKO + GOLD! x21")
+	else
+		bigReward.Text = ("+%s L MILCH!"):format(CowData.FormatNumber(milk))
+		bigReward.TextColor3 = TEXT
+		bigReward.TextSize = 70
+	end
 	bigReward.Visible = true
 	bigReward.TextTransparency = 0
 	bigRewardStroke.Transparency = 0.2
@@ -768,7 +787,7 @@ local function celebrate(milk)
 	end)
 end
 
-Remotes.MilkingEnded.OnClientEvent:Connect(function(completed, milk)
+Remotes.MilkingEnded.OnClientEvent:Connect(function(completed, milk, mutations)
 	endToken += 1
 	local token = endToken
 	if session then
@@ -779,7 +798,7 @@ Remotes.MilkingEnded.OnClientEvent:Connect(function(completed, milk)
 	resetTeats()
 
 	if completed then
-		celebrate(milk or 0)
+		celebrate(milk or 0, mutations)
 		task.wait(1.8) -- großen Text ausklingen lassen
 		if endToken ~= token then
 			return -- inzwischen läuft schon eine neue Session: nichts abräumen

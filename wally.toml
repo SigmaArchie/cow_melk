@@ -1,0 +1,15 @@
+# Wally – Paketmanager für Luau-Bibliotheken
+# Installieren: wally install   (legt den Ordner Packages/ an, der über Rojo nach ReplicatedStorage.Packages kommt)
+# Pakete erst eintragen, wenn sie wirklich gebraucht werden.
+[package]
+name = "maxi/cow_melk"
+version = "0.1.0"
+registry = "https://github.com/UpliftGames/wally-index"
+realm = "shared"
+
+[dependencies]
+# Promise = "evaera/promise@4"
+# Trove = "sleitnick/trove@1"
+
+[server-dependencies]
+# ProfileStore = "loleris/profilestore@1"

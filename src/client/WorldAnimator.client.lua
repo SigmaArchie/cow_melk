@@ -256,7 +256,8 @@ local function startCow(cow)
 			while state.Alive do
 				index = index % #RAINBOW + 1
 				for _, part in ipairs(tintParts) do
-					TweenService:Create(part, TweenInfo.new(2.8, Enum.EasingStyle.Sine), { Color = RAINBOW[index] }):Play()
+					TweenService:Create(part, TweenInfo.new(2.8, Enum.EasingStyle.Sine), { Color = RAINBOW[index] })
+						:Play()
 				end
 				task.wait(1)
 			end
@@ -323,7 +324,9 @@ RunService.Heartbeat:Connect(function()
 				end
 			else
 				state.Rested = false
-				root = state.Base * CFrame.new(0, state.Float.Value, 0) * CFrame.Angles(0, math.rad(state.Turn.Value), 0)
+				root = state.Base
+					* CFrame.new(0, state.Float.Value, 0)
+					* CFrame.Angles(0, math.rad(state.Turn.Value), 0)
 				addGroup(parts, cframes, state.BodyParts, state.BodyOffsets, root)
 			end
 
@@ -331,8 +334,20 @@ RunService.Heartbeat:Connect(function()
 			addGroup(parts, cframes, state.HeadParts, state.HeadOffsets, head)
 
 			local ear = math.rad(state.Ear.Value)
-			addGroup(parts, cframes, state.EarLParts, state.EarLOffsets, head * state.EarLRel * CFrame.Angles(0, 0, -ear))
-			addGroup(parts, cframes, state.EarRParts, state.EarROffsets, head * state.EarRRel * CFrame.Angles(0, 0, ear))
+			addGroup(
+				parts,
+				cframes,
+				state.EarLParts,
+				state.EarLOffsets,
+				head * state.EarLRel * CFrame.Angles(0, 0, -ear)
+			)
+			addGroup(
+				parts,
+				cframes,
+				state.EarRParts,
+				state.EarROffsets,
+				head * state.EarRRel * CFrame.Angles(0, 0, ear)
+			)
 
 			local tail = root * state.TailRel * CFrame.Angles(0, 0, math.rad(state.Tail.Value))
 			addGroup(parts, cframes, state.TailParts, state.TailOffsets, tail)
@@ -350,7 +365,15 @@ end)
 --   * Rare / Epic / Ghost: nur die 5 nächsten, bis 70 Studs
 -- Die Lichter kommen vom Server (CowModelBuilder); hier werden sie nur an- und ausgeschaltet.
 ------------------------------------------------------------------------
-local SPECIAL_LIGHT_RARITIES = { Legendary = true, Golden = true, Rainbow = true }
+local SPECIAL_LIGHT_RARITIES = {
+	Legendary = true,
+	Golden = true,
+	Rainbow = true,
+	Thunder = true,
+	Moon = true,
+	Dragon = true,
+	Crystal = true,
+}
 local SPECIAL_LIGHT_COUNT, SPECIAL_LIGHT_DISTANCE = 8, 140
 local NORMAL_LIGHT_COUNT, NORMAL_LIGHT_DISTANCE = 5, 70
 
@@ -454,4 +477,73 @@ if Config.AmbientSoundId ~= "" then
 	ambient.Volume = 0.25
 	ambient.Parent = SoundService
 	ambient:Play()
+end
+
+------------------------------------------------------------------------
+-- Eimer tragen: solange der EIGENE Charakter einen Eimer trägt (Model "HeldBucket", kommt vom Server),
+-- läuft die Roblox-Halteanimation "toolnone" – rechter Arm nach vorne, wie beim Halten eines Tools.
+-- Animationen des eigenen Charakters sehen alle anderen Spieler automatisch.
+------------------------------------------------------------------------
+local Players = game:GetService("Players")
+local localPlayer = Players.LocalPlayer
+local TOOLNONE_R15 = "rbxassetid://507768375" -- Standard-Animationen von Roblox (Animate-Script)
+local TOOLNONE_R6 = "rbxassetid://182393478"
+
+local function holdAnimationId(character, humanoid)
+	-- am liebsten die aus dem Animate-Script des Charakters (passt zu Rig und Animations-Paket)
+	local animate = character:FindFirstChild("Animate")
+	local folder = animate and animate:FindFirstChild("toolnone")
+	local animation = folder and folder:FindFirstChildOfClass("Animation")
+	if animation and animation.AnimationId ~= "" then
+		return animation.AnimationId
+	end
+	return humanoid.RigType == Enum.HumanoidRigType.R6 and TOOLNONE_R6 or TOOLNONE_R15
+end
+
+local function watchCharacter(character)
+	local humanoid = character:WaitForChild("Humanoid", 10)
+	local animator = humanoid and humanoid:WaitForChild("Animator", 10)
+	if not animator then
+		return
+	end
+	local track = nil
+
+	local function update()
+		local holding = character:FindFirstChild("HeldBucket") ~= nil
+		if holding and not track then
+			local animation = Instance.new("Animation")
+			animation.AnimationId = holdAnimationId(character, humanoid)
+			local ok, result = pcall(function()
+				return animator:LoadAnimation(animation)
+			end)
+			if ok and result then
+				track = result
+				track.Priority = Enum.AnimationPriority.Action -- über Laufen/Stehen, nur der rechte Arm
+				track.Looped = true
+				track:Play(0.2)
+			else
+				warn("[WorldAnimator] Halteanimation konnte nicht geladen werden:", result)
+			end
+		elseif not holding and track then
+			track:Stop(0.2)
+			track = nil
+		end
+	end
+
+	character.ChildAdded:Connect(function(child)
+		if child.Name == "HeldBucket" then
+			update()
+		end
+	end)
+	character.ChildRemoved:Connect(function(child)
+		if child.Name == "HeldBucket" then
+			task.defer(update) -- beim Wechseln kommt gleich der nächste Eimer -> Animation weiterlaufen lassen
+		end
+	end)
+	update()
+end
+
+localPlayer.CharacterAdded:Connect(watchCharacter)
+if localPlayer.Character then
+	task.spawn(watchCharacter, localPlayer.Character)
 end

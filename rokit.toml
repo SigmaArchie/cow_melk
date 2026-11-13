@@ -2,7 +2,10 @@
 # For more information, see https://github.com/rojo-rbx/rokit
 
 # New tools can be added by running `rokit add <tool>` in a terminal.
+# Alles installieren: rokit install
 
 [tools]
 rojo = "rojo-rbx/rojo@7.7.1"
 selene = "Kampfkarren/selene@0.32.0"
+stylua = "JohnnyMorganz/StyLua@2.6.0"
+wally = "UpliftGames/wally@0.3.2"

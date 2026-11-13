@@ -5,7 +5,12 @@
 --   * Melk-Minispiel: Kuh anklicken ODER auf die leuchtende Melk-Platte neben der Kuh laufen
 --     -> Teleport auf den Schemel -> abwechselnd L/R ziehen
 --   * Melk-Cooldown pro Kuh
---   * Milch verkaufen, Shop, Kisten (Coins/Robux), Breeding, Auto-Melker, ProcessReceipt
+--   * Wachstum: Kälber sind klein und geben weniger Milch; bei jeder neuen Stufe wird die Kuh größer
+--     neu aufgebaut (CowData.Growth). Züchten geht nur mit ausgewachsenen Kühen.
+--   * Milch-Eimer: jedes Melken gibt einen Eimer (Hotbar/Eimer-Lager) mit Litern und Mutationen
+--     (CowData.MilkTypes, Wetter zählt mit); Remotes.BucketAction: verkaufen, in Hotbar, ins Lager
+--   * Milch verkaufen (nach Wert), Shop mit Lager (ShopService), Kisten (Coins/Robux), Breeding,
+--     Auto-Melker, ProcessReceipt
 --   * Raster auf jeder Farm, Kühe aufheben / in Hotbar oder Inventar legen / neu platzieren
 --   * Teleport zu den Häusern (aus der Übersicht)
 -- Idle-Animationen & Regenbogen-Farben laufen auf dem Client (WorldAnimator.client.lua).
@@ -21,6 +26,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local CowData = require(Shared:WaitForChild("CowData"))
 local CowModelBuilder = require(Shared:WaitForChild("CowModelBuilder"))
 local DataService = require(script.Parent:WaitForChild("DataService"))
+local ShopService = require(script.Parent:WaitForChild("ShopService"))
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 
 local Config = CowData.Config
@@ -56,15 +62,19 @@ end
 local function announceNewCow(player, cow, source)
 	local info = CowData.Rarities[cow.Rarity]
 	local kind = info.Tier >= 4 and "rare" or "success"
-	DataService.Notify(player, ("%s: %s (%s) ist jetzt auf deiner Farm!"):format(source, cow.Name, info.DisplayName), kind)
+	DataService.Notify(
+		player,
+		("%s: %s (%s) ist jetzt auf deiner Farm!"):format(source, cow.Name, info.DisplayName),
+		kind
+	)
 
-	-- Legendary und Special-Kühe werden allen Spielern angekündigt
+	-- Legendäre und bessere Kühe werden allen Spielern angekündigt
 	if info.Tier >= 5 then
-		for _, other in ipairs(Players:GetPlayers()) do
-			if other ~= player then
-				DataService.Notify(other, ("🎉 %s hat eine %s-Kuh bekommen!"):format(player.DisplayName, info.DisplayName), "rare")
-			end
-		end
+		DataService.NotifyAll(
+			("🎉 %s hat eine neue Kuh: %s!"):format(player.DisplayName, info.DisplayName),
+			"rare",
+			player
+		)
 	end
 end
 
@@ -191,14 +201,44 @@ local function buildFarmFlowers(parent, origin, localCenter, sizeX, sizeZ, seed)
 	local at = function(x, y, z)
 		return origin * CFrame.new(localCenter + Vector3.new(x, y, z))
 	end
-	decorPart(parent, "BedBorder", Vector3.new(sizeX + 0.8, 0.5, sizeZ + 0.8), at(0, GROUND + 0.25, 0), World.StoneDark, Enum.Material.Cobblestone)
-	decorPart(parent, "BedSoil", Vector3.new(sizeX, 0.7, sizeZ), at(0, GROUND + 0.35, 0), World.Soil, Enum.Material.Ground)
-	decorPart(parent, "BedGreen", Vector3.new(sizeX - 0.6, 0.7, sizeZ - 0.6), at(0, GROUND + 0.7, 0), World.Leaf, Enum.Material.Grass)
+	decorPart(
+		parent,
+		"BedBorder",
+		Vector3.new(sizeX + 0.8, 0.5, sizeZ + 0.8),
+		at(0, GROUND + 0.25, 0),
+		World.StoneDark,
+		Enum.Material.Cobblestone
+	)
+	decorPart(
+		parent,
+		"BedSoil",
+		Vector3.new(sizeX, 0.7, sizeZ),
+		at(0, GROUND + 0.35, 0),
+		World.Soil,
+		Enum.Material.Ground
+	)
+	decorPart(
+		parent,
+		"BedGreen",
+		Vector3.new(sizeX - 0.6, 0.7, sizeZ - 0.6),
+		at(0, GROUND + 0.7, 0),
+		World.Leaf,
+		Enum.Material.Grass
+	)
 	for _ = 1, 6 do
-		decorPart(parent, "Flower", Vector3.new(0.7, 0.7, 0.7),
-			at(flowerRng:NextNumber(-sizeX / 2 + 0.6, sizeX / 2 - 0.6), GROUND + 1.2, flowerRng:NextNumber(-sizeZ / 2 + 0.6, sizeZ / 2 - 0.6)),
-			World.Flowers[flowerRng:NextInteger(1, #World.Flowers)], Enum.Material.SmoothPlastic,
-			{ Shape = Enum.PartType.Ball, CastShadow = false })
+		decorPart(
+			parent,
+			"Flower",
+			Vector3.new(0.7, 0.7, 0.7),
+			at(
+				flowerRng:NextNumber(-sizeX / 2 + 0.6, sizeX / 2 - 0.6),
+				GROUND + 1.2,
+				flowerRng:NextNumber(-sizeZ / 2 + 0.6, sizeZ / 2 - 0.6)
+			),
+			World.Flowers[flowerRng:NextInteger(1, #World.Flowers)],
+			Enum.Material.SmoothPlastic,
+			{ Shape = Enum.PartType.Ball, CastShadow = false }
+		)
 	end
 end
 
@@ -234,8 +274,13 @@ local function buildSellStand(player, parent, base)
 	-- gestreiftes Dach in Grün und Creme
 	for i = 0, 6 do
 		local stripeColor = i % 2 == 0 and Palette.Colors.Green or Palette.Colors.Cream
-		standPart("Roof", Vector3.new(1, 0.35, 3.8), CFrame.new(-3 + i, 8.1, 0.2) * CFrame.Angles(math.rad(-12), 0, 0),
-			stripeColor, Enum.Material.Fabric)
+		standPart(
+			"Roof",
+			Vector3.new(1, 0.35, 3.8),
+			CFrame.new(-3 + i, 8.1, 0.2) * CFrame.Angles(math.rad(-12), 0, 0),
+			stripeColor,
+			Enum.Material.Fabric
+		)
 	end
 
 	-- großes Schild unter dem Dach (Creme auf dunklem Holz)
@@ -262,7 +307,13 @@ local function buildSellStand(player, parent, base)
 	signPadding.Parent = signText
 
 	-- Preistafel an der Theke (Gold nur für die Coins)
-	local board = standPart("PriceBoard", Vector3.new(4.4, 1.5, 0.15), CFrame.new(0, 1.8, -1.28), Palette.Colors.Deep, Enum.Material.SmoothPlastic)
+	local board = standPart(
+		"PriceBoard",
+		Vector3.new(4.4, 1.5, 0.15),
+		CFrame.new(0, 1.8, -1.28),
+		Palette.Colors.Deep,
+		Enum.Material.SmoothPlastic
+	)
 	local boardSurface = Instance.new("SurfaceGui")
 	boardSurface.Face = Enum.NormalId.Front
 	boardSurface.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
@@ -276,7 +327,9 @@ local function buildSellStand(player, parent, base)
 	boardText.TextScaled = true
 	boardText.RichText = true
 	boardText.TextColor3 = Palette.Colors.Cream
-	boardText.Text = ('1 Milch = <font color="rgb(244,192,64)">%s Coins</font>'):format(CowData.FormatNumber(Config.MilkSellPrice))
+	boardText.Text = ('1 Milch = <font color="rgb(244,192,64)">%s Coins</font>'):format(
+		CowData.FormatNumber(Config.MilkSellPrice)
+	)
 	boardText.Parent = boardSurface
 	local boardPadding = Instance.new("UIPadding")
 	boardPadding.PaddingLeft = UDim.new(0.06, 0)
@@ -288,19 +341,35 @@ local function buildSellStand(player, parent, base)
 	-- Milchkannen auf der Theke
 	for i, x in ipairs({ -2.2, -1.3, 1.2 }) do
 		local height = i == 2 and 1.0 or 1.3
-		standPart("MilkCan", Vector3.new(height, 0.7, 0.7),
+		standPart(
+			"MilkCan",
+			Vector3.new(height, 0.7, 0.7),
 			CFrame.new(x, 3.6 + height / 2, 0.3) * CFrame.Angles(0, 0, math.rad(90)),
-			Color3.fromRGB(200, 205, 212), Enum.Material.Metal, Enum.PartType.Cylinder)
-		standPart("MilkCanLid", Vector3.new(0.12, 0.5, 0.5),
+			Color3.fromRGB(200, 205, 212),
+			Enum.Material.Metal,
+			Enum.PartType.Cylinder
+		)
+		standPart(
+			"MilkCanLid",
+			Vector3.new(0.12, 0.5, 0.5),
 			CFrame.new(x, 3.6 + height + 0.06, 0.3) * CFrame.Angles(0, 0, math.rad(90)),
-			Palette.Colors.Cream, Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+			Palette.Colors.Cream,
+			Enum.Material.SmoothPlastic,
+			Enum.PartType.Cylinder
+		)
 	end
 
 	-- Kasse mit Goldmünzen (Gold = Coins)
 	standPart("CashBox", Vector3.new(1.2, 0.7, 0.9), CFrame.new(2.3, 3.8, -0.2), World.WoodDark)
 	for k = 0, 2 do
-		standPart("Coin", Vector3.new(0.12, 0.55, 0.55), CFrame.new(2.3, 4.2 + k * 0.13, -0.2) * CFrame.Angles(0, 0, math.rad(90)),
-			Palette.Colors.Gold, Enum.Material.Metal, Enum.PartType.Cylinder)
+		standPart(
+			"Coin",
+			Vector3.new(0.12, 0.55, 0.55),
+			CFrame.new(2.3, 4.2 + k * 0.13, -0.2) * CFrame.Angles(0, 0, math.rad(90)),
+			Palette.Colors.Gold,
+			Enum.Material.Metal,
+			Enum.PartType.Cylinder
+		)
 	end
 
 	-- zwei Kisten daneben
@@ -416,8 +485,21 @@ local function getFarm(player)
 			Material = Enum.Material.Wood,
 			Parent = decor,
 		})
-		decorPart(decor, "GateCap", Vector3.new(1.7, 0.3, 1.7), origin * CFrame.new(x, GROUND + 8.55, fz), Color3.fromRGB(52, 54, 62), Enum.Material.Metal)
-		decorPart(decor, "GateLamp", Vector3.new(1.1, 1.3, 1.1), origin * CFrame.new(x, GROUND + 9.2, fz), World.Lantern)
+		decorPart(
+			decor,
+			"GateCap",
+			Vector3.new(1.7, 0.3, 1.7),
+			origin * CFrame.new(x, GROUND + 8.55, fz),
+			Color3.fromRGB(52, 54, 62),
+			Enum.Material.Metal
+		)
+		decorPart(
+			decor,
+			"GateLamp",
+			Vector3.new(1.1, 1.3, 1.1),
+			origin * CFrame.new(x, GROUND + 9.2, fz),
+			World.Lantern
+		)
 	end
 	makePart({
 		Name = "GateBeam",
@@ -428,7 +510,14 @@ local function getFarm(player)
 		Parent = decor,
 	})
 	for _, x in ipairs({ -3, 3 }) do
-		decorPart(decor, "GateStrut", Vector3.new(0.5, 0.4, 0.5), origin * CFrame.new(x, GROUND + 8.7, fz), World.WoodDark, Enum.Material.Wood)
+		decorPart(
+			decor,
+			"GateStrut",
+			Vector3.new(0.5, 0.4, 0.5),
+			origin * CFrame.new(x, GROUND + 8.7, fz),
+			World.WoodDark,
+			Enum.Material.Wood
+		)
 	end
 	local sign = makePart({
 		Name = "Sign",
@@ -514,8 +603,15 @@ local function getFarm(player)
 		Material = Enum.Material.Wood,
 		Parent = decor,
 	})
-	decorPart(decor, "TroughWater", Vector3.new(4, 0.1, 1.1), origin * CFrame.new(27, GROUND + 1.2, 46), Palette.Colors.Blue,
-		Enum.Material.Glass, { Transparency = 0.3 })
+	decorPart(
+		decor,
+		"TroughWater",
+		Vector3.new(4, 0.1, 1.1),
+		origin * CFrame.new(27, GROUND + 1.2, 46),
+		Palette.Colors.Blue,
+		Enum.Material.Glass,
+		{ Transparency = 0.3 }
+	)
 
 	-- Raster: ein helles Feld pro Kuh-Platz (Client hebt freie Felder beim Platzieren hervor)
 	local grid = Instance.new("Folder")
@@ -598,15 +694,18 @@ end
 ------------------------------------------------------------------------
 -- Namensschild über der Kuh + schwebende Texte
 ------------------------------------------------------------------------
-local function createInfoBillboard(cow, torso)
+-- stage = Wachstums-Stufe (CowData.Growth.Stages); Kälber: Schild tiefer und "Kalb · Holstein"
+local function createInfoBillboard(cow, torso, stage)
 	local info = CowData.Rarities[cow.Rarity]
 	local accent = Palette.rarityColor(cow.Rarity)
+	local scale = stage and stage.Scale or 1
+	local grown = not stage or stage.Scale >= 1
 
 	-- kleines Namensschild über dem Kopf (Marineblau, dünner Rahmen in der Seltenheitsfarbe)
 	local billboard = Instance.new("BillboardGui")
 	billboard.Name = "Info"
 	billboard.Size = UDim2.fromOffset(136, 52)
-	billboard.StudsOffsetWorldSpace = Vector3.new(0, 4.6, 0)
+	billboard.StudsOffsetWorldSpace = Vector3.new(0, 4.6 * scale + (1 - scale) * 0.8, 0)
 	billboard.MaxDistance = 55
 	billboard.LightInfluence = 0
 	billboard.Parent = torso
@@ -640,7 +739,11 @@ local function createInfoBillboard(cow, torso)
 		return l
 	end
 	label("NameLabel", cow.Name, 0.05, 0.38, Palette.Fonts.Heading, Palette.Colors.Cream)
-	label("RarityLabel", (info.IsSpecial and "★ " or "") .. info.DisplayName, 0.44, 0.22, Palette.Fonts.Body, accent)
+	local typeText = (info.IsSpecial and "★ " or "") .. info.DisplayName
+	if not grown then
+		typeText = stage.Name .. " · " .. typeText
+	end
+	label("RarityLabel", typeText, 0.44, 0.22, Palette.Fonts.Body, accent)
 	return label("Status", "", 0.7, 0.24, Palette.Fonts.Body, Palette.Colors.SubText)
 end
 
@@ -671,7 +774,8 @@ local function showPopup(part, message, color)
 	local scale = Instance.new("UIScale")
 	scale.Scale = 0.5
 	scale.Parent = text
-	TweenService:Create(scale, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+	TweenService:Create(scale, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 })
+		:Play()
 
 	local rise = TweenInfo.new(1.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 	TweenService:Create(popup, rise, { StudsOffsetWorldSpace = Vector3.new(0, 9, 0) }):Play()
@@ -733,12 +837,28 @@ local function endMilking(player, completed)
 	local spot = session.Spot
 	local data = DataService.Get(player)
 	local cow = data and data.Cows[session.CowId]
-	local milk = session.Pulls * session.MilkPerPull
+	local milk = math.floor(session.Pulls * session.MilkPerPull + 0.5)
+
+	-- Jedes Melken gibt einen Eimer. Nur ein VOLLER Eimer kann Mutationen bekommen (Wetter zählt mit).
+	local mutations = {}
+	if completed and milk > 0 then
+		mutations = CowData.RollMilkMutations(cow and cow.Rarity, workspace:GetAttribute("Weather"), rng)
+	end
+	local multiplier = CowData.GetMutationMultiplier(mutations)
+	local topInfo = CowData.MilkTypes[mutations[1] or "Normal"]
+	local bucket = nil
 
 	if milk > 0 then
-		DataService.AddMilk(player, milk)
-		showPopup(spot.Torso, "+" .. CowData.FormatNumber(milk) .. " Milch", Palette.Colors.Cream)
+		bucket = DataService.AddBucket(player, milk, mutations, cow)
+		local popupColor = #mutations == 0 and Palette.Colors.Cream or topInfo.Color
+		showPopup(
+			spot.Torso,
+			("+%s L %s"):format(CowData.FormatNumber(milk), CowData.FormatMutations(mutations, true)),
+			popupColor
+		)
 	end
+	local where = (bucket and not bucket.Hotbar) and " (im Eimer-Lager, Hotbar voll)" or ""
+
 	if cow and session.Pulls > 0 then
 		cow.MilkReadyAt = os.time() + CowData.Rarities[cow.Rarity].MilkCooldown
 	end
@@ -748,9 +868,40 @@ local function endMilking(player, completed)
 
 	if completed then
 		playSound(spot.Torso, Config.MilkDoneSoundId, 1, 0.8)
-		DataService.Notify(player, ("🪣 Eimer voll! +%s Milch von %s"):format(CowData.FormatNumber(milk), cow and cow.Name or "deiner Kuh"), "success")
+		local cowName = cow and cow.Name or "deiner Kuh"
+		if #mutations == 0 then
+			DataService.Notify(
+				player,
+				("🪣 Eimer voll! %s L Milch von %s%s"):format(CowData.FormatNumber(milk), cowName, where),
+				"success"
+			)
+		else
+			DataService.Notify(
+				player,
+				("✨ Eimer mit %s (%s Wert)! %s L von %s%s"):format(
+					CowData.FormatMutations(mutations),
+					CowData.FormatMultiplier(multiplier),
+					CowData.FormatNumber(milk),
+					cowName,
+					where
+				),
+				multiplier >= 8 and "rare" or "success"
+			)
+			-- ganz seltene Eimer hört der ganze Server
+			if multiplier >= 40 then
+				DataService.NotifyAll(
+					("✨ %s hat %s gemolken!"):format(player.DisplayName, CowData.FormatMutations(mutations)),
+					"rare",
+					player
+				)
+			end
+		end
 	elseif milk > 0 then
-		DataService.Notify(player, ("Melken abgebrochen: +%s Milch"):format(CowData.FormatNumber(milk)), "info")
+		DataService.Notify(
+			player,
+			("Melken abgebrochen: halber Eimer mit %s L Milch%s"):format(CowData.FormatNumber(milk), where),
+			"info"
+		)
 	end
 
 	-- Eimer nach kurzer Zeit wieder leeren
@@ -759,7 +910,7 @@ local function endMilking(player, completed)
 	end)
 
 	if player.Parent then
-		Remotes.MilkingEnded:FireClient(player, completed, milk)
+		Remotes.MilkingEnded:FireClient(player, completed, milk, mutations, bucket and bucket.Id)
 	end
 	refreshCowLabels(player)
 end
@@ -781,10 +932,25 @@ local function startMilking(player, cowId, silent)
 		return
 	end
 
+	if not DataService.HasBucketSpace(player) then
+		if debounce(player, "BucketsFull", 4) then
+			DataService.Notify(
+				player,
+				("🪣 Kein Platz für Eimer (max. %d)! Verkaufe zuerst deine Milch."):format(Config.MaxBuckets),
+				"error"
+			)
+		end
+		return
+	end
+
 	local readyAt = cow.MilkReadyAt or 0
 	if readyAt > os.time() then
 		if not silent then
-			DataService.Notify(player, ("⏳ %s braucht noch %s Pause."):format(cow.Name, formatTime(readyAt - os.time())), "error")
+			DataService.Notify(
+				player,
+				("⏳ %s braucht noch %s Pause."):format(cow.Name, formatTime(readyAt - os.time())),
+				"error"
+			)
 		end
 		return
 	end
@@ -806,7 +972,6 @@ local function startMilking(player, cowId, silent)
 		humanoid.Sit = false
 	end
 
-	local info = CowData.Rarities[cow.Rarity]
 	local seat = spot.Seat
 	local session = {
 		CowId = cowId,
@@ -816,7 +981,7 @@ local function startMilking(player, cowId, silent)
 		Pulls = 0,
 		Actions = 0,
 		Needed = Config.PullsPerMilking,
-		MilkPerPull = info.MilkPerPull,
+		MilkPerPull = CowData.GetMilkPerPull(cow, os.time()), -- Kälber geben weniger
 		LastSide = nil,
 		StartedAt = os.clock(),
 		Seated = false,
@@ -825,16 +990,22 @@ local function startMilking(player, cowId, silent)
 	sessions[player] = session
 
 	-- Wer vom Schemel springt, bricht das Melken ab
-	table.insert(session.Connections, seat:GetPropertyChangedSignal("Occupant"):Connect(function()
-		if seat.Occupant == humanoid then
-			session.Seated = true
-		elseif session.Seated and sessions[player] == session then
+	table.insert(
+		session.Connections,
+		seat:GetPropertyChangedSignal("Occupant"):Connect(function()
+			if seat.Occupant == humanoid then
+				session.Seated = true
+			elseif session.Seated and sessions[player] == session then
+				endMilking(player, false)
+			end
+		end)
+	)
+	table.insert(
+		session.Connections,
+		humanoid.Died:Connect(function()
 			endMilking(player, false)
-		end
-	end))
-	table.insert(session.Connections, humanoid.Died:Connect(function()
-		endMilking(player, false)
-	end))
+		end)
+	)
 
 	spot.Cow:SetAttribute("BeingMilked", true)
 
@@ -923,14 +1094,35 @@ local function occupiedCells(data)
 	return used
 end
 
+-- Hotbar-Plätze teilen sich Kühe und Milch-Eimer: [Platz] = Kuh oder Eimer
 local function occupiedHotbar(data)
-	local used = {}
-	for _, cow in pairs(data.Cows) do
-		if cow.Hotbar then
-			used[cow.Hotbar] = cow
+	return DataService.GetHotbarItems(data)
+end
+
+-- Freier Hotbar-Platz für eine Kuh. Ist alles voll, wandert der billigste Eimer ins Eimer-Lager
+-- (Kühe gehen vor, Eimer kann man jederzeit verkaufen).
+local function freeHotbarForCow(data)
+	local used = occupiedHotbar(data)
+	for i = 1, HOTBAR_SIZE do
+		if not used[i] then
+			return i
 		end
 	end
-	return used
+	local cheapest, cheapestValue = nil, math.huge
+	for _, bucket in pairs(data.Buckets) do
+		if bucket.Hotbar then
+			local value = CowData.GetBucketValue(bucket.Liters, bucket.Mutations)
+			if value < cheapestValue then
+				cheapest, cheapestValue = bucket, value
+			end
+		end
+	end
+	if cheapest then
+		local index = cheapest.Hotbar
+		cheapest.Hotbar = nil
+		return index
+	end
+	return nil
 end
 
 local function firstFree(used, count)
@@ -949,7 +1141,7 @@ local function assignLocation(data, cow)
 		cow.Slot = cell
 		return "farm"
 	end
-	local hotbar = firstFree(occupiedHotbar(data), HOTBAR_SIZE)
+	local hotbar = freeHotbarForCow(data)
 	if hotbar then
 		cow.Hotbar = hotbar
 		return "hotbar"
@@ -963,7 +1155,9 @@ local function normalizeCows(data)
 	local cells, hotbar = {}, {}
 	local list = sortedCows(data)
 	for _, cow in ipairs(list) do
-		if cow.Slot ~= nil and (type(cow.Slot) ~= "number" or cow.Slot < 1 or cow.Slot > GRID_CELLS or cells[cow.Slot]) then
+		if
+			cow.Slot ~= nil and (type(cow.Slot) ~= "number" or cow.Slot < 1 or cow.Slot > GRID_CELLS or cells[cow.Slot])
+		then
 			cow.Slot = nil
 		end
 		if cow.Slot then
@@ -971,7 +1165,8 @@ local function normalizeCows(data)
 			cow.Hotbar = nil
 			cow.Stored = nil
 		else
-			if cow.Hotbar ~= nil
+			if
+				cow.Hotbar ~= nil
 				and (type(cow.Hotbar) ~= "number" or cow.Hotbar < 1 or cow.Hotbar > HOTBAR_SIZE or hotbar[cow.Hotbar])
 			then
 				cow.Hotbar = nil
@@ -980,6 +1175,23 @@ local function normalizeCows(data)
 				hotbar[cow.Hotbar] = true
 				cow.Stored = nil
 			end
+		end
+	end
+	-- Eimer: Hotbar-Platz nur behalten, wenn er gültig und noch frei ist (sonst ins Eimer-Lager)
+	for _, bucket in pairs(data.Buckets) do
+		if
+			bucket.Hotbar ~= nil
+			and (
+				type(bucket.Hotbar) ~= "number"
+				or bucket.Hotbar < 1
+				or bucket.Hotbar > HOTBAR_SIZE
+				or hotbar[bucket.Hotbar]
+			)
+		then
+			bucket.Hotbar = nil
+		end
+		if bucket.Hotbar then
+			hotbar[bucket.Hotbar] = true
 		end
 	end
 	for _, cow in ipairs(list) do
@@ -992,23 +1204,30 @@ end
 ------------------------------------------------------------------------
 -- Kühe auf der Farm aufstellen (nur Kühe mit cow.Slot)
 ------------------------------------------------------------------------
-local function spawnCow(player, cow)
-	if not cow.Slot then
-		return nil
-	end
-	local farm = getFarm(player)
-	if farm.Spots[cow.Id] then
-		return farm.Spots[cow.Id]
-	end
-
+-- Baut Kuh + Schemel + Eimer + Melk-Platte für eine Kuh mit cow.Slot.
+-- Achtung: CowModelBuilder.BuildCow kann beim ersten Mal warten (Prüfung der Blender-Meshes).
+-- Deshalb merkt sich farm.Spawning, welche Kuh gerade gebaut wird – sonst bauen zwei Aufrufer
+-- (z.B. Gratis-Kuh beim Beitreten + Laden der Farm) dieselbe Kuh doppelt an denselben Platz.
+local function buildSpot(player, farm, cow)
+	local slot = cow.Slot
 	local yaw = math.rad(rng:NextNumber(-8, 8))
-	local base = farm.Origin * CowData.GetGridCellLocal(cow.Slot) * CFrame.new(COW_OFFSET_X, 0, 0) * CFrame.Angles(0, yaw, 0)
+	local base = farm.Origin
+		* CowData.GetGridCellLocal(cow.Slot)
+		* CFrame.new(COW_OFFSET_X, 0, 0)
+		* CFrame.Angles(0, yaw, 0)
 
 	local spotModel = Instance.new("Model")
 	spotModel.Name = cow.Id
 
-	-- Kuh
-	local cowModel, refs = CowModelBuilder.BuildCow(cow.Rarity, cow.Id, base)
+	-- Kuh in der Größe ihrer Wachstums-Stufe (kann warten, siehe oben)
+	local _, stageIndex, stage = CowData.GetGrowth(cow, os.time())
+	local cowModel, refs = CowModelBuilder.BuildCow(cow.Rarity, cow.Id, base, stage.Scale)
+	-- inzwischen weg? (Spieler raus, Kuh aufgehoben oder auf ein anderes Feld gestellt)
+	if farms[player] ~= farm or cow.Slot ~= slot then
+		cowModel:Destroy()
+		spotModel:Destroy()
+		return nil
+	end
 	cowModel:SetAttribute("CowId", cow.Id)
 	cowModel:SetAttribute("OwnerUserId", player.UserId)
 	cowModel.Parent = spotModel
@@ -1085,12 +1304,14 @@ local function spawnCow(player, cow)
 				Name = current.Name,
 				Rarity = current.Rarity,
 				MilkReadyAt = current.MilkReadyAt or 0,
+				BornAt = current.BornAt,
+				GrowTime = current.GrowTime,
 				ServerTime = os.time(),
 			})
 		end
 	end)
 
-	local status = createInfoBillboard(cow, refs.Torso)
+	local status = createInfoBillboard(cow, refs.Torso, stage)
 
 	spotModel.Parent = farm.CowsFolder
 
@@ -1103,9 +1324,38 @@ local function spawnCow(player, cow)
 		Bucket = bucketModel,
 		SetFill = setFill,
 		Status = status,
+		Stage = stageIndex, -- Wachstums-Stufe, in der das Modell gebaut wurde
 	}
 	farm.Spots[cow.Id] = spot
 	return spot
+end
+
+local function spawnCow(player, cow)
+	if not cow.Slot then
+		return nil
+	end
+	local farm = getFarm(player)
+	if farm.Spots[cow.Id] then
+		return farm.Spots[cow.Id]
+	end
+
+	-- wird schon gebaut -> darauf warten statt eine zweite Kuh zu bauen
+	farm.Spawning = farm.Spawning or {}
+	if farm.Spawning[cow.Id] then
+		while farm.Spawning[cow.Id] and farms[player] == farm do
+			task.wait(0.1)
+		end
+		return farm.Spots[cow.Id]
+	end
+
+	farm.Spawning[cow.Id] = true
+	local ok, result = pcall(buildSpot, player, farm, cow)
+	farm.Spawning[cow.Id] = nil
+	if not ok then
+		warn("[CowManager] Kuh konnte nicht aufgestellt werden:", cow.Id, result)
+		return nil
+	end
+	return result
 end
 
 -- Neue Kuh: fällt von oben auf die Wiese + Konfetti + Sound
@@ -1123,7 +1373,8 @@ local function celebrateNewCow(spot, rarity)
 		end
 	end)
 	cowModel:PivotTo(finalPivot + Vector3.new(0, dropHeight, 0))
-	local tween = TweenService:Create(alpha, TweenInfo.new(0.7, Enum.EasingStyle.Bounce, Enum.EasingDirection.Out), { Value = 1 })
+	local tween =
+		TweenService:Create(alpha, TweenInfo.new(0.7, Enum.EasingStyle.Bounce, Enum.EasingDirection.Out), { Value = 1 })
 	tween:Play()
 	tween.Completed:Connect(function()
 		if cowModel.Parent then
@@ -1282,8 +1533,8 @@ local function cowAction(player, action, cowId, arg)
 		end
 		despawnCow(player, cowId)
 		cow.Slot = nil
-		local hotbar = firstFree(occupiedHotbar(data), HOTBAR_SIZE)
-		if hotbar and arg ~= "inventory" then
+		local hotbar = arg ~= "inventory" and freeHotbarForCow(data) or nil
+		if hotbar then
 			cow.Hotbar = hotbar
 		else
 			cow.Stored = true
@@ -1312,15 +1563,18 @@ local function cowAction(player, action, cowId, arg)
 		if cow.Slot then
 			return false, "Heb die Kuh zuerst auf."
 		end
-		local index = tonumber(arg) or firstFree(occupiedHotbar(data), HOTBAR_SIZE)
+		if cow.Hotbar and arg == nil then
+			return true -- liegt schon in der Hotbar
+		end
+		local index = tonumber(arg) or freeHotbarForCow(data)
 		if not index or index ~= math.floor(index) or index < 1 or index > HOTBAR_SIZE then
 			return false, "Die Hotbar ist voll."
 		end
 		local other = occupiedHotbar(data)[index]
 		if other and other ~= cow then
-			-- Plätze tauschen (kommt die Kuh aus dem Inventar, wandert die andere ins Inventar)
+			-- Plätze tauschen (kommt die Kuh aus dem Inventar, wandert das andere ins Inventar bzw. Eimer-Lager)
 			other.Hotbar = cow.Hotbar
-			if not other.Hotbar then
+			if not other.Hotbar and other.Rarity then
 				other.Stored = true
 			end
 		end
@@ -1386,6 +1640,109 @@ Remotes.TeleportTo.OnServerEvent:Connect(function(player, destination)
 end)
 
 ------------------------------------------------------------------------
+-- Eimer tragen: der in der Hotbar ausgewählte Eimer hängt an der rechten Hand (alle sehen ihn).
+-- Modell: CowModelBuilder.BuildMilkBucket (Größe nach Litern, Farben nach Mutationen)
+------------------------------------------------------------------------
+local held = {} -- [player] = { BucketId, Model, Scale }
+
+local function removeHeldModel(entry)
+	if entry and entry.Model then
+		entry.Model:Destroy()
+		entry.Model = nil
+	end
+end
+
+-- Eimer in die rechte Hand, an den Griffpunkt (RightGripAttachment) – genau wie Roblox Tools hält.
+-- Kein echtes Tool, weil ClickDetector (Kühe, Shops) mit einem Tool in der Hand nicht mehr reagieren.
+-- Den Arm hebt WorldAnimator.client.lua mit der Roblox-Halteanimation "toolnone".
+local function attachHeld(player)
+	local entry = held[player]
+	if not entry then
+		return
+	end
+	removeHeldModel(entry)
+	local character = player.Character
+	if not character then
+		return
+	end
+	local hand = character:FindFirstChild("RightHand") or character:FindFirstChild("Right Arm")
+	if not hand then
+		hand = character:WaitForChild("RightHand", 5) or character:FindFirstChild("Right Arm")
+	end
+	-- inzwischen etwas anderes ausgewählt oder neu gespawnt?
+	if not hand or held[player] ~= entry or player.Character ~= character then
+		return
+	end
+	local data = DataService.Get(player)
+	local bucket = data and data.Buckets[entry.BucketId]
+	if not bucket then
+		held[player] = nil
+		return
+	end
+
+	local ok, err = pcall(function()
+		local model = CowModelBuilder.BuildMilkBucket(bucket.Liters, bucket.Mutations)
+		local grip = model.PrimaryPart
+		-- Griffpunkt der Hand: bei gehobenem Arm zeigt sein "oben" nach oben -> Eimer hängt aufrecht
+		local gripAttachment = hand:FindFirstChild("RightGripAttachment")
+		local gripCF = gripAttachment and gripAttachment.CFrame
+			or CFrame.new(0, -hand.Size.Y / 2, 0) * CFrame.Angles(math.rad(-90), 0, 0)
+		model:PivotTo(hand.CFrame * gripCF * CFrame.new(0, -0.05, 0))
+		for _, part in ipairs(model:GetDescendants()) do
+			if part:IsA("BasePart") then
+				part.CanCollide = false
+				part.CanQuery = false
+				part.CanTouch = false
+				part.Massless = true
+				if part ~= grip then
+					local weld = Instance.new("WeldConstraint")
+					weld.Part0 = grip
+					weld.Part1 = part
+					weld.Parent = part
+				end
+			end
+		end
+		local handWeld = Instance.new("WeldConstraint")
+		handWeld.Part0 = hand
+		handWeld.Part1 = grip
+		handWeld.Parent = grip
+		for _, part in ipairs(model:GetDescendants()) do
+			if part:IsA("BasePart") then
+				part.Anchored = false
+			end
+		end
+		model.Name = "HeldBucket" -- WorldAnimator sucht diesen Namen und startet die Halteanimation
+		model.Parent = character
+		entry.Model = model
+		entry.Scale = CowData.GetBucketScale(bucket.Liters)
+	end)
+	if not ok then
+		warn("[CowManager] Eimer konnte nicht in die Hand genommen werden:", err)
+	end
+end
+
+local function dropHeld(player)
+	local entry = held[player]
+	held[player] = nil
+	removeHeldModel(entry)
+end
+
+-- Eimer weg (verkauft) -> loslassen; Eimer gewachsen (Auto-Melker) -> neu bauen
+local function refreshHeld(player)
+	local entry = held[player]
+	if not entry then
+		return
+	end
+	local data = DataService.Get(player)
+	local bucket = data and data.Buckets[entry.BucketId]
+	if not bucket then
+		dropHeld(player)
+	elseif entry.Scale and math.abs(CowData.GetBucketScale(bucket.Liters) - entry.Scale) >= 0.03 then
+		task.spawn(attachHeld, player)
+	end
+end
+
+------------------------------------------------------------------------
 -- Milch verkaufen
 ------------------------------------------------------------------------
 -- popupPart (optional): dort erscheint "+X 🪙" (z.B. der Milch-Stand)
@@ -1393,21 +1750,116 @@ function sellMilk(player, popupPart)
 	if not debounce(player, "SellMilk", 0.5) then
 		return
 	end
-	local milk = DataService.TakeAllMilk(player)
-	if milk <= 0 then
+	local milk, coins, buckets = DataService.TakeAllMilk(player)
+	dropHeld(player)
+	if #buckets == 0 then
 		DataService.Notify(player, "Du hast keine Milch zum Verkaufen. Melke deine Kühe!", "error")
 		return
 	end
-	local coins = math.floor(milk * Config.MilkSellPrice)
+	-- Wert hängt von den Mutationen der Eimer ab (CowData.GetBucketValue)
 	DataService.AddCoins(player, coins)
-	DataService.Notify(
-		player,
-		("%s Milch für %s Coins verkauft!"):format(CowData.FormatNumber(milk), CowData.FormatNumber(coins)),
-		"success"
+
+	local mutated = 0
+	for _, bucket in ipairs(buckets) do
+		if #bucket.Mutations > 0 then
+			mutated += 1
+		end
+	end
+	local text = ("%d Eimer (%s L) für %s Coins verkauft!"):format(
+		#buckets,
+		CowData.FormatNumber(milk),
+		CowData.FormatNumber(coins)
 	)
+	if mutated > 0 then
+		text ..= (" ✨ %d mit Mutation"):format(mutated)
+	end
+	DataService.Notify(player, text, "success")
 	if popupPart then
 		showPopup(popupPart, "+" .. CowData.FormatNumber(coins) .. " Coins", Palette.Colors.Gold)
 	end
+end
+
+------------------------------------------------------------------------
+-- Einzelne Eimer: verkaufen, in die Hotbar legen, ins Eimer-Lager legen
+------------------------------------------------------------------------
+-- action: "sell" | "hotbar" (arg = Platz oder nil) | "store"
+-- action: "sell" | "hotbar" (arg = Platz oder nil) | "store" | "hold" (bucketId = nil -> loslassen)
+local function bucketAction(player, action, bucketId, arg)
+	local data = DataService.Get(player)
+	local bucket = data and type(bucketId) == "string" and data.Buckets[bucketId]
+
+	if action == "hold" then
+		if bucketId == nil then
+			dropHeld(player)
+			return true
+		end
+		if not bucket or not bucket.Hotbar then
+			return false, "Nur Eimer aus der Hotbar kann man tragen."
+		end
+		if not (held[player] and held[player].BucketId == bucketId) then
+			dropHeld(player)
+			held[player] = { BucketId = bucketId }
+			task.spawn(attachHeld, player)
+		end
+		return true
+	end
+
+	if not bucket then
+		return false, "Eimer nicht gefunden."
+	end
+
+	if action == "sell" then
+		local sold, coins = DataService.TakeBucket(player, bucketId)
+		if not sold then
+			return false, "Eimer nicht gefunden."
+		end
+		DataService.AddCoins(player, coins)
+		refreshHeld(player)
+		DataService.Notify(
+			player,
+			("Eimer verkauft: %s L %s für %s Coins"):format(
+				CowData.FormatNumber(sold.Liters),
+				CowData.FormatMutations(sold.Mutations),
+				CowData.FormatNumber(coins)
+			),
+			"success"
+		)
+		return true
+	elseif action == "hotbar" then
+		local index = tonumber(arg) or DataService.FirstFreeHotbar(data)
+		if not index or index ~= math.floor(index) or index < 1 or index > HOTBAR_SIZE then
+			return false, "Die Hotbar ist voll."
+		end
+		local other = occupiedHotbar(data)[index]
+		if other and other ~= bucket then
+			if other.Rarity then
+				return false, "Auf dem Platz liegt eine Kuh."
+			end
+			other.Hotbar = bucket.Hotbar -- zwei Eimer tauschen die Plätze
+		end
+		bucket.Hotbar = index
+		return true
+	elseif action == "store" then
+		bucket.Hotbar = nil
+		if held[player] and held[player].BucketId == bucketId then
+			dropHeld(player)
+		end
+		return true
+	end
+	return false, "Unbekannte Aktion."
+end
+
+DataService.GetRemote("BucketAction", "RemoteFunction").OnServerInvoke = function(player, action, bucketId, arg)
+	-- Tragen hat ein eigenes Tempo-Limit, damit "auswählen + gleich verkaufen" klappt
+	if not debounce(player, action == "hold" and "BucketHold" or "BucketAction", 0.15) then
+		return false, "Nicht so schnell!"
+	end
+	local ok, message = bucketAction(player, action, bucketId, arg)
+	if ok and action ~= "hold" then
+		DataService.Sync(player)
+		DataService.FireInventoryChanged(player)
+	end
+	return ok, message
 end
 
 Remotes.SellMilk.OnServerEvent:Connect(function(player)
@@ -1415,7 +1867,7 @@ Remotes.SellMilk.OnServerEvent:Connect(function(player)
 end)
 
 ------------------------------------------------------------------------
--- Shop: Kühe direkt kaufen
+-- Shop: Kühe aus dem aktuellen Lager kaufen (Lager: ShopService / CowData.Shop)
 ------------------------------------------------------------------------
 Remotes.BuyCow.OnServerInvoke = function(player, rarity)
 	if not debounce(player, "BuyCow", 0.3) then
@@ -1426,8 +1878,12 @@ Remotes.BuyCow.OnServerInvoke = function(player, rarity)
 	end
 
 	local info = CowData.Rarities[rarity]
-	if not info.ShopPrice then
+	if not info.ShopPrice or not CowData.GetShopEntry(rarity) then
 		return false, "Diese Kuh gibt es nicht im Shop."
+	end
+	local cycle = ShopService.GetCycle()
+	if ShopService.GetRemaining(player, rarity, cycle) <= 0 then
+		return false, "Ausverkauft! Warte auf das nächste Lager."
 	end
 	if not DataService.HasCowSpace(player, 1) then
 		return false, ("Deine Farm ist voll! (max. %d Kühe)"):format(Config.MaxCows)
@@ -1436,6 +1892,7 @@ Remotes.BuyCow.OnServerInvoke = function(player, rarity)
 		return false, "Nicht genug Coins!"
 	end
 
+	ShopService.RecordPurchase(player, rarity, cycle)
 	local cow = DataService.AddCow(player, rarity)
 	announceNewCow(player, cow, "Gekauft")
 	return true, cow.Id
@@ -1496,11 +1953,8 @@ local function finishBreeding(player, data)
 	local breeding = data.Breeding
 	local parentA = data.Cows[breeding.ParentA]
 	local parentB = data.Cows[breeding.ParentB]
-	local rarity = CowData.RollBreeding(
-		parentA and parentA.Rarity or "Common",
-		parentB and parentB.Rarity or "Common",
-		rng
-	)
+	local rarity =
+		CowData.RollBreeding(parentA and parentA.Rarity or "Common", parentB and parentB.Rarity or "Common", rng)
 
 	data.Breeding = nil
 	local calf = DataService.AddCow(player, rarity)
@@ -1534,6 +1988,13 @@ Remotes.StartBreeding.OnServerInvoke = function(player, cowIdA, cowIdB)
 	local cowA, cowB = data.Cows[cowIdA], data.Cows[cowIdB]
 	if not cowA or not cowB then
 		return false, "Kuh nicht gefunden."
+	end
+	for _, parent in ipairs({ cowA, cowB }) do
+		if not CowData.IsGrown(parent, os.time()) then
+			local _, _, stage = CowData.GetGrowth(parent, os.time())
+			return false,
+				("%s ist noch ein(e) %s – nur ausgewachsene Kühe können züchten."):format(parent.Name, stage.Name)
+		end
 	end
 	if not DataService.HasCowSpace(player, 1) then
 		return false, ("Kein Platz für ein Kalb! (max. %d Kühe)"):format(Config.MaxCows)
@@ -1576,6 +2037,8 @@ local function buildInventory(player)
 			Rarity = cow.Rarity,
 			Name = cow.Name,
 			MilkReadyAt = cow.MilkReadyAt or 0,
+			BornAt = cow.BornAt,
+			GrowTime = cow.GrowTime,
 			Slot = cow.Slot,
 			Hotbar = cow.Hotbar,
 			Stored = cow.Stored == true,
@@ -1585,9 +2048,33 @@ local function buildInventory(player)
 		return CowData.Rarities[a.Rarity].Tier > CowData.Rarities[b.Rarity].Tier
 	end)
 
+	-- Milch-Eimer, wertvollste zuerst
+	local buckets = {}
+	for _, bucket in pairs(data.Buckets) do
+		table.insert(buckets, {
+			Id = bucket.Id,
+			Liters = bucket.Liters,
+			Mutations = bucket.Mutations,
+			CowName = bucket.CowName,
+			CowType = bucket.CowType,
+			Hotbar = bucket.Hotbar,
+			Auto = bucket.Auto == true,
+			Value = CowData.GetBucketValue(bucket.Liters, bucket.Mutations),
+		})
+	end
+	table.sort(buckets, function(a, b)
+		if a.Value ~= b.Value then
+			return a.Value > b.Value
+		end
+		return a.Id < b.Id
+	end)
+
 	return {
 		Coins = data.Coins,
 		Milk = data.Milk,
+		MilkValue = DataService.GetMilkValue(player),
+		Buckets = buckets,
+		MaxBuckets = Config.MaxBuckets,
 		Cows = cows,
 		Breeding = data.Breeding,
 		LoginStreak = data.LoginStreak.Streak,
@@ -1667,11 +2154,13 @@ task.spawn(function()
 				local total = 0
 				for _, cow in pairs(data.Cows) do
 					if cow.Slot then -- nur Kühe, die auf der Farm stehen
-						total += CowData.Rarities[cow.Rarity].MilkPerPull
+						total += CowData.GetMilkPerPull(cow, os.time())
 					end
 				end
+				total = math.floor(total + 0.5)
 				if total > 0 then
-					DataService.AddMilk(player, total)
+					DataService.AddAutoMilk(player, total)
+					refreshHeld(player)
 				end
 			end
 		end
@@ -1709,8 +2198,8 @@ MarketplaceService.ProcessReceipt = function(receipt)
 		return Enum.ProductPurchaseDecision.NotProcessedYet
 	end
 
-	-- Robux-Käufe werden immer gutgeschrieben, auch wenn die Farm voll ist
-	local cow = DataService.AddCow(player, rollCrate(crateId))
+	-- Robux-Käufe werden immer gutgeschrieben, auch wenn die Farm voll ist – und kommen gleich ausgewachsen
+	local cow = DataService.AddCow(player, rollCrate(crateId), { Adult = true })
 	data.Receipts[receipt.PurchaseId] = os.time()
 
 	-- Alte Belege aufräumen
@@ -1755,6 +2244,7 @@ local function onPlayerAdded(player)
 
 	player.CharacterAdded:Connect(function(character)
 		teleportToFarm(player, character)
+		task.spawn(attachHeld, player) -- getragenen Eimer wieder in die Hand
 	end)
 	player.CharacterRemoving:Connect(function()
 		endMilking(player, false)
@@ -1777,10 +2267,91 @@ Players.PlayerRemoving:Connect(function(player)
 	lastCall[player] = nil
 	inventoryCache[player] = nil
 	autoMilker[player] = nil
+	held[player] = nil
 end)
 
 ------------------------------------------------------------------------
--- Schleifen: Zucht-Timer, Statusanzeigen, Melk-Abstand
+-- Wachstum: erreicht eine Kuh die nächste Stufe, wird sie größer neu aufgebaut
+------------------------------------------------------------------------
+local function growBurst(torso)
+	local emitter = Instance.new("ParticleEmitter")
+	emitter.Color = ColorSequence.new(Color3.fromRGB(150, 230, 120), Color3.fromRGB(255, 244, 200))
+	emitter.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.4),
+		NumberSequenceKeypoint.new(1, 0),
+	})
+	emitter.Lifetime = NumberRange.new(0.6, 1.1)
+	emitter.Speed = NumberRange.new(4, 9)
+	emitter.SpreadAngle = Vector2.new(180, 180)
+	emitter.Acceleration = Vector3.new(0, 6, 0)
+	emitter.LightEmission = 0.4
+	emitter.Enabled = false
+	emitter.Parent = torso
+	emitter:Emit(24)
+	Debris:AddItem(emitter, 2)
+end
+
+-- Erst die neue (größere) Kuh bauen, DANN die alte entfernen. Klappt das Bauen nicht,
+-- bleibt die alte Kuh auf ihrem Feld stehen (die Kuh verschwindet nie von der Farm).
+local function regrowCow(player, cow, stageIndex)
+	local farm = farms[player]
+	local oldSpot = farm and farm.Spots[cow.Id]
+	if not oldSpot or oldSpot.Regrowing then
+		return
+	end
+	oldSpot.Regrowing = true
+	farm.Spots[cow.Id] = nil -- sonst gibt spawnCow die alte Kuh zurück
+	local newSpot = spawnCow(player, cow)
+	if farms[player] ~= farm then
+		return -- Spieler ist weg
+	end
+	if not newSpot then
+		if not farm.Spots[cow.Id] and cow.Slot then
+			farm.Spots[cow.Id] = oldSpot
+		end
+		oldSpot.Stage = stageIndex -- nicht jede Sekunde neu versuchen
+		oldSpot.Regrowing = nil
+		warn(("[CowManager] %s (%s) konnte nicht wachsen – bleibt in der alten Größe."):format(cow.Name, cow.Id))
+		refreshCowLabels(player)
+		return
+	end
+	oldSpot.Model:Destroy()
+	refreshCowLabels(player)
+	growBurst(newSpot.Torso)
+	local stages = CowData.Growth.Stages
+	if stageIndex >= #stages then
+		showPopup(newSpot.Torso, "Ausgewachsen!", Palette.Colors.Gold)
+		DataService.Notify(player, ("🐄 %s ist ausgewachsen und gibt jetzt volle Milch!"):format(cow.Name), "success")
+	else
+		showPopup(newSpot.Torso, "Wächst! " .. stages[stageIndex].Name, Palette.Colors.Green)
+	end
+	playSound(newSpot.Torso, Config.NewCowSoundId, 0.6, 1.3)
+end
+
+local function checkGrowth(player, data)
+	local farm = farms[player]
+	if not farm then
+		return
+	end
+	local now = os.time()
+	local session = sessions[player]
+	local grown = {} -- erst sammeln, dann umbauen (nicht farm.Spots ändern, während wir durchgehen)
+	for cowId, spot in pairs(farm.Spots) do
+		local cow = data.Cows[cowId]
+		if cow and spot.Stage and not (session and session.CowId == cowId) then
+			local _, stageIndex = CowData.GetGrowth(cow, now)
+			if stageIndex ~= spot.Stage then
+				table.insert(grown, { Cow = cow, Stage = stageIndex })
+			end
+		end
+	end
+	for _, entry in ipairs(grown) do
+		task.spawn(regrowCow, player, entry.Cow, entry.Stage)
+	end
+end
+
+------------------------------------------------------------------------
+-- Schleifen: Zucht-Timer, Wachstum, Statusanzeigen, Melk-Abstand
 ------------------------------------------------------------------------
 task.spawn(function()
 	while true do
@@ -1791,6 +2362,7 @@ task.spawn(function()
 				if data.Breeding and os.time() >= data.Breeding.ReadyAt then
 					finishBreeding(player, data)
 				end
+				checkGrowth(player, data)
 				refreshCowLabels(player)
 			end
 		end

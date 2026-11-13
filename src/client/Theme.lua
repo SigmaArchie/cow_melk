@@ -72,7 +72,11 @@ end
 function Theme.tween(object, props, duration, style, direction)
 	local tween = TweenService:Create(
 		object,
-		TweenInfo.new(duration or Theme.Time.Normal, style or Enum.EasingStyle.Quad, direction or Enum.EasingDirection.Out),
+		TweenInfo.new(
+			duration or Theme.Time.Normal,
+			style or Enum.EasingStyle.Quad,
+			direction or Enum.EasingDirection.Out
+		),
 		props
 	)
 	tween:Play()
@@ -462,7 +466,8 @@ function Theme.coinIcon(parent, size, position)
 	local z = Theme.zOf(parent) + 1
 	local coin = dot(parent, UDim2.fromOffset(size, size), position, Colors.Gold, z)
 	Theme.border(coin, Theme.Stroke.Normal, Theme.darken(Colors.Gold, 0.55))
-	local inner = dot(coin, UDim2.fromScale(0.7, 0.7), UDim2.fromScale(0.5, 0.5), Theme.lighten(Colors.Gold, 0.3), z + 1)
+	local inner =
+		dot(coin, UDim2.fromScale(0.7, 0.7), UDim2.fromScale(0.5, 0.5), Theme.lighten(Colors.Gold, 0.3), z + 1)
 	Theme.label(inner, {
 		Size = UDim2.fromScale(1, 1),
 		TextXAlignment = Enum.TextXAlignment.Center,
@@ -520,7 +525,8 @@ function Theme.cowIcon(parent, size, position, bodyColor, spotColor, transparenc
 	for _, x in ipairs({ 0.36, 0.64 }) do
 		dot(head, UDim2.fromScale(0.13, 0.15), UDim2.fromScale(x, 0.45), Colors.Outline, z + 2)
 	end
-	local snout = dot(head, UDim2.fromScale(0.56, 0.3), UDim2.fromScale(0.5, 0.74), Color3.fromRGB(255, 175, 190), z + 2)
+	local snout =
+		dot(head, UDim2.fromScale(0.56, 0.3), UDim2.fromScale(0.5, 0.74), Color3.fromRGB(255, 175, 190), z + 2)
 	for _, x in ipairs({ 0.33, 0.67 }) do
 		dot(snout, UDim2.fromScale(0.13, 0.32), UDim2.fromScale(x, 0.5), Color3.fromRGB(190, 90, 110), z + 3)
 	end
@@ -549,8 +555,14 @@ function Theme.cowCard(parent, props)
 	strip.Parent = card
 	Theme.corner(strip, 3)
 
-	Theme.cowIcon(card, 46, UDim2.fromOffset(36, 42), props.BodyColor or info.Color, props.SpotColor or info.SpotColor,
-		info.Transparency and 0.3 or 0)
+	Theme.cowIcon(
+		card,
+		46,
+		UDim2.fromOffset(36, 42),
+		props.BodyColor or info.Color,
+		props.SpotColor or info.SpotColor,
+		info.Transparency and 0.3 or 0
+	)
 	Theme.label(card, {
 		Name = "CowName",
 		Position = UDim2.fromOffset(68, 14),

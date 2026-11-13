@@ -167,11 +167,13 @@ local arrow = Theme.label(gui, {
 })
 local arrowScale = Instance.new("UIScale")
 arrowScale.Parent = arrow
-game:GetService("TweenService"):Create(
-	arrowScale,
-	TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
-	{ Scale = 1.2 }
-):Play()
+game:GetService("TweenService")
+	:Create(
+		arrowScale,
+		TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+		{ Scale = 1.2 }
+	)
+	:Play()
 
 local skipButton = Theme.secondaryButton(gui, {
 	Name = "Skip",
@@ -254,7 +256,8 @@ RunService.RenderStepped:Connect(function(deltaTime)
 		end
 		local margin = 80
 		local half = center - Vector2.new(margin, margin)
-		local scale = math.min(half.X / math.max(math.abs(direction.X), 0.001), half.Y / math.max(math.abs(direction.Y), 0.001))
+		local scale =
+			math.min(half.X / math.max(math.abs(direction.X), 0.001), half.Y / math.max(math.abs(direction.Y), 0.001))
 		local edge = center + direction * scale
 		arrow.Position = UDim2.fromOffset(edge.X, edge.Y)
 		-- "▼" zeigt bei Rotation 0 nach unten (= Winkel 90°)
@@ -308,10 +311,12 @@ local function showWelcome()
 	bounce.ZIndex = 23
 	bounce.Parent = card
 	Theme.cowIcon(bounce, 92, UDim2.fromScale(0.5, 0.5), Color3.new(1, 1, 1), Color3.fromRGB(30, 30, 35))
-	game:GetService("TweenService"):Create(bounce, TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {
-		Position = UDim2.new(0.5, 0, 0, 10),
-		Rotation = 6,
-	}):Play()
+	game:GetService("TweenService")
+		:Create(bounce, TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {
+			Position = UDim2.new(0.5, 0, 0, 10),
+			Rotation = 6,
+		})
+		:Play()
 
 	local function cardText(text, y, size, font, color, height)
 		return Theme.label(card, {
@@ -328,8 +333,22 @@ local function showWelcome()
 	cardText("Willkommen bei COW FARM!", 134, 30, Theme.Font)
 	cardText("Du hast eine GRATIS Kuh bekommen.", 178, 20, Theme.Font, Colors.Blue)
 	-- der Weg durchs Spiel in einer Zeile
-	cardText("Melken  >  Verkaufen  >  Zweite Kuh kaufen  >  Zucht & Kisten", 218, 16, Theme.BodyFont, Colors.SubText, 44)
-	cardText("Der Pfeil zeigt dir jeden Schritt. Unten links kannst du das Tutorial überspringen.", 268, 14, Theme.TextFont, Colors.SubText, 40)
+	cardText(
+		"Melken  >  Verkaufen  >  Zweite Kuh kaufen  >  Zucht & Kisten",
+		218,
+		16,
+		Theme.BodyFont,
+		Colors.SubText,
+		44
+	)
+	cardText(
+		"Der Pfeil zeigt dir jeden Schritt. Unten links kannst du das Tutorial überspringen.",
+		268,
+		14,
+		Theme.TextFont,
+		Colors.SubText,
+		40
+	)
 
 	local go = Theme.primaryButton(card, {
 		Text = "Los geht's!",
@@ -371,7 +390,11 @@ local function cinematicIntro(plot)
 
 	camera.CameraType = Enum.CameraType.Scriptable
 	camera.CFrame = startCFrame
-	local tween = TweenService:Create(camera, TweenInfo.new(3, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut), { CFrame = endCFrame })
+	local tween = TweenService:Create(
+		camera,
+		TweenInfo.new(3, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut),
+		{ CFrame = endCFrame }
+	)
 	tween:Play()
 	tween.Completed:Wait()
 	camera.CameraType = Enum.CameraType.Custom
@@ -455,12 +478,16 @@ task.spawn(function()
 	end, 3)
 
 	-- Schritt 2: Kuh melken
-	setStep("Klicke deine Kuh an und wähle „Melken“ (oder lauf auf die blaue Platte). Wechsle ◄ ► ab (Q / E)!", {
-		Kind = "World",
-		Get = function()
-			return myFirstCowPosition(plot or findMyPlot())
-		end,
-	}, 2)
+	setStep(
+		"Klicke deine Kuh an und wähle „Melken“ (oder lauf auf die blaue Platte). Wechsle ◄ ► ab (Q / E)!",
+		{
+			Kind = "World",
+			Get = function()
+				return myFirstCowPosition(plot or findMyPlot())
+			end,
+		},
+		2
+	)
 	if not waitUntil(function()
 		return milkingStarted
 	end) then
@@ -483,9 +510,11 @@ task.spawn(function()
 			return ref and ref.Value
 		end,
 	}, 3)
-	if not waitUntil(function()
-		return (player:GetAttribute("Coins") or 0) > coinsBefore and (player:GetAttribute("Milk") or 0) == 0
-	end) then
+	if
+		not waitUntil(function()
+			return (player:GetAttribute("Coins") or 0) > coinsBefore and (player:GetAttribute("Milk") or 0) == 0
+		end)
+	then
 		return
 	end
 
@@ -493,32 +522,43 @@ task.spawn(function()
 	local earned = (player:GetAttribute("Coins") or 0) - coinsBefore
 	local cowsBefore = player:GetAttribute("CowCount") or 1
 	local price = CowData.Rarities.Common.ShopPrice
-	setStep(("+%s Coins! Geh zum Kuh-Shop und kauf deine zweite Kuh (%s Coins)."):format(
-		CowData.FormatNumber(earned),
-		CowData.FormatNumber(price)
-	), {
-		Kind = "World",
-		Get = function()
-			return shopPosition("CowShop")
-		end,
-	}, 4)
+	setStep(
+		("+%s Coins! Geh zum Kuh-Shop und kauf deine zweite Kuh (%s Coins)."):format(
+			CowData.FormatNumber(earned),
+			CowData.FormatNumber(price)
+		),
+		{
+			Kind = "World",
+			Get = function()
+				return shopPosition("CowShop")
+			end,
+		},
+		4
+	)
 	waitUntil(function()
 		return (player:GetAttribute("CowCount") or 0) > cowsBefore
 	end, 240)
 
 	-- Schritt 5: Zucht und Kisten kennenlernen
 	if not finished then
-		setStep("Im Zucht-Stall kreuzt du zwei Kühe zu einem Kalb. Seltene Kühe gibt es in den Kisten am Nord-Markt (Taste M = Karte).", {
-			Kind = "World",
-			Get = function()
-				return shopPosition("BreedingBarn")
-			end,
-		}, 5)
+		setStep(
+			"Im Zucht-Stall kreuzt du zwei Kühe zu einem Kalb. Seltene Kühe gibt es in den Kisten am Nord-Markt (Taste M = Karte).",
+			{
+				Kind = "World",
+				Get = function()
+					return shopPosition("BreedingBarn")
+				end,
+			},
+			5
+		)
 		waitUntil(menuWindowVisible, 60)
 	end
 
 	if not finished then
-		setStep("Super! Jetzt kennst du alles. Das Feld „Nächstes Ziel“ oben links hilft dir weiter. Viel Spaß!", nil)
+		setStep(
+			"Super! Jetzt kennst du alles. Das Feld „Nächstes Ziel“ oben links hilft dir weiter. Viel Spaß!",
+			nil
+		)
 		task.wait(5)
 		finish()
 	end

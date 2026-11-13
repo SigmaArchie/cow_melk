@@ -3,6 +3,7 @@
 -- PlayerDataManager.server.lua lädt/speichert, die anderen Scripts benutzen nur die API hier.
 
 local DataStoreService = game:GetService("DataStoreService")
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
@@ -41,13 +42,18 @@ local function createDefaultData()
 	return {
 		Version = 1,
 		Coins = CowData.Config.StartCoins,
-		Milk = 0,
+		Milk = 0, -- Liter in allen Eimern zusammen (wird aus Buckets berechnet)
+		-- Milch-Eimer: ["b1"] = { Id, Liters, Mutations = { "Gold", "Choco" }, CowName, CowType, Obtained,
+		--                        Hotbar = Platz 1-9 (nil = Eimer-Lager), Auto = true beim Auto-Melker-Eimer }
+		Buckets = {},
+		NextBucketId = 1,
 		TotalMilk = 0,
 		Cows = {}, -- ["c1"] = { Id = "c1", Rarity = "Common", Name = "Berta", Obtained = os.time() }
 		NextCowId = 1,
 		-- Breeding = { ParentA = "c1", ParentB = "c2", StartedAt = ..., ReadyAt = ... } (nil = keine Zucht)
 		LoginStreak = { Streak = 0, LastDay = 0, Best = 0 },
 		Receipts = {}, -- bereits verarbeitete Robux-Käufe
+		ShopStock = { Cycle = 0, Bought = {} }, -- im aktuellen Kuh-Shop-Lager schon gekauft: [Kuh-Art] = Anzahl
 		ReceivedStarterCow = false,
 		TutorialDone = false, -- Einführung für neue Spieler schon gesehen?
 	}
@@ -59,6 +65,58 @@ local function deepCopy(t)
 		copy[k] = type(v) == "table" and deepCopy(v) or v
 	end
 	return copy
+end
+
+-- Alte Speicherstände (Milch als Zahl bzw. MilkStock je Sorte) werden zu Eimern; kaputte Eimer fliegen raus
+local function migrateMilk(data)
+	if type(data.Buckets) ~= "table" then
+		data.Buckets = {}
+	end
+	if type(data.NextBucketId) ~= "number" then
+		data.NextBucketId = 1
+	end
+
+	local function addOld(liters, mutations)
+		local id = "b" .. data.NextBucketId
+		data.NextBucketId += 1
+		data.Buckets[id] = {
+			Id = id,
+			Liters = liters,
+			Mutations = mutations,
+			CowName = "Alte Milch",
+			Obtained = os.time(),
+		}
+	end
+
+	local oldTotal = 0
+	if type(data.MilkStock) == "table" then
+		for milkType, liters in pairs(data.MilkStock) do
+			if type(liters) == "number" and liters > 0 then
+				oldTotal += liters
+				addOld(liters, (milkType ~= "Normal" and CowData.IsValidMilkType(milkType)) and { milkType } or {})
+			end
+		end
+	end
+	data.MilkStock = nil
+	-- Milch, die nur als Zahl gespeichert war (vor den Eimern)
+	local bucketTotal = 0
+	for _, bucket in pairs(data.Buckets) do
+		if type(bucket) == "table" and type(bucket.Liters) == "number" then
+			bucketTotal += bucket.Liters
+		end
+	end
+	if type(data.Milk) == "number" and data.Milk > bucketTotal + 0.5 and oldTotal == 0 then
+		addOld(data.Milk - bucketTotal, {})
+	end
+
+	for id, bucket in pairs(data.Buckets) do
+		if type(bucket) ~= "table" or type(bucket.Liters) ~= "number" or bucket.Liters <= 0 then
+			data.Buckets[id] = nil
+		else
+			bucket.Id = id
+			bucket.Mutations = CowData.CleanMutations(bucket.Mutations)
+		end
+	end
 end
 
 -- Fehlende Felder (z.B. nach einem Update) mit Standardwerten auffüllen
@@ -115,7 +173,14 @@ function DataService.Load(player)
 				loadedOk = true
 				break
 			end
-			warn(("[DataService] Laden fehlgeschlagen (%d/%d) für %s: %s"):format(attempt, MAX_RETRIES, player.Name, tostring(result)))
+			warn(
+				("[DataService] Laden fehlgeschlagen (%d/%d) für %s: %s"):format(
+					attempt,
+					MAX_RETRIES,
+					player.Name,
+					tostring(result)
+				)
+			)
 			task.wait(attempt)
 		end
 	end
@@ -144,6 +209,7 @@ function DataService.Load(player)
 			data.TutorialDone = true
 		end
 		reconcile(data, createDefaultData())
+		migrateMilk(data)
 	end
 
 	profiles[player] = data
@@ -169,7 +235,14 @@ function DataService.Save(player)
 		if ok then
 			return true
 		end
-		warn(("[DataService] Speichern fehlgeschlagen (%d/%d) für %s: %s"):format(attempt, MAX_RETRIES, player.Name, tostring(err)))
+		warn(
+			("[DataService] Speichern fehlgeschlagen (%d/%d) für %s: %s"):format(
+				attempt,
+				MAX_RETRIES,
+				player.Name,
+				tostring(err)
+			)
+		)
 		task.wait(attempt)
 	end
 	return false
@@ -232,7 +305,15 @@ function DataService.Sync(player)
 	local cowCount = DataService.CountCows(player)
 
 	player:SetAttribute("Coins", data.Coins)
-	player:SetAttribute("Milk", data.Milk)
+	-- Milch = Summe aller Eimer (Liter und Wert)
+	local liters, value = 0, 0
+	for _, bucket in pairs(data.Buckets) do
+		liters += bucket.Liters
+		value += CowData.GetBucketValue(bucket.Liters, bucket.Mutations)
+	end
+	data.Milk = liters
+	player:SetAttribute("Milk", liters)
+	player:SetAttribute("MilkValue", value)
 	player:SetAttribute("CowCount", cowCount)
 	player:SetAttribute("LoginStreak", data.LoginStreak.Streak)
 	player:SetAttribute("TutorialDone", data.TutorialDone == true)
@@ -270,34 +351,151 @@ function DataService.SpendCoins(player, amount)
 	return true
 end
 
-function DataService.AddMilk(player, amount)
-	local data = profiles[player]
-	if not data or amount <= 0 then
-		return false
+------------------------------------------------------------------------
+-- Milch-Eimer (jeder Melk-Vorgang = ein Eimer; Hotbar teilen sich Kühe und Eimer)
+------------------------------------------------------------------------
+-- Was liegt auf welchem Hotbar-Platz? [Platz] = Kuh oder Eimer
+function DataService.GetHotbarItems(data)
+	local used = {}
+	for _, cow in pairs(data.Cows) do
+		if cow.Hotbar then
+			used[cow.Hotbar] = cow
+		end
 	end
-	data.Milk += amount
-	data.TotalMilk += amount
-	DataService.Sync(player)
-	return true
+	for _, bucket in pairs(data.Buckets) do
+		if bucket.Hotbar then
+			used[bucket.Hotbar] = bucket
+		end
+	end
+	return used
 end
 
--- Nimmt die gesamte Milch weg und gibt die Menge zurück (zum Verkaufen)
+local function firstFreeHotbar(data)
+	local used = DataService.GetHotbarItems(data)
+	for i = 1, CowData.Config.HotbarSize do
+		if not used[i] then
+			return i
+		end
+	end
+	return nil
+end
+DataService.FirstFreeHotbar = firstFreeHotbar
+
+function DataService.CountBuckets(player)
+	local data = profiles[player]
+	local count = 0
+	if data then
+		for _ in pairs(data.Buckets) do
+			count += 1
+		end
+	end
+	return count
+end
+
+-- Ist noch Platz für einen Eimer? (sonst erst verkaufen)
+function DataService.HasBucketSpace(player)
+	return DataService.CountBuckets(player) < CowData.Config.MaxBuckets
+end
+
+-- Neuer Eimer nach dem Melken. mutations = Liste aus CowData.RollMilkMutations, cow = Kuh (für Name/Art).
+-- Kommt auf einen freien Hotbar-Platz, sonst ins Eimer-Lager. Prüft KEIN Limit (das macht startMilking).
+function DataService.AddBucket(player, liters, mutations, cow)
+	local data = profiles[player]
+	if not data or type(liters) ~= "number" or liters <= 0 then
+		return nil
+	end
+	local id = "b" .. data.NextBucketId
+	data.NextBucketId += 1
+	local bucket = {
+		Id = id,
+		Liters = liters,
+		Mutations = CowData.CleanMutations(mutations),
+		CowName = cow and cow.Name or nil,
+		CowType = cow and cow.Rarity or nil,
+		Obtained = os.time(),
+		Hotbar = firstFreeHotbar(data),
+	}
+	data.Buckets[id] = bucket
+	data.TotalMilk += liters
+	DataService.Sync(player)
+	DataService.FireInventoryChanged(player)
+	return bucket
+end
+
+-- Auto-Melker: alles kommt in EINEN Eimer, der immer voller wird (keine Mutationen)
+function DataService.AddAutoMilk(player, liters)
+	local data = profiles[player]
+	if not data or type(liters) ~= "number" or liters <= 0 then
+		return
+	end
+	local bucket = data.Buckets.auto
+	if not bucket then
+		bucket = {
+			Id = "auto",
+			Auto = true,
+			Liters = 0,
+			Mutations = {},
+			CowName = "Auto-Melker",
+			Obtained = os.time(),
+			Hotbar = firstFreeHotbar(data),
+		}
+		data.Buckets.auto = bucket
+	end
+	bucket.Liters += liters
+	data.TotalMilk += liters
+	DataService.Sync(player)
+	DataService.FireInventoryChanged(player)
+end
+
+-- Verkaufswert aller Eimer in Coins
+function DataService.GetMilkValue(player)
+	local data = profiles[player]
+	local value = 0
+	if data then
+		for _, bucket in pairs(data.Buckets) do
+			value += CowData.GetBucketValue(bucket.Liters, bucket.Mutations)
+		end
+	end
+	return value
+end
+
+-- Nimmt alle Eimer weg (zum Verkaufen). Gibt (Liter, Wert in Coins, Liste der Eimer) zurück.
 function DataService.TakeAllMilk(player)
 	local data = profiles[player]
 	if not data then
-		return 0
+		return 0, 0, {}
 	end
-	local milk = data.Milk
-	data.Milk = 0
+	local liters, value, list = 0, 0, {}
+	for _, bucket in pairs(data.Buckets) do
+		liters += bucket.Liters
+		value += CowData.GetBucketValue(bucket.Liters, bucket.Mutations)
+		table.insert(list, bucket)
+	end
+	data.Buckets = {}
 	DataService.Sync(player)
-	return milk
+	DataService.FireInventoryChanged(player)
+	return liters, value, list
+end
+
+-- Nimmt einen Eimer weg (zum Verkaufen). Gibt (Eimer, Wert) zurück oder nil.
+function DataService.TakeBucket(player, bucketId)
+	local data = profiles[player]
+	local bucket = data and type(bucketId) == "string" and data.Buckets[bucketId]
+	if not bucket then
+		return nil, 0
+	end
+	data.Buckets[bucketId] = nil
+	DataService.Sync(player)
+	DataService.FireInventoryChanged(player)
+	return bucket, CowData.GetBucketValue(bucket.Liters, bucket.Mutations)
 end
 
 ------------------------------------------------------------------------
 -- Kühe
 ------------------------------------------------------------------------
--- Fügt eine Kuh hinzu (prüft KEIN Limit, das macht der Aufrufer)
-function DataService.AddCow(player, rarity)
+-- Fügt eine Kuh hinzu (prüft KEIN Limit, das macht der Aufrufer).
+-- Neue Kühe kommen als Kalb und wachsen (CowData.Growth); options.Adult = true -> gleich ausgewachsen.
+function DataService.AddCow(player, rarity, options)
 	local data = profiles[player]
 	if not data or not CowData.IsValidRarity(rarity) then
 		return nil
@@ -312,6 +510,10 @@ function DataService.AddCow(player, rarity)
 		Name = CowData.RandomName(rng),
 		Obtained = os.time(),
 	}
+	if not (options and options.Adult) then
+		cow.BornAt = os.time()
+		cow.GrowTime = CowData.GetGrowTime(rarity)
+	end
 	data.Cows[id] = cow
 
 	DataService.Sync(player)
@@ -327,6 +529,28 @@ end
 function DataService.Notify(player, text, kind)
 	if player and player.Parent then
 		Remotes.Notify:FireClient(player, text, kind or "info")
+	end
+end
+
+-- Remote aus ReplicatedStorage.Remotes holen. Fehlt es (Rojo nach einer Änderung an
+-- default.project.json nicht neu gestartet), legt der Server es an, statt mit einem Fehler abzubrechen.
+function DataService.GetRemote(name, className)
+	local remote = Remotes:FindFirstChild(name)
+	if not remote then
+		warn(("[DataService] Remote %s fehlt (Rojo neu starten) – wird zur Laufzeit angelegt."):format(name))
+		remote = Instance.new(className)
+		remote.Name = name
+		remote.Parent = Remotes
+	end
+	return remote
+end
+
+-- Meldung an alle Spieler im Server (except = diesen Spieler auslassen)
+function DataService.NotifyAll(text, kind, except)
+	for _, other in ipairs(Players:GetPlayers()) do
+		if other ~= except then
+			DataService.Notify(other, text, kind)
+		end
 	end
 end
 

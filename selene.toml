@@ -1,1 +1,8 @@
+# Selene – Linter mit Roblox-Standardbibliothek
+# Prüfen: selene src
 std = "roblox"
+
+[lints]
+global_usage = "deny" # kein _G / keine versehentlichen globalen Variablen
+unused_variable = "warn"
+shadowing = "warn"

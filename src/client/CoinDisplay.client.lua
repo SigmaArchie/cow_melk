@@ -1,9 +1,9 @@
 -- CoinDisplay.client.lua  (das HUD)
 -- Feste Bildschirm-Zonen, nichts überlappt:
---   oben links    Coins + Milch (Zahlen zählen hoch, Münz-Sound)
+--   oben links    Coins + Milch (Zahlen zählen hoch, Münz-Sound), Nächstes Ziel, Wetter (nur bei Events)
 --   links Mitte   3 Knöpfe: KARTE (M), KÜHE (I), BONUS (mit Streak-Zahl)
 --   oben Mitte    Meldungen (max. 3, verschwinden nach 2,5 s)
---   unten rechts  VERKAUFEN (pulsiert, sobald Milch da ist)
+--   unten rechts  VERKAUFEN (pulsiert, sobald Milch da ist), darüber der Wert der Milch
 -- Stil und Bausteine kommen aus Theme.lua. Safe-Area: Theme.screenGui (CoreUISafe).
 
 local Players = game:GetService("Players")
@@ -199,7 +199,9 @@ local function currentGoal()
 		return ("Öffne eine Holzkiste am Nord-Markt (%s Coins)"):format(CowData.FormatNumber(cratePrice))
 	end
 	if cows < Config.MaxCows then
-		return ("Melke deine Kühe, züchte im Zucht-Stall oder spare %s Coins für eine Holzkiste"):format(CowData.FormatNumber(cratePrice))
+		return ("Melke deine Kühe, züchte im Zucht-Stall oder spare %s Coins für eine Holzkiste"):format(
+			CowData.FormatNumber(cratePrice)
+		)
 	end
 	return "Deine Farm ist voll – sammle Coins und tausche Kühe aus!"
 end
@@ -214,6 +216,81 @@ for _, attribute in ipairs({ "Coins", "Milk", "CowCount" }) do
 	player:GetAttributeChangedSignal(attribute):Connect(updateGoal)
 end
 updateGoal()
+
+------------------------------------------------------------------------
+-- Wetter-Anzeige unter dem Ziel (nur während eines Events, siehe WeatherManager.server.lua)
+------------------------------------------------------------------------
+local weatherHolder = Instance.new("Frame")
+weatherHolder.Name = "Weather"
+weatherHolder.LayoutOrder = 4
+weatherHolder.Size = UDim2.fromOffset(200, 0)
+weatherHolder.AutomaticSize = Enum.AutomaticSize.Y
+weatherHolder.BackgroundTransparency = 1
+weatherHolder.Visible = false
+weatherHolder.Parent = currency
+local weatherPanel = Theme.panel(weatherHolder, {
+	Size = UDim2.fromScale(1, 0),
+	AutomaticSize = Enum.AutomaticSize.Y,
+	BackgroundColor3 = Colors.Panel,
+	BackgroundTransparency = 0.1,
+	Radius = Theme.Radius.M,
+	OutlineColor = Colors.Blue,
+})
+Theme.padding(weatherPanel, Theme.Spacing.S)
+local weatherLayout = Instance.new("UIListLayout")
+weatherLayout.Padding = UDim.new(0, 2)
+weatherLayout.SortOrder = Enum.SortOrder.LayoutOrder
+weatherLayout.Parent = weatherPanel
+local weatherTitle = Theme.label(weatherPanel, {
+	LayoutOrder = 1,
+	Size = UDim2.new(1, 0, 0, 20),
+	TextSize = Theme.TextSize.Body,
+	Text = "",
+})
+local weatherHint = Theme.label(weatherPanel, {
+	LayoutOrder = 2,
+	Size = UDim2.fromScale(1, 0),
+	AutomaticSize = Enum.AutomaticSize.Y,
+	Font = Theme.BodyFont,
+	TextSize = Theme.TextSize.Small,
+	TextColor3 = Colors.Gold,
+	TextWrapped = true,
+	Text = "",
+})
+
+local function updateWeather()
+	local id = workspace:GetAttribute("Weather") or "Clear"
+	local info = CowData.Weather[id]
+	if not info or id == "Clear" then
+		weatherHolder.Visible = false
+		return
+	end
+	weatherHolder.Visible = true
+	local endsAt = workspace:GetAttribute("WeatherEndsAt") or 0
+	local left = math.max(0, math.floor(endsAt - workspace:GetServerTimeNow()))
+	if endsAt > 0 then
+		weatherTitle.Text = ("%s %s · %d:%02d"):format(
+			info.Icon,
+			info.DisplayName:upper(),
+			math.floor(left / 60),
+			left % 60
+		)
+	else
+		weatherTitle.Text = ("%s %s"):format(info.Icon, info.DisplayName:upper())
+	end
+	weatherHint.Text = info.Hint
+end
+workspace:GetAttributeChangedSignal("Weather"):Connect(updateWeather)
+workspace:GetAttributeChangedSignal("WeatherEndsAt"):Connect(updateWeather)
+updateWeather()
+task.spawn(function()
+	while true do
+		task.wait(0.5)
+		if weatherHolder.Visible then
+			updateWeather()
+		end
+	end
+end)
 
 ------------------------------------------------------------------------
 -- Links Mitte: KARTE / KÜHE / BONUS
@@ -407,7 +484,11 @@ local function updateSell()
 	sellApi.SetDisabled(not hasMilk)
 	if hasMilk and not pulseTween then
 		pulseScale.Scale = 1
-		pulseTween = TweenService:Create(pulseScale, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), { Scale = 1.05 })
+		pulseTween = TweenService:Create(
+			pulseScale,
+			TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+			{ Scale = 1.05 }
+		)
 		pulseTween:Play()
 	elseif not hasMilk and pulseTween then
 		pulseTween:Cancel()
@@ -417,6 +498,40 @@ local function updateSell()
 end
 player:GetAttributeChangedSignal("Milk"):Connect(updateSell)
 updateSell()
+
+-- Wert der Milch über dem Knopf (besondere Milch-Sorten sind mehr wert, siehe CowData.MilkTypes)
+local valueLabel = Theme.label(sellZone, {
+	Name = "MilkValue",
+	AnchorPoint = Vector2.new(0.5, 1),
+	Position = UDim2.new(0.5, 0, 0, -6),
+	Size = UDim2.fromOffset(0, 28),
+	AutomaticSize = Enum.AutomaticSize.X,
+	BackgroundTransparency = 0.1,
+	BackgroundColor3 = Colors.Panel,
+	TextXAlignment = Enum.TextXAlignment.Center,
+	Font = Theme.BodyFont,
+	TextSize = Theme.TextSize.Small + 1,
+	TextColor3 = Colors.Gold,
+	Text = "",
+	Visible = false,
+})
+Theme.corner(valueLabel, 14)
+Theme.border(valueLabel, Theme.Stroke.Thin, Colors.Line)
+local valuePadding = Theme.padding(valueLabel, 0)
+valuePadding.PaddingLeft = UDim.new(0, 12)
+valuePadding.PaddingRight = UDim.new(0, 12)
+
+local function updateMilkValue()
+	local milk = player:GetAttribute("Milk") or 0
+	local value = player:GetAttribute("MilkValue") or 0
+	valueLabel.Visible = milk > 0
+	-- mehr wert als normale Milch -> es ist besondere Milch dabei
+	local special = value > milk * Config.MilkSellPrice
+	valueLabel.Text = ("Wert: %s Coins%s"):format(CowData.FormatNumber(value), special and " ✨" or "")
+end
+player:GetAttributeChangedSignal("Milk"):Connect(updateMilkValue)
+player:GetAttributeChangedSignal("MilkValue"):Connect(updateMilkValue)
+updateMilkValue()
 
 local sellCooldown = false
 sellButton.Activated:Connect(function()

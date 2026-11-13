@@ -1,0 +1,27 @@
+name: CI
+
+# Bei jedem Push auf main und bei Pull Requests: Formatierung, Lint und Build prüfen.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tools installieren (rokit.toml)
+        uses: CompeyDev/setup-rokit@v0.1.2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Formatierung prüfen (StyLua)
+        run: stylua --check src
+
+      - name: Lint (Selene)
+        run: selene src
+
+      - name: Build (Rojo)
+        run: rojo build -o game.rbxl

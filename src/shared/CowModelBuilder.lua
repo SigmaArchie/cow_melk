@@ -131,32 +131,45 @@ local RAINBOW_SEQUENCE = ColorSequence.new({
 --   Rainbow   sanfter Schein, zarte Farbpartikel (die Kuh wechselt langsam die Farbe)
 --   Ghost     grünlicher, durchscheinender Dunst
 local function addRarityEffects(rarity, torso, model)
-	if rarity == "Uncommon" then
-		particles(torso, { Color = ColorSequence.new(Palette.rarityColor("Uncommon")), Rate = 1.5, Size = 0.2, Transparency = 0.4 })
-	elseif rarity == "Rare" then
-		light(torso, Palette.rarityColor("Rare"), 0.8, 9)
-	elseif rarity == "Epic" then
-		light(torso, Palette.rarityColor("Epic"), 1.0, 10)
+	-- neue Arten borgen sich ein Set (info.Effect) und färben es selbst (info.EffectColor)
+	local info = CowData.Rarities[rarity]
+	local preset = info and info.Effect or rarity
+	local color = info and info.EffectColor or Palette.rarityColor(rarity)
+	if preset == "Uncommon" then
+		particles(torso, { Color = ColorSequence.new(color), Rate = 1.5, Size = 0.2, Transparency = 0.4 })
+	elseif preset == "Rare" then
+		light(torso, color, 0.8, 9)
+	elseif preset == "Epic" then
+		light(torso, color, 1.0, 10)
 		particles(torso, {
-			Color = ColorSequence.new(Palette.rarityColor("Epic")),
-			Rate = 3, Size = 0.3, Lifetime = NumberRange.new(1.5, 2.5),
-			Speed = NumberRange.new(0.2, 0.5), Drag = 2,
+			Color = ColorSequence.new(color),
+			Rate = 3,
+			Size = 0.3,
+			Lifetime = NumberRange.new(1.5, 2.5),
+			Speed = NumberRange.new(0.2, 0.5),
+			Drag = 2,
 		})
-	elseif rarity == "Legendary" then
-		light(torso, Palette.rarityColor("Legendary"), 1.4, 11)
+	elseif preset == "Legendary" then
+		light(torso, color, 1.4, 11)
 		particles(torso, {
-			Color = ColorSequence.new(Palette.rarityColor("Legendary")),
-			Rate = 4, Size = 0.3, Speed = NumberRange.new(0.8, 2),
+			Color = ColorSequence.new(color),
+			Rate = 4,
+			Size = 0.3,
+			Speed = NumberRange.new(0.8, 2),
 			Acceleration = Vector3.new(0, 1.5, 0),
 		})
-	elseif rarity == "Golden" then
-		light(torso, Palette.rarityColor("Golden"), 1.8, 13)
+	elseif preset == "Golden" then
+		light(torso, color, 1.8, 13)
 		-- wenige Goldmünzen-Partikel
 		particles(torso, {
-			Color = ColorSequence.new(Palette.rarityColor("Golden")),
-			Rate = 3, Size = 0.45, Lifetime = NumberRange.new(1.2, 1.8),
-			Speed = NumberRange.new(3, 5), Spread = Vector2.new(35, 35),
-			Acceleration = Vector3.new(0, -10, 0), RotSpeed = NumberRange.new(-200, 200),
+			Color = ColorSequence.new(color),
+			Rate = 3,
+			Size = 0.45,
+			Lifetime = NumberRange.new(1.2, 1.8),
+			Speed = NumberRange.new(3, 5),
+			Spread = Vector2.new(35, 35),
+			Acceleration = Vector3.new(0, -10, 0),
+			RotSpeed = NumberRange.new(-200, 200),
 		})
 		-- dünner goldener Lichtstrahl nach oben (kurz und durchsichtig)
 		local bottom = Instance.new("Attachment")
@@ -170,7 +183,7 @@ local function addRarityEffects(rarity, torso, model)
 		local beam = Instance.new("Beam")
 		beam.Attachment0 = bottom
 		beam.Attachment1 = top
-		beam.Color = ColorSequence.new(Palette.rarityColor("Golden"))
+		beam.Color = ColorSequence.new(color)
 		beam.Transparency = NumberSequence.new({
 			NumberSequenceKeypoint.new(0, 0.6),
 			NumberSequenceKeypoint.new(1, 1),
@@ -180,23 +193,32 @@ local function addRarityEffects(rarity, torso, model)
 		beam.LightEmission = 0.5
 		beam.FaceCamera = true
 		beam.Parent = torso
-	elseif rarity == "Rainbow" then
-		light(torso, Palette.rarityColor("Rainbow"), 1.0, 10)
+	elseif preset == "Rainbow" then
+		light(torso, color, 1.0, 10)
 		particles(torso, {
-			Color = RAINBOW_SEQUENCE, Rate = 3, Size = 0.3,
-			Lifetime = NumberRange.new(1.5, 2.5), Speed = NumberRange.new(0.3, 0.6), Drag = 1.5,
+			Color = RAINBOW_SEQUENCE,
+			Rate = 3,
+			Size = 0.3,
+			Lifetime = NumberRange.new(1.5, 2.5),
+			Speed = NumberRange.new(0.3, 0.6),
+			Drag = 1.5,
 		})
-	elseif rarity == "Ghost" then
-		light(torso, Palette.rarityColor("Ghost"), 0.8, 10)
+	elseif preset == "Ghost" then
+		light(torso, color, 0.8, 10)
 		-- Geister-Dunst, der langsam nach oben steigt
 		particles(torso, {
-			Color = ColorSequence.new(Palette.rarityColor("Ghost")),
-			Rate = 2, Size = 0.9, Transparency = 0.6, Lifetime = NumberRange.new(2, 3),
-			Speed = NumberRange.new(0.4, 0.8), Spread = Vector2.new(30, 30),
-			Acceleration = Vector3.new(0, 1, 0), LightEmission = 0.1,
+			Color = ColorSequence.new(color),
+			Rate = 2,
+			Size = 0.9,
+			Transparency = 0.6,
+			Lifetime = NumberRange.new(2, 3),
+			Speed = NumberRange.new(0.4, 0.8),
+			Spread = Vector2.new(30, 30),
+			Acceleration = Vector3.new(0, 1, 0),
+			LightEmission = 0.1,
 		})
 	end
-	model:SetAttribute("HasEffects", rarity ~= "Common")
+	model:SetAttribute("HasEffects", preset ~= "Common")
 end
 
 ------------------------------------------------------------------------
@@ -282,7 +304,8 @@ local function buildProceduralCow(rarity, seedId, base)
 		RightB = Vector3.new(0.45, 1.55, 1.45),
 	}
 	for name, position in pairs(teatPositions) do
-		refs.Teats[name] = make(model, "Teat" .. name, "Cylinder", Vector3.new(0.6, 0.3, 0.3), upright(CFrame.new(position)), PINK)
+		refs.Teats[name] =
+			make(model, "Teat" .. name, "Cylinder", Vector3.new(0.6, 0.3, 0.3), upright(CFrame.new(position)), PINK)
 	end
 
 	--------------------------------------------------------------------
@@ -293,17 +316,43 @@ local function buildProceduralCow(rarity, seedId, base)
 
 	make(headGroup, "Snout", "Ellipsoid", Vector3.new(1.9, 1.2, 1.0), CFrame.new(0, 4.5, -5.0), PINK)
 	for _, side in ipairs({ -1, 1 }) do
-		make(headGroup, "Nostril", "Ellipsoid", Vector3.new(0.28, 0.34, 0.12), CFrame.new(side * 0.38, 4.6, -5.47), DARK_PINK)
+		make(
+			headGroup,
+			"Nostril",
+			"Ellipsoid",
+			Vector3.new(0.28, 0.34, 0.12),
+			CFrame.new(side * 0.38, 4.6, -5.47),
+			DARK_PINK
+		)
 		-- große Augen: weiß + schwarze Pupille + Glanzpunkt
 		make(headGroup, "EyeWhite", "Ball", Vector3.new(0.9, 0.9, 0.9), CFrame.new(side * 0.55, 5.35, -4.85), EYE_WHITE)
 		make(headGroup, "Pupil", "Ball", Vector3.new(0.48, 0.48, 0.48), CFrame.new(side * 0.55, 5.36, -5.22), EYE_BLACK)
-		make(headGroup, "EyeShine", "Ball", Vector3.new(0.16, 0.16, 0.16), CFrame.new(side * 0.47, 5.5, -5.43), EYE_WHITE)
+		make(
+			headGroup,
+			"EyeShine",
+			"Ball",
+			Vector3.new(0.16, 0.16, 0.16),
+			CFrame.new(side * 0.47, 5.5, -5.43),
+			EYE_WHITE
+		)
 		-- Bäckchen
-		make(headGroup, "Cheek", "Ellipsoid", Vector3.new(0.55, 0.35, 0.12),
-			CFrame.new(side * 0.98, 4.85, -4.6) * CFrame.Angles(0, side * math.rad(-50), 0), CHEEK)
+		make(
+			headGroup,
+			"Cheek",
+			"Ellipsoid",
+			Vector3.new(0.55, 0.35, 0.12),
+			CFrame.new(side * 0.98, 4.85, -4.6) * CFrame.Angles(0, side * math.rad(-50), 0),
+			CHEEK
+		)
 		-- Hörnchen
-		make(headGroup, "Horn", "Cylinder", Vector3.new(0.6, 0.3, 0.3),
-			CFrame.new(side * 0.62, 6.2, -3.75) * CFrame.Angles(0, 0, math.rad(side == 1 and 65 or 115)), HORN)
+		make(
+			headGroup,
+			"Horn",
+			"Cylinder",
+			Vector3.new(0.6, 0.3, 0.3),
+			CFrame.new(side * 0.62, 6.2, -3.75) * CFrame.Angles(0, 0, math.rad(side == 1 and 65 or 115)),
+			HORN
+		)
 	end
 	make(headGroup, "Mouth", "Ellipsoid", Vector3.new(0.7, 0.12, 0.1), CFrame.new(0, 4.12, -5.42), DARK_PINK)
 
@@ -312,15 +361,34 @@ local function buildProceduralCow(rarity, seedId, base)
 		local earGroup, side = entry[1], entry[2]
 		local earCFrame = CFrame.new(side * 1.5, 5.45, -3.75) * CFrame.Angles(0, 0, math.rad(-20 * side))
 		fur(earGroup, "Ear", "Ellipsoid", Vector3.new(1.25, 0.35, 0.75), earCFrame)
-		make(earGroup, "EarInner", "Ellipsoid", Vector3.new(0.85, 0.37, 0.42), earCFrame * CFrame.new(side * 0.05, 0, -0.14), PINK)
+		make(
+			earGroup,
+			"EarInner",
+			"Ellipsoid",
+			Vector3.new(0.85, 0.37, 0.42),
+			earCFrame * CFrame.new(side * 0.05, 0, -0.14),
+			PINK
+		)
 	end
 
 	--------------------------------------------------------------------
 	-- Schwanz mit Quaste
 	--------------------------------------------------------------------
-	fur(tailGroup, "Tail", "Cylinder", Vector3.new(2.0, 0.26, 0.26),
-		upright(CFrame.new(0, 3.65, 3.65)) * CFrame.Angles(0, 0, 0))
-	make(tailGroup, "TailTuft", "Ellipsoid", Vector3.new(0.6, 0.85, 0.6), CFrame.new(0, 2.6, 3.7), info.SpotColor or HOOF)
+	fur(
+		tailGroup,
+		"Tail",
+		"Cylinder",
+		Vector3.new(2.0, 0.26, 0.26),
+		upright(CFrame.new(0, 3.65, 3.65)) * CFrame.Angles(0, 0, 0)
+	)
+	make(
+		tailGroup,
+		"TailTuft",
+		"Ellipsoid",
+		Vector3.new(0.6, 0.85, 0.6),
+		CFrame.new(0, 2.6, 3.7),
+		info.SpotColor or HOOF
+	)
 
 	--------------------------------------------------------------------
 	-- Flecken: 3-5 unregelmäßige Kleckse auf der Rumpf-Oberfläche
@@ -344,13 +412,26 @@ local function buildProceduralCow(rarity, seedId, base)
 			-- zweiter, versetzter Klecks -> unregelmäßige Form
 			local theta2 = theta + math.rad(rng:NextNumber(-14, 14))
 			local t2 = math.clamp(t + rng:NextNumber(-0.15, 0.15), -0.7, 0.7)
-			make(model, "Spot" .. i .. "b", "Ellipsoid", Vector3.new(w * 0.7, h * 0.75, 0.4), surfaceCFrame(theta2, t2, 0.1), info.SpotColor)
+			make(
+				model,
+				"Spot" .. i .. "b",
+				"Ellipsoid",
+				Vector3.new(w * 0.7, h * 0.75, 0.4),
+				surfaceCFrame(theta2, t2, 0.1),
+				info.SpotColor
+			)
 		end
 		-- Fleck um ein Auge (sehr typisch für Cartoon-Kühe)
 		if rng:NextNumber() < 0.5 then
 			local side = rng:NextNumber() < 0.5 and -1 or 1
-			make(headGroup, "EyePatch", "Ellipsoid", Vector3.new(1.3, 1.2, 0.3),
-				CFrame.new(side * 0.62, 5.4, -4.72) * CFrame.Angles(0, side * math.rad(-25), 0), info.SpotColor)
+			make(
+				headGroup,
+				"EyePatch",
+				"Ellipsoid",
+				Vector3.new(1.3, 1.2, 0.3),
+				CFrame.new(side * 0.62, 5.4, -4.72) * CFrame.Angles(0, side * math.rad(-25), 0),
+				info.SpotColor
+			)
 		end
 	end
 
@@ -445,9 +526,11 @@ local function importedModelAllowed(template)
 			local ok, result = pcall(verifyMeshes, template)
 			meshCheckResult = ok and result == true
 			if not meshCheckResult then
-				warn("[CowModelBuilder] Die Meshes von CowModel.rbxm konnten nicht geladen werden. "
-					.. "Es wird die Ersatz-Kuh aus Parts benutzt (sonst wären die Kühe unsichtbar). "
-					.. "Mögliche Ursache: Mesh-Asset gehört einem anderen Konto oder ist nicht freigegeben.")
+				warn(
+					"[CowModelBuilder] Die Meshes von CowModel.rbxm konnten nicht geladen werden. "
+						.. "Es wird die Ersatz-Kuh aus Parts benutzt (sonst wären die Kühe unsichtbar). "
+						.. "Mögliche Ursache: Mesh-Asset gehört einem anderen Konto oder ist nicht freigegeben."
+				)
 			end
 		end)
 	end
@@ -721,17 +804,68 @@ local function buildTemplateCow(template, rarity, base)
 	return model, refs
 end
 
+-- Ganze Kuh um den Boden-Punkt base verkleinern (Kälber). Skaliert Teile, Gruppen-Drehpunkte,
+-- Attachments, Lichter, Strahlen, Datei-Meshes und die Maße für Schemel/Eimer (BodyHalfWidth, UdderZ).
+local function scaleCow(model, base, scale)
+	local function scaleCFrame(cframe)
+		local relative = base:ToObjectSpace(cframe)
+		return base * (CFrame.new(relative.Position * scale) * relative.Rotation)
+	end
+	-- Drehpunkte der Gruppen (Kopf, Ohren, Schwanz) VOR dem Verschieben der Teile merken
+	local pivots = {}
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("Model") then
+			pivots[d] = d.WorldPivot
+		end
+	end
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("BasePart") then
+			d.Size *= scale
+			d.CFrame = scaleCFrame(d.CFrame)
+		elseif d:IsA("Attachment") then
+			d.Position *= scale
+		elseif d:IsA("Light") then
+			d.Range *= scale
+		elseif d:IsA("Beam") then
+			d.Width0 *= scale
+			d.Width1 *= scale
+		elseif d:IsA("SpecialMesh") and d.MeshType == Enum.MeshType.FileMesh then
+			d.Scale *= scale
+		end
+	end
+	for group, pivot in pairs(pivots) do
+		group.WorldPivot = scaleCFrame(pivot)
+	end
+	model.WorldPivot = base -- Drehpunkt der Kuh bleibt am Boden unter der Mitte
+	for _, name in ipairs({ "BodyHalfWidth", "UdderZ" }) do
+		local value = model:GetAttribute(name)
+		if type(value) == "number" then
+			model:SetAttribute(name, value * scale)
+		end
+	end
+	model:SetAttribute("GrowthScale", scale)
+end
+
 -- Gibt (model, refs) zurück. Nimmt das Blender-Modell, wenn es da ist, sonst die Ersatz-Kuh.
-function Builder.BuildCow(rarity, seedId, base)
+-- scale (optional): Größe für Kälber (1 = ausgewachsen, siehe CowData.Growth)
+function Builder.BuildCow(rarity, seedId, base, scale)
+	local model, refs = nil, nil
 	local template = getTemplate()
 	if template then
-		local ok, model, refs = pcall(buildTemplateCow, template, rarity, base)
+		local ok, builtModel, builtRefs = pcall(buildTemplateCow, template, rarity, base)
 		if ok then
-			return model, refs
+			model, refs = builtModel, builtRefs
+		else
+			warn("[CowModelBuilder] Blender-Kuh konnte nicht gebaut werden, nehme Ersatz-Kuh:", builtModel)
 		end
-		warn("[CowModelBuilder] Blender-Kuh konnte nicht gebaut werden, nehme Ersatz-Kuh:", model)
 	end
-	return buildProceduralCow(rarity, seedId, base)
+	if not model then
+		model, refs = buildProceduralCow(rarity, seedId, base)
+	end
+	if scale and scale ~= 1 then
+		scaleCow(model, base, scale)
+	end
+	return model, refs
 end
 
 function Builder.HasBlenderCow()
@@ -766,7 +900,16 @@ function Builder.BuildStool(base)
 		local legCFrame = CFrame.new(math.cos(angle) * 0.45, 0.5, math.sin(angle) * 0.45)
 			* CFrame.Angles(0, -angle, 0)
 			* CFrame.Angles(0, 0, math.rad(10)) -- unten nach außen gespreizt
-		newPart(model, base, "Leg", Enum.PartType.Block, Vector3.new(0.18, 1.05, 0.18), legCFrame, DARK_WOOD, Enum.Material.Wood)
+		newPart(
+			model,
+			base,
+			"Leg",
+			Enum.PartType.Block,
+			Vector3.new(0.18, 1.05, 0.18),
+			legCFrame,
+			DARK_WOOD,
+			Enum.Material.Wood
+		)
 	end
 
 	model.PrimaryPart = seat
@@ -784,33 +927,73 @@ function Builder.BuildBucket(base)
 	local height = 0.8
 	local radius = 0.5
 
-	local bottom = newPart(model, base, "Bottom", Enum.PartType.Cylinder, Vector3.new(0.08, radius * 2, radius * 2),
-		upright(CFrame.new(0, 0.04, 0)), DARK_WOOD, Enum.Material.Wood)
+	local bottom = newPart(
+		model,
+		base,
+		"Bottom",
+		Enum.PartType.Cylinder,
+		Vector3.new(0.08, radius * 2, radius * 2),
+		upright(CFrame.new(0, 0.04, 0)),
+		DARK_WOOD,
+		Enum.Material.Wood
+	)
 
 	-- 10 Dauben im Kreis
 	local staves = 10
 	for i = 0, staves - 1 do
 		local angle = (i / staves) * math.pi * 2
-		newPart(model, base, "Stave", Enum.PartType.Block, Vector3.new(0.08, height, 0.34),
-			CFrame.Angles(0, angle, 0) * CFrame.new(radius, height / 2, 0), WOOD, Enum.Material.Wood)
+		newPart(
+			model,
+			base,
+			"Stave",
+			Enum.PartType.Block,
+			Vector3.new(0.08, height, 0.34),
+			CFrame.Angles(0, angle, 0) * CFrame.new(radius, height / 2, 0),
+			WOOD,
+			Enum.Material.Wood
+		)
 	end
 
 	-- Metallreifen
 	for _, y in ipairs({ 0.18, 0.62 }) do
 		for i = 0, staves - 1 do
 			local angle = (i / staves) * math.pi * 2
-			newPart(model, base, "Band", Enum.PartType.Block, Vector3.new(0.1, 0.08, 0.35),
-				CFrame.Angles(0, angle, 0) * CFrame.new(radius + 0.02, y, 0), METAL, Enum.Material.Metal)
+			newPart(
+				model,
+				base,
+				"Band",
+				Enum.PartType.Block,
+				Vector3.new(0.1, 0.08, 0.35),
+				CFrame.Angles(0, angle, 0) * CFrame.new(radius + 0.02, y, 0),
+				METAL,
+				Enum.Material.Metal
+			)
 		end
 	end
 
 	-- Henkel
-	newPart(model, base, "Handle", Enum.PartType.Block, Vector3.new(radius * 2 + 0.1, 0.06, 0.06),
-		CFrame.new(0, height + 0.25, 0), METAL, Enum.Material.Metal)
+	newPart(
+		model,
+		base,
+		"Handle",
+		Enum.PartType.Block,
+		Vector3.new(radius * 2 + 0.1, 0.06, 0.06),
+		CFrame.new(0, height + 0.25, 0),
+		METAL,
+		Enum.Material.Metal
+	)
 
 	-- Milch
-	local milk = newPart(model, base, "Milk", Enum.PartType.Cylinder, Vector3.new(0.05, radius * 2 - 0.12, radius * 2 - 0.12),
-		upright(CFrame.new(0, 0.1, 0)), MILK, Enum.Material.SmoothPlastic)
+	local milk = newPart(
+		model,
+		base,
+		"Milk",
+		Enum.PartType.Cylinder,
+		Vector3.new(0.05, radius * 2 - 0.12, radius * 2 - 0.12),
+		upright(CFrame.new(0, 0.1, 0)),
+		MILK,
+		Enum.Material.SmoothPlastic
+	)
 	milk.Transparency = 1
 
 	local maxHeight = height - 0.15
@@ -828,6 +1011,317 @@ function Builder.BuildBucket(base)
 
 	model.PrimaryPart = bottom
 	return model, setFill
+end
+
+------------------------------------------------------------------------
+-- Milch-Eimer zum Tragen (der Eimer aus der Hotbar in der Hand)
+-- Gleicher Holz-Stil wie der Melkeimer oben, aber VOLL und:
+--   Größe   nach Litern (CowData.GetBucketScale: klein 0,8 ... riesig 2,2)
+--   Milch   Farbe der wertvollsten Mutation (ab x20 leuchtend, Eis glänzt)
+--   Reifen  ein Reifen pro Mutation in ihrer Farbe (ohne Mutation: Metall)
+--   Dauben  Holz; die wertvollste "besondere" Mutation färbt den ganzen Eimer:
+--           Blitz = dunkles Metall, Regenbogen = bunte Dauben, Sterne = nachtblau,
+--           Gold = goldener Eimer, Eis = Eis-Eimer, Schoko = dunkles Holz
+--   Extras  Sahne-Häubchen, Erdbeere, Schokostück obendrauf
+--   Effekte Partikel/Licht ab x2 (Frisch: Tropfen) bzw. ab x8 (Eis, Gold, Sterne, Regenbogen, Blitz)
+------------------------------------------------------------------------
+local RAINBOW_COLORS = {
+	Color3.fromRGB(246, 128, 128),
+	Color3.fromRGB(246, 178, 104),
+	Color3.fromRGB(240, 224, 124),
+	Color3.fromRGB(132, 208, 144),
+	Color3.fromRGB(124, 182, 244),
+	Color3.fromRGB(186, 144, 240),
+}
+
+-- Aussehen der Dauben je Mutation (die wertvollste mit Eintrag gewinnt)
+local STAVE_THEMES = {
+	Shocked = { Color = Color3.fromRGB(70, 74, 88), Material = Enum.Material.Metal },
+	Prism = { Rainbow = true, Material = Enum.Material.SmoothPlastic },
+	Starry = { Color = Color3.fromRGB(42, 46, 96), Material = Enum.Material.SmoothPlastic },
+	Gold = { Color = Color3.fromRGB(240, 190, 60), Material = Enum.Material.Metal, Reflectance = 0.25 },
+	Frozen = { Color = Color3.fromRGB(184, 226, 250), Material = Enum.Material.Ice },
+	Choco = { Color = Color3.fromRGB(96, 60, 38), Material = Enum.Material.Wood },
+}
+
+-- Partikel je Mutation (am Milch-Spiegel)
+local function addBucketEffects(milkPart, has, scale)
+	local size = 0.18 * scale
+	if has.Shocked then
+		light(milkPart, Color3.fromRGB(255, 240, 120), 1.6, 8 * scale)
+		particles(milkPart, {
+			Color = ColorSequence.new(Color3.fromRGB(255, 244, 120)),
+			LightEmission = 1,
+			Rate = 14,
+			Size = size,
+			Lifetime = NumberRange.new(0.15, 0.35),
+			Speed = NumberRange.new(4, 8),
+		})
+	end
+	if has.Prism then
+		light(milkPart, Color3.fromRGB(255, 160, 220), 1, 7 * scale)
+		particles(milkPart, {
+			Color = RAINBOW_SEQUENCE,
+			LightEmission = 0.6,
+			Rate = 6,
+			Size = size,
+			Speed = NumberRange.new(0.5, 1.2),
+			Acceleration = Vector3.new(0, 1.5, 0),
+		})
+	end
+	if has.Starry then
+		light(milkPart, Color3.fromRGB(200, 180, 255), 1, 7 * scale)
+		particles(milkPart, {
+			Color = ColorSequence.new(Color3.fromRGB(255, 244, 210), Color3.fromRGB(190, 170, 255)),
+			LightEmission = 1,
+			Rate = 5,
+			Size = size * 1.3,
+			Lifetime = NumberRange.new(1.2, 2),
+			Speed = NumberRange.new(0.3, 0.8),
+			Acceleration = Vector3.new(0, 1, 0),
+		})
+	end
+	if has.Gold then
+		light(milkPart, Color3.fromRGB(255, 205, 70), 1, 7 * scale)
+		particles(milkPart, {
+			Color = ColorSequence.new(Color3.fromRGB(255, 215, 90)),
+			LightEmission = 0.8,
+			Rate = 5,
+			Size = size,
+			Speed = NumberRange.new(0.6, 1.4),
+			Acceleration = Vector3.new(0, 1.2, 0),
+		})
+	end
+	if has.Frozen then
+		particles(milkPart, {
+			Color = ColorSequence.new(Color3.fromRGB(235, 248, 255)),
+			LightEmission = 0.4,
+			Rate = 5,
+			Size = size,
+			Lifetime = NumberRange.new(1.2, 2),
+			Speed = NumberRange.new(0.2, 0.6),
+			Acceleration = Vector3.new(0, -1, 0),
+		})
+	end
+	if has.Fresh then
+		-- Regentropfen, die außen herunterlaufen
+		particles(milkPart, {
+			Color = ColorSequence.new(Color3.fromRGB(150, 210, 255)),
+			Transparency = 0.2,
+			Rate = 4,
+			Size = size * 0.7,
+			Lifetime = NumberRange.new(0.5, 0.8),
+			Speed = NumberRange.new(1, 2),
+			Spread = Vector2.new(60, 60),
+			Acceleration = Vector3.new(0, -14, 0),
+		})
+	end
+end
+
+-- liters = Liter im Eimer, mutations = Liste (wertvollste zuerst), base = wohin (Standard: Ursprung)
+-- Gibt das Modell zurück. PrimaryPart = "Grip" (unsichtbar, oben am Henkel – dort hält die Hand).
+-- Alle Teile sind verankert (Anchored); zum Tragen schweißt der Server sie zusammen.
+function Builder.BuildMilkBucket(liters, mutations, base)
+	base = base or CFrame.new()
+	mutations = mutations or {}
+	local scale = CowData.GetBucketScale(liters)
+	local has = {}
+	for _, milkType in ipairs(mutations) do
+		has[milkType] = true
+	end
+	local topInfo = CowData.MilkTypes[mutations[1] or "Normal"] or CowData.MilkTypes.Normal
+
+	local theme = nil
+	for _, milkType in ipairs(mutations) do
+		if STAVE_THEMES[milkType] then
+			theme = STAVE_THEMES[milkType]
+			break
+		end
+	end
+
+	local model = Instance.new("Model")
+	model.Name = "MilkBucket"
+	model:SetAttribute("Liters", liters)
+	model:SetAttribute("Mutations", table.concat(mutations, ","))
+
+	local radius = 0.55 * scale
+	local height = 1.0 * scale
+	local wall = 0.1 * scale
+
+	-- Boden
+	newPart(
+		model,
+		base,
+		"Bottom",
+		Enum.PartType.Cylinder,
+		Vector3.new(wall, radius * 2, radius * 2),
+		upright(CFrame.new(0, wall / 2, 0)),
+		theme and theme.Color or DARK_WOOD,
+		theme and theme.Material or Enum.Material.Wood
+	)
+
+	-- Dauben im Kreis
+	local staves = 10
+	local staveWidth = 2 * math.pi * radius / staves * 1.08
+	for i = 0, staves - 1 do
+		local angle = (i / staves) * math.pi * 2
+		local color = WOOD
+		local material = Enum.Material.Wood
+		if theme then
+			color = theme.Rainbow and RAINBOW_COLORS[i % #RAINBOW_COLORS + 1] or theme.Color
+			material = theme.Material
+		end
+		local stave = newPart(
+			model,
+			base,
+			"Stave",
+			Enum.PartType.Block,
+			Vector3.new(wall, height, staveWidth),
+			CFrame.Angles(0, angle, 0) * CFrame.new(radius, height / 2, 0),
+			color,
+			material
+		)
+		stave.Reflectance = theme and theme.Reflectance or 0
+	end
+
+	-- Reifen: einer pro Mutation (max. 3), sonst zwei aus Metall.
+	-- Ein flacher Zylinder um den Eimer – innen sieht man ihn nicht, weil der Eimer voll ist.
+	local bandCount = math.clamp(#mutations, 2, 3)
+	for i = 1, bandCount do
+		local y = height * (bandCount == 2 and (i == 1 and 0.22 or 0.74) or (0.18 + (i - 1) * 0.28))
+		local milkType = mutations[i]
+		local info = milkType and CowData.MilkTypes[milkType]
+		newPart(
+			model,
+			base,
+			"Band",
+			Enum.PartType.Cylinder,
+			Vector3.new(0.1 * scale, radius * 2 + wall * 1.8, radius * 2 + wall * 1.8),
+			upright(CFrame.new(0, y, 0)),
+			info and info.Color or METAL,
+			info and Enum.Material.SmoothPlastic or Enum.Material.Metal
+		)
+	end
+
+	-- Milch (fast bis zum Rand)
+	local milkMaterial = Enum.Material.SmoothPlastic
+	if topInfo.Multiplier >= 20 then
+		milkMaterial = Enum.Material.Neon
+	elseif mutations[1] == "Frozen" then
+		milkMaterial = Enum.Material.Ice
+	end
+	local milk = newPart(
+		model,
+		base,
+		"Milk",
+		Enum.PartType.Cylinder,
+		Vector3.new(0.06 * scale, radius * 2 - wall * 1.2, radius * 2 - wall * 1.2),
+		upright(CFrame.new(0, height - 0.1 * scale, 0)),
+		mutations[1] and topInfo.Color or MILK,
+		milkMaterial
+	)
+
+	-- Henkel: Bogen aus kurzen Stücken über der Öffnung
+	local arcRadius = radius + wall * 0.3
+	local arcHeight = 0.85
+	local segments = 7
+	local function arcPoint(t)
+		local theta = math.pi * t
+		return Vector3.new(arcRadius * math.cos(theta), height + arcRadius * arcHeight * math.sin(theta), 0)
+	end
+	for i = 0, segments - 1 do
+		local a, b = arcPoint(i / segments), arcPoint((i + 1) / segments)
+		newPart(
+			model,
+			base,
+			"Handle",
+			Enum.PartType.Block,
+			Vector3.new(0.07 * scale, 0.07 * scale, (b - a).Magnitude + 0.02 * scale),
+			CFrame.lookAt((a + b) / 2, b),
+			METAL,
+			Enum.Material.Metal
+		)
+	end
+	for _, side in ipairs({ -1, 1 }) do
+		newPart(
+			model,
+			base,
+			"HandleMount",
+			Enum.PartType.Block,
+			Vector3.new(0.08 * scale, 0.16 * scale, 0.14 * scale),
+			CFrame.new(side * (radius + wall * 0.4), height - 0.04 * scale, 0),
+			METAL,
+			Enum.Material.Metal
+		)
+	end
+
+	-- Extras obendrauf
+	local surfaceY = height - 0.06 * scale
+	if has.Creamy then
+		newPart(
+			model,
+			base,
+			"Cream",
+			Enum.PartType.Ball,
+			Vector3.new(0.34, 0.34, 0.34) * scale,
+			CFrame.new(radius * 0.3, surfaceY + 0.08 * scale, radius * 0.25),
+			Color3.fromRGB(255, 250, 238),
+			Enum.Material.SmoothPlastic
+		)
+	end
+	if has.Berry then
+		newPart(
+			model,
+			base,
+			"Strawberry",
+			Enum.PartType.Ball,
+			Vector3.new(0.26, 0.26, 0.26) * scale,
+			CFrame.new(-radius * 0.35, surfaceY + 0.08 * scale, -radius * 0.2),
+			Color3.fromRGB(220, 50, 70),
+			Enum.Material.SmoothPlastic
+		)
+		newPart(
+			model,
+			base,
+			"StrawberryLeaf",
+			Enum.PartType.Block,
+			Vector3.new(0.16, 0.04, 0.16) * scale,
+			CFrame.new(-radius * 0.35, surfaceY + 0.22 * scale, -radius * 0.2) * CFrame.Angles(0, math.rad(45), 0),
+			Color3.fromRGB(80, 170, 80),
+			Enum.Material.SmoothPlastic
+		)
+	end
+	if has.Choco then
+		newPart(
+			model,
+			base,
+			"ChocoPiece",
+			Enum.PartType.Block,
+			Vector3.new(0.3, 0.07, 0.22) * scale,
+			CFrame.new(radius * 0.15, surfaceY + 0.05 * scale, -radius * 0.4)
+				* CFrame.Angles(math.rad(12), math.rad(30), 0),
+			Color3.fromRGB(92, 56, 36),
+			Enum.Material.SmoothPlastic
+		)
+	end
+
+	addBucketEffects(milk, has, scale)
+
+	-- Griff (unsichtbar) oben am Henkel
+	local grip = newPart(
+		model,
+		base,
+		"Grip",
+		Enum.PartType.Block,
+		Vector3.new(0.2, 0.2, 0.2),
+		CFrame.new(arcPoint(0.5)),
+		METAL,
+		Enum.Material.SmoothPlastic
+	)
+	grip.Transparency = 1
+	grip.CastShadow = false
+	model.PrimaryPart = grip
+	return model
 end
 
 return Builder

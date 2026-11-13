@@ -1,7 +1,7 @@
 -- MenuUI.client.lua
 -- Fenster, die sich öffnen, wenn man ein Shop-Gebäude anklickt (Server -> Remotes.OpenShop)
 -- oder sie aus der Übersicht aufruft (UIBus.OpenPage):
---   Shop        – Common/Uncommon für Coins kaufen          (Gebäude "KUH-SHOP")
+--   Shop        – Kühe aus dem wechselnden Lager kaufen     (Gebäude "KUH-SHOP")
 --   Kisten      – Kuh-Kisten für Coins oder Robux öffnen    (Gebäude "KISTEN")
 --   Zucht       – zwei Kühe auswählen, Chancen, Zucht       (Gebäude "ZUCHT-STALL")
 --   Tagesbonus  – Login-Streak und Belohnungen der 7 Tage
@@ -261,24 +261,135 @@ local function openPage(name, keepOpen)
 end
 
 ------------------------------------------------------------------------
--- Shop
+-- Kuh-Shop mit wechselndem Lager (wie der Samen-Shop in Grow a Garden)
+-- Alle paar Minuten neues Lager (CowData.Shop); seltene Arten sind nur manchmal da.
+-- Gezeigt werden ALLE Arten – auch die gerade fehlen –, damit man weiß, worauf man warten kann.
 ------------------------------------------------------------------------
 local shopPage = newPage("Shop", "KUH-SHOP")
 do
+	-- Das Lager rechnet der Client selbst aus (CowData.RollShopStock, in allen Servern gleich).
+	-- Vom Server kommt nur dazu, wie viele dieser Spieler im aktuellen Lager schon gekauft hat.
+	local serverStock = nil -- letzte Antwort von GetShopStock: { Cycle, Items = { Type, Remaining, ... } }
+	local loadToken = 0
+
+	local function serverTime()
+		return workspace:GetServerTimeNow()
+	end
+
+	local function currentCycle()
+		return CowData.GetShopCycle(math.floor(serverTime()))
+	end
+
+	-- Kopfzeile: wann kommt neues Lager?
+	local header = Theme.panel(shopPage.Frame, {
+		Name = "Header",
+		Size = UDim2.new(1, 0, 0, 40),
+		BackgroundColor3 = Colors.PanelLight,
+		Radius = Theme.Radius.M,
+	})
+	local timerText = label(header, {
+		Name = "Timer",
+		Position = UDim2.fromOffset(Theme.Spacing.L, 0),
+		Size = UDim2.new(0.5, 0, 1, 0),
+		Font = Theme.Font,
+		TextSize = Theme.TextSize.Body + 2,
+		TextWrapped = false,
+		Text = "",
+	})
+	label(header, {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -Theme.Spacing.L, 0, 0),
+		Size = UDim2.new(0.5, -Theme.Spacing.L, 1, 0),
+		TextXAlignment = Enum.TextXAlignment.Right,
+		TextColor3 = Colors.SubText,
+		TextSize = Theme.TextSize.Small,
+		Font = Theme.BodyFont,
+		TextWrapped = false,
+		Text = "Seltene Kühe sind nur manchmal im Lager!",
+	})
+
+	local list = Instance.new("ScrollingFrame")
+	list.Name = "List"
+	list.Position = UDim2.fromOffset(0, 48)
+	list.Size = UDim2.new(1, 0, 1, -48)
+	list.BackgroundTransparency = 1
+	list.BorderSizePixel = 0
+	list.ZIndex = Theme.zOf(shopPage.Frame)
+	list.ScrollBarThickness = 6
+	list.ScrollBarImageColor3 = Colors.Line
+	list.ScrollingDirection = Enum.ScrollingDirection.Y
+	list.CanvasSize = UDim2.new()
+	list.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	list.Parent = shopPage.Frame
+	local listPadding = Instance.new("UIPadding")
+	listPadding.PaddingRight = UDim.new(0, 10) -- Platz für den Scrollbalken
+	listPadding.PaddingBottom = UDim.new(0, 4)
+	listPadding.Parent = list
 	local grid = Instance.new("UIGridLayout")
-	grid.CellSize = UDim2.new(0.5, -8, 0, 290)
-	grid.CellPadding = UDim2.fromOffset(Theme.Spacing.L, Theme.Spacing.L)
+	grid.CellSize = UDim2.new(0.5, -6, 0, 196)
+	grid.CellPadding = UDim2.fromOffset(Theme.Spacing.M, Theme.Spacing.M)
 	grid.SortOrder = Enum.SortOrder.LayoutOrder
-	grid.Parent = shopPage.Frame
+	grid.Parent = list
 
-	local buyButtons = {} -- [rarity] = { Api, Card, Tag }
+	-- "✨ Mehr Schokomilch +25 %" aus MilkBonus der Art
+	local function bonusText(info)
+		if not info.MilkBonus then
+			return ""
+		end
+		local parts = {}
+		for _, milkType in ipairs(CowData.MilkTypeOrder) do
+			local bonus = info.MilkBonus[milkType]
+			if bonus then
+				table.insert(
+					parts,
+					("%s +%d %%"):format(CowData.MilkTypes[milkType].DisplayName, math.floor(bonus * 100 + 0.5))
+				)
+			end
+		end
+		if #parts == 0 then
+			return ""
+		end
+		return "✨ Mehr " .. table.concat(parts, ", ")
+	end
 
-	-- bezahlbar: grüner Rahmen + Abzeichen "Bezahlbar"; sonst ausgegrauter Knopf
-	local function updateAffordable()
-		for rarity, entry in pairs(buyButtons) do
-			local affordable = coins() >= CowData.Rarities[rarity].ShopPrice
+	-- Wie viele sind im Lager und wie viele darf ich noch kaufen?
+	local function stockOf(cowType)
+		local cycle = currentCycle()
+		local amount = CowData.RollShopStock(cycle)[cowType] or 0
+		local remaining = amount
+		if serverStock and serverStock.Cycle == cycle then
+			for _, item in ipairs(serverStock.Items) do
+				if item.Type == cowType then
+					remaining = math.min(amount, item.Remaining)
+				end
+			end
+		end
+		return amount, remaining
+	end
+
+	------------------------------------------------------------------------
+	-- Karten: eine pro Art, werden EINMAL gebaut und danach nur aktualisiert
+	------------------------------------------------------------------------
+	local cards = {} -- [Kuh-Art] = { Api, Card, Tag, Price }
+
+	local function updateCards()
+		for cowType, entry in pairs(cards) do
+			local amount, remaining = stockOf(cowType)
+			local affordable = remaining > 0 and coins() >= entry.Price
 			entry.Api.SetDisabled(not affordable)
-			entry.Tag.Visible = affordable
+
+			if amount <= 0 then
+				entry.Tag.Text = "Nicht im Lager"
+				entry.Tag.BackgroundColor3 = Colors.Grey
+			elseif remaining <= 0 then
+				entry.Tag.Text = "Ausverkauft"
+				entry.Tag.BackgroundColor3 = Colors.Red
+			else
+				entry.Tag.Text = ("x%d im Lager"):format(remaining)
+				entry.Tag.BackgroundColor3 = Colors.Green
+			end
+
+			entry.Card.BackgroundTransparency = remaining > 0 and 0 or 0.35
 			local stroke = entry.Card:FindFirstChildOfClass("UIStroke")
 			if stroke then
 				stroke.Color = affordable and Colors.Green or Colors.Line
@@ -287,61 +398,155 @@ do
 		end
 	end
 
-	shopPage.Build = function()
-		clear(shopPage.Frame)
-		table.clear(buyButtons)
-
-		for order, rarity in ipairs(CowData.RarityOrder) do
-			local info = CowData.Rarities[rarity]
-			if info.ShopPrice then
-				local card = Theme.cowCard(shopPage.Frame, {
-					Name = rarity,
-					LayoutOrder = order,
-					Info = info,
-					CowName = "Kuh",
-				})
-				statRow(card, 90, "Milch pro Zug", CowData.FormatNumber(info.MilkPerPull))
-				statRow(card, 118, "Pause nach dem Melken", info.MilkCooldown .. " s")
-				statRow(card, 146, "Zuchtdauer", formatTime(info.BreedTime))
-
-				local api, buy = priceButton(card, {
-					Price = info.ShopPrice,
-					AnchorPoint = Vector2.new(0.5, 1),
-					Position = UDim2.new(0.5, 0, 1, -Theme.Spacing.L),
-					Size = UDim2.new(1, -32, 0, 48),
-				})
-				local tag = Theme.tag(card, {
-					Name = "Affordable",
-					AnchorPoint = Vector2.new(1, 0),
-					Position = UDim2.new(1, -10, 0, 12),
-					Color = Colors.Green,
-					Text = "Bezahlbar",
-				})
-				tag.TextColor3 = Colors.Cream
-				buyButtons[rarity] = { Api = api, Card = card, Tag = tag }
-
-				buy.Activated:Connect(function()
-					if coins() < info.ShopPrice then
-						showStatus("Nicht genug Coins! Melke und verkaufe mehr Milch.")
-						return
-					end
-					buy.Active = false
-					local called, ok, message = pcall(function()
-						return Remotes.BuyCow:InvokeServer(rarity)
-					end)
-					buy.Active = true
-					if called and ok then
-						showStatus("Gekauft! Deine neue Kuh steht auf der Farm.", OK_COLOR)
-					else
-						showStatus((called and message) or "Kauf fehlgeschlagen.")
-					end
-				end)
+	-- Server fragen, was ich schon gekauft habe (mit Zeitlimit, damit nichts hängen bleibt)
+	local function loadServerStock()
+		loadToken += 1
+		local token = loadToken
+		local done = false
+		task.spawn(function()
+			local ok, result = pcall(function()
+				return Remotes:WaitForChild("GetShopStock", 5):InvokeServer()
+			end)
+			done = true
+			if token ~= loadToken then
+				return
 			end
-		end
-		updateAffordable()
+			if ok and type(result) == "table" and type(result.Items) == "table" then
+				serverStock = result
+			else
+				warn("[MenuUI] Kuh-Shop: Lager vom Server konnte nicht geladen werden:", result)
+			end
+			updateCards()
+		end)
+		task.delay(6, function()
+			if not done and token == loadToken then
+				warn("[MenuUI] Kuh-Shop: Server antwortet nicht auf GetShopStock (läuft ShopManager.server.lua?)")
+			end
+		end)
 	end
 
-	player:GetAttributeChangedSignal("Coins"):Connect(updateAffordable)
+	for order, entry in ipairs(CowData.Shop.Stock) do
+		local cowType = entry.Type
+		local info = CowData.Rarities[cowType]
+		local price = info.ShopPrice
+
+		-- Abzeichen zeigt die Seltenheitsstufe, groß steht der Name der Art
+		local cardInfo = table.clone(info)
+		cardInfo.DisplayName = info.ClassName or info.DisplayName
+		cardInfo.IsSpecial = nil
+
+		local card = Theme.cowCard(list, {
+			Name = cowType,
+			LayoutOrder = order,
+			Info = cardInfo,
+			CowName = info.DisplayName,
+		})
+		statRow(card, 72, "Milch pro Zug (groß)", CowData.FormatNumber(info.MilkPerPull))
+		-- kommt als Kalb: so lange dauert es, bis sie volle Milch gibt
+		statRow(
+			card,
+			96,
+			"Wächst · Pause",
+			formatTime(CowData.GetGrowTime(cowType)) .. " · " .. info.MilkCooldown .. " s"
+		)
+		label(card, {
+			Name = "Bonus",
+			Position = UDim2.fromOffset(Theme.Spacing.L, 120),
+			Size = UDim2.new(1, -Theme.Spacing.L * 2, 0, 18),
+			TextColor3 = Colors.Gold,
+			TextSize = Theme.TextSize.Small,
+			Font = Theme.BodyFont,
+			TextWrapped = false,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			Text = bonusText(info),
+		})
+
+		local api, buy = priceButton(card, {
+			Price = price,
+			AnchorPoint = Vector2.new(0.5, 1),
+			Position = UDim2.new(0.5, 0, 1, -Theme.Spacing.M),
+			Size = UDim2.new(1, -32, 0, 44),
+		})
+		local tag = Theme.tag(card, {
+			Name = "Stock",
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, -10, 0, 44),
+			Color = Colors.Grey,
+			Text = "",
+		})
+		tag.TextColor3 = Colors.Cream
+		cards[cowType] = { Api = api, Card = card, Tag = tag, Price = price }
+
+		buy.Activated:Connect(function()
+			local amount, remaining = stockOf(cowType)
+			if amount <= 0 then
+				showStatus(
+					("%s ist gerade nicht im Lager. Schau beim nächsten Lager wieder vorbei!"):format(info.DisplayName)
+				)
+				return
+			end
+			if remaining <= 0 then
+				showStatus("Ausverkauft! Warte auf das nächste Lager.")
+				return
+			end
+			if coins() < price then
+				showStatus("Nicht genug Coins! Melke und verkaufe mehr Milch.")
+				return
+			end
+			buy.Active = false
+			local called, ok, message = pcall(function()
+				return Remotes.BuyCow:InvokeServer(cowType)
+			end)
+			buy.Active = true
+			if called and ok then
+				showStatus(("Gekauft! %s kommt auf deine Farm."):format(info.DisplayName), OK_COLOR)
+			else
+				showStatus((called and message) or "Kauf fehlgeschlagen.")
+			end
+			loadServerStock() -- gekaufte Anzahl neu holen
+		end)
+	end
+
+	shopPage.Build = function()
+		updateCards()
+		loadServerStock()
+	end
+
+	-- Timer in der Kopfzeile; neues Lager -> Karten neu einfärben und Server fragen
+	local shownCycle = currentCycle()
+	task.spawn(function()
+		while true do
+			task.wait(0.5)
+			local cycle = currentCycle()
+			if currentPage == "Shop" and win:IsOpen() then
+				local left = CowData.GetRestockTime(cycle) - serverTime()
+				timerText.Text = "Neues Lager in " .. formatTime(left)
+				timerText.TextColor3 = left <= 10 and Colors.Gold or Colors.Text
+				if cycle ~= shownCycle then
+					shownCycle = cycle
+					shopPage.Build()
+				end
+			else
+				shownCycle = cycle
+			end
+		end
+	end)
+
+	-- Server meldet neues Lager -> offenes Fenster neu laden
+	task.spawn(function()
+		local restocked = Remotes:WaitForChild("ShopRestocked", 30)
+		if restocked then
+			restocked.OnClientEvent:Connect(function()
+				if currentPage == "Shop" and win:IsOpen() then
+					shopPage.Build()
+				end
+			end)
+		end
+	end)
+
+	player:GetAttributeChangedSignal("Coins"):Connect(updateCards)
+	updateCards()
+	timerText.Text = "Neues Lager in " .. formatTime(CowData.GetRestockTime(currentCycle()) - serverTime())
 end
 
 ------------------------------------------------------------------------
@@ -618,7 +823,10 @@ do
 		clear(breedPage.Frame)
 		countdown = nil
 		if not inventory then
-			label(breedPage.Frame, { Size = UDim2.fromScale(1, 1), Text = "Lade...", TextXAlignment = Enum.TextXAlignment.Center })
+			label(
+				breedPage.Frame,
+				{ Size = UDim2.fromScale(1, 1), Text = "Lade...", TextXAlignment = Enum.TextXAlignment.Center }
+			)
 			return
 		end
 
@@ -649,7 +857,12 @@ do
 				Size = UDim2.new(0.8, 0, 0, 18),
 				Color = Colors.Pink,
 			})
-			countdown = { Label = timeLabel, Bar = bar, StartedAt = breeding.StartedAt or serverNow(), ReadyAt = breeding.ReadyAt }
+			countdown = {
+				Label = timeLabel,
+				Bar = bar,
+				StartedAt = breeding.StartedAt or serverNow(),
+				ReadyAt = breeding.ReadyAt,
+			}
 			local span = math.max(1, countdown.ReadyAt - countdown.StartedAt)
 			bar.SetRatio((serverNow() - countdown.StartedAt) / span, false)
 			label(breedPage.Frame, {
@@ -763,7 +976,11 @@ do
 		local function updateSide()
 			for id, entry in pairs(rowButtons) do
 				local isSelected = table.find(selected, id) ~= nil
-				Theme.tween(entry.Row, { BackgroundColor3 = isSelected and Colors.Steel or Colors.Card }, Theme.Time.Fast)
+				Theme.tween(
+					entry.Row,
+					{ BackgroundColor3 = isSelected and Colors.Steel or Colors.Card },
+					Theme.Time.Fast
+				)
 				entry.Stroke.Color = isSelected and Colors.Blue or Colors.Line
 				entry.Stroke.Thickness = isSelected and Theme.Stroke.Normal or Theme.Stroke.Thin
 			end
@@ -816,14 +1033,25 @@ do
 			local stroke = Theme.border(row)
 
 			Theme.cowIcon(row, 30, UDim2.fromOffset(26, 23), info.Color, info.SpotColor, info.Transparency and 0.3 or 0)
+			-- Kälber können noch nicht züchten -> ausgegraut mit Stufe und Zeit
+			local grown = CowData.IsGrown(cow, serverNow())
+			local _, _, stage = CowData.GetGrowth(cow, serverNow())
 			label(row, {
 				Position = UDim2.fromOffset(50, 0),
 				Size = UDim2.new(1, -150, 1, 0),
 				Font = Theme.BodyFont,
 				TextWrapped = false,
 				TextTruncate = Enum.TextTruncate.AtEnd,
-				Text = cow.Name,
+				TextColor3 = grown and Colors.Text or Colors.SubText,
+				Text = grown and cow.Name or ("%s  · %s %s"):format(
+					cow.Name,
+					stage.Short,
+					formatTime(CowData.GetTimeToGrown(cow, serverNow()))
+				),
 			})
+			if not grown then
+				row.BackgroundTransparency = 0.4
+			end
 			Theme.rarityBadge(row, info, {
 				AnchorPoint = Vector2.new(1, 0.5),
 				Position = UDim2.new(1, -10, 0.5, 0),
@@ -841,6 +1069,10 @@ do
 				end
 			end)
 			row.Activated:Connect(function()
+				if not CowData.IsGrown(cow, serverNow()) then
+					showStatus(("%s ist noch zu jung – nur ausgewachsene Kühe können züchten."):format(cow.Name))
+					return
+				end
 				local index = table.find(selected, cow.Id)
 				if index then
 					table.remove(selected, index)
@@ -911,7 +1143,9 @@ do
 			TextSize = Theme.TextSize.Heading - 4,
 			TextXAlignment = Enum.TextXAlignment.Center,
 			TextColor3 = Colors.SubText,
-			Text = ("Der Auto-Melker melkt alle %d Sekunden jede deiner Kühe – auch während du andere Sachen machst!\n\nEinmal kaufen, für immer behalten."):format(CowData.Config.AutoMilkInterval),
+			Text = ("Der Auto-Melker melkt alle %d Sekunden jede deiner Kühe – auch während du andere Sachen machst!\n\nEinmal kaufen, für immer behalten."):format(
+				CowData.Config.AutoMilkInterval
+			),
 		})
 
 		local owned = player:GetAttribute("HasAutoMilker") == true

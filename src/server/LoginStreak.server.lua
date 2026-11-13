@@ -56,12 +56,25 @@ local function processLogin(player)
 
 	-- Rainbow Cow nach jeweils 7 Tagen am Stück
 	if streakData.Streak % Config.RainbowStreakDays == 0 then
-		local cow = DataService.AddCow(player, "Rainbow")
+		local cow = DataService.AddCow(player, "Rainbow", { Adult = true })
 		if cow then
-			DataService.Notify(player, ("🌈 %d Tage am Stück! %s, deine Rainbow Cow, ist auf deiner Farm!"):format(Config.RainbowStreakDays, cow.Name), "rare")
+			DataService.Notify(
+				player,
+				("🌈 %d Tage am Stück! %s, deine Rainbow Cow, ist auf deiner Farm!"):format(
+					Config.RainbowStreakDays,
+					cow.Name
+				),
+				"rare"
+			)
 			for _, other in ipairs(Players:GetPlayers()) do
 				if other ~= player then
-					DataService.Notify(other, ("🌈 %s hat sich durch einen 7-Tage-Streak eine Rainbow Cow verdient!"):format(player.DisplayName), "rare")
+					DataService.Notify(
+						other,
+						("🌈 %s hat sich durch einen 7-Tage-Streak eine Rainbow Cow verdient!"):format(
+							player.DisplayName
+						),
+						"rare"
+					)
 				end
 			end
 		end
