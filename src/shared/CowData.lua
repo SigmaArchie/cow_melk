@@ -701,6 +701,110 @@ CowData.Weather = {
 }
 
 ------------------------------------------------------------------------
+-- Kuh-Mutationen (dauerhafte Eigenschaften einer Kuh, wie die Mutationen der Pflanzen in Grow a Garden)
+-- Jede Kuh, die auf der Farm steht (Kalb oder ausgewachsen), kann sie JEDERZEIT bekommen:
+-- alle TickInterval Sekunden wird für jede Kuh gewürfelt, Chance je nach Wetter (Weather).
+-- Mutationen stapeln sich (jede einmal). Hat eine Kuh alle Zutaten einer Verbindung (CowData.CowMutationCombos),
+-- werden sie zur stärkeren Mutation verbunden (z.B. Nass + Gekühlt = Gefroren).
+-- Multiplier: Wert-Faktor für die Milch dieser Kuh. Mehrere zählen zusammen: 1 + Summe(Multiplier - 1).
+--             Der Eimer-Wert ist Liter * Preis * (Faktor der Milch-Mutationen) * (Faktor der Kuh-Mutationen).
+-- Combo = true: entsteht nur durch Verbinden, nicht direkt durch Wetter
+------------------------------------------------------------------------
+CowData.CowMutationSettings = {
+	TickInterval = 15, -- Sekunden zwischen zwei Würfen
+	StudioBoost = 5, -- nur in Studio: Chancen x5, damit man es beim Testen sieht
+	InheritChance = 0.25, -- Zucht: Chance, dass das Kalb eine Mutation eines Elternteils erbt (je Mutation)
+}
+
+CowData.CowMutationOrder = {
+	"Sunkissed",
+	"Wet",
+	"Chilled",
+	"Moonlit",
+	"Frozen",
+	"Shocked",
+	"Rainbowshine",
+	"Starfrost",
+	"Aurora",
+}
+
+CowData.CowMutations = {
+	Sunkissed = {
+		DisplayName = "Sonnengeküsst",
+		Icon = "☀",
+		Multiplier = 1.5,
+		Weather = { Clear = 0.0008 }, -- sehr selten, aber immer möglich
+		Color = Color3.fromRGB(255, 206, 90),
+	},
+	Wet = {
+		DisplayName = "Nass",
+		Icon = "💧",
+		Multiplier = 2,
+		Weather = { Rain = 0.03, Storm = 0.03 },
+		Color = Color3.fromRGB(110, 180, 255),
+	},
+	Chilled = {
+		DisplayName = "Gekühlt",
+		Icon = "❄",
+		Multiplier = 2,
+		Weather = { Snow = 0.03 },
+		Color = Color3.fromRGB(180, 226, 255),
+	},
+	Moonlit = {
+		DisplayName = "Mondschein",
+		Icon = "🌙",
+		Multiplier = 3,
+		Weather = { StarNight = 0.025 },
+		Color = Color3.fromRGB(190, 170, 255),
+	},
+	Shocked = {
+		DisplayName = "Geladen",
+		Icon = "⚡",
+		Multiplier = 10,
+		Weather = { Storm = 0.004 },
+		Color = Color3.fromRGB(255, 238, 90),
+	},
+	-- Verbindungen
+	Frozen = {
+		DisplayName = "Gefroren",
+		Icon = "🧊",
+		Multiplier = 10,
+		Combo = true,
+		Color = Color3.fromRGB(150, 220, 255),
+	},
+	Rainbowshine = {
+		DisplayName = "Regenbogenglanz",
+		Icon = "🌈",
+		Multiplier = 15,
+		Combo = true,
+		Color = Color3.fromRGB(255, 140, 210),
+	},
+	Starfrost = {
+		DisplayName = "Sternenfrost",
+		Icon = "✨",
+		Multiplier = 30,
+		Combo = true,
+		Color = Color3.fromRGB(205, 190, 255),
+	},
+	Aurora = {
+		DisplayName = "Polarlicht",
+		Icon = "🌌",
+		Multiplier = 60,
+		Combo = true,
+		Color = Color3.fromRGB(120, 255, 190),
+	},
+}
+
+-- Verbindungen: hat die Kuh ALLE Zutaten (Needs), werden sie durch Result ersetzt.
+-- Ketten gehen auch (Nass + Gekühlt = Gefroren, dann Gefroren + Mondschein = Sternenfrost).
+CowData.CowMutationCombos = {
+	{ Needs = { "Wet", "Chilled" }, Result = "Frozen" }, -- Regen + Schnee
+	{ Needs = { "Wet", "Sunkissed" }, Result = "Rainbowshine" }, -- Regen + Sonne = Regenbogen
+	{ Needs = { "Frozen", "Moonlit" }, Result = "Starfrost" },
+	{ Needs = { "Frozen", "Shocked" }, Result = "Aurora" }, -- Kälte + Strom = Polarlicht
+}
+
+------------------------------------------------------------------------
 -- Kuh-Namen
 ------------------------------------------------------------------------
 CowData.Names = {
@@ -1055,9 +1159,126 @@ function CowData.GetBucketSizeName(liters)
 	return "Riesig"
 end
 
--- Verkaufswert eines Eimers in Coins
-function CowData.GetBucketValue(liters, mutations)
-	return math.floor(liters * CowData.Config.MilkSellPrice * CowData.GetMutationMultiplier(mutations))
+------------------------------------------------------------------------
+-- Kuh-Mutationen
+------------------------------------------------------------------------
+function CowData.IsValidCowMutation(id)
+	return type(id) == "string" and CowData.CowMutations[id] ~= nil
+end
+
+-- Wendet alle Verbindungen an (auch Ketten). Gibt (neue Liste, Liste der entstandenen Verbindungen) zurück.
+function CowData.ApplyCowMutationCombos(mutations)
+	local has = {}
+	for _, id in ipairs(mutations) do
+		has[id] = true
+	end
+	local made = {}
+	local changed = true
+	while changed do
+		changed = false
+		for _, combo in ipairs(CowData.CowMutationCombos) do
+			local complete = not has[combo.Result]
+			for _, need in ipairs(combo.Needs) do
+				if not has[need] then
+					complete = false
+				end
+			end
+			if complete then
+				for _, need in ipairs(combo.Needs) do
+					has[need] = nil
+				end
+				has[combo.Result] = true
+				table.insert(made, combo)
+				changed = true
+			end
+		end
+	end
+	local list = {}
+	for _, id in ipairs(CowData.CowMutationOrder) do
+		if has[id] then
+			table.insert(list, id)
+		end
+	end
+	return list, made
+end
+
+-- Nur bekannte, jede einmal, Verbindungen angewendet, in fester Reihenfolge (für Daten vom Speicher)
+function CowData.CleanCowMutations(mutations)
+	local list = {}
+	if type(mutations) == "table" then
+		for _, id in ipairs(mutations) do
+			if CowData.IsValidCowMutation(id) and not table.find(list, id) then
+				table.insert(list, id)
+			end
+		end
+	end
+	return (CowData.ApplyCowMutationCombos(list))
+end
+
+-- Kann die Kuh diese Mutation noch bekommen? Nein, wenn sie sie schon hat oder sie schon in einer
+-- Verbindung steckt (eine gefrorene Kuh wird nicht nochmal nass oder gekühlt).
+function CowData.CanGainCowMutation(mutations, id)
+	local covered = {}
+	local function cover(result)
+		for _, combo in ipairs(CowData.CowMutationCombos) do
+			if combo.Result == result then
+				for _, need in ipairs(combo.Needs) do
+					if not covered[need] then
+						covered[need] = true
+						cover(need)
+					end
+				end
+			end
+		end
+	end
+	for _, owned in ipairs(mutations or {}) do
+		covered[owned] = true
+		cover(owned)
+	end
+	return not covered[id]
+end
+
+-- Chance pro Wurf für eine Mutation bei diesem Wetter (Verbindungen: 0)
+function CowData.GetCowMutationChance(id, weather)
+	local info = CowData.CowMutations[id]
+	if not info or info.Combo or not info.Weather then
+		return 0
+	end
+	return info.Weather[weather or "Clear"] or 0
+end
+
+-- Wert-Faktor der Kuh-Mutationen: 1 + Summe(Multiplier - 1)
+function CowData.GetCowMutationMultiplier(mutations)
+	local multiplier = 1
+	for _, id in ipairs(mutations or {}) do
+		local info = CowData.CowMutations[id]
+		if info then
+			multiplier += info.Multiplier - 1
+		end
+	end
+	return multiplier
+end
+
+-- "Nass + Gefroren"; leer -> ""
+function CowData.FormatCowMutations(mutations)
+	local names = {}
+	for _, id in ipairs(mutations or {}) do
+		local info = CowData.CowMutations[id]
+		if info then
+			table.insert(names, info.DisplayName)
+		end
+	end
+	return table.concat(names, " + ")
+end
+
+-- Verkaufswert eines Eimers in Coins. cowMutations = Kuh-Mutationen der Kuh, von der der Eimer kommt.
+function CowData.GetBucketValue(liters, mutations, cowMutations)
+	return math.floor(
+		liters
+			* CowData.Config.MilkSellPrice
+			* CowData.GetMutationMultiplier(mutations)
+			* CowData.GetCowMutationMultiplier(cowMutations)
+	)
 end
 
 -- "x1.5" / "x20"

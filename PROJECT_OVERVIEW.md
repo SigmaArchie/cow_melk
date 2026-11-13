@@ -78,11 +78,11 @@ Spieler-Attribute (Server setzt sie): `Coins`, `Milk` (Liter in allen Eimern), `
 
 ```lua
 { Version=1, Coins=100, Milk=0 (Summe der Eimer), TotalMilk=0,
-  Buckets = { b1 = { Id, Liters, Mutations={ "Gold", "Choco" }, CowName, CowType, Obtained,
+  Buckets = { b1 = { Id, Liters, Mutations={ "Gold", "Choco" }, CowMutations, CowName, CowType, Obtained,
                      Hotbar (1-9) | nil = Eimer-Lager, Auto (Auto-Melker-Eimer, Id "auto") } }, NextBucketId,
   Cows = { c1 = { Id, Rarity, Name, Obtained, MilkReadyAt,
                   Slot (Feld 1-36) | Hotbar (1-9) | Stored (true = Lager),
-                  BornAt, GrowTime (Wachstum; fehlen = ausgewachsen) } },
+                  BornAt, GrowTime (Wachstum; fehlen = ausgewachsen), Mutations = { "Wet", ... } (Kuh-Mutationen) } },
   NextCowId, Breeding = {ParentA, ParentB, StartedAt, ReadyAt} | nil,
   LoginStreak = {Streak, LastDay, Best}, Receipts = {[PurchaseId]=time},
   ShopStock = { Cycle, Bought = { [Kuh-Art]=Anzahl } },
@@ -152,6 +152,26 @@ Chance je Mutation = Grundchance + Wetter + `MilkBonus` der Art, mal `Luck` des 
 | Ausgewachsen | 100 % | 100 % | 100 % (volle `MilkPerPull`) |
 
 Wachstumszeit nach Stufe der Art (`TimeByTier`): 5 / 8 / 12 / 18 / 25 / 30 / 40 / 50 Minuten (Holstein 5 Min, Kristallkuh 50 Min). Bei jeder neuen Stufe baut der Server die Kuh in der neuen Größe neu auf (erst neu bauen, dann die alte entfernen – klappt das Bauen nicht, bleibt die alte stehen + Warnung im Output) (`CowModelBuilder.BuildCow(..., scale)` skaliert Teile, Gruppen-Drehpunkte, Attachments, Lichter und die Maße für Schemel/Eimer), mit Funken und Pop-up ("Wächst! Jungkuh" / "Ausgewachsen!" + Meldung). Wird die Kuh gerade gemolken, wartet der Umbau. Milch pro Zug und Auto-Melker richten sich nach der Stufe. **Züchten nur mit ausgewachsenen Kühen.** Anzeige: Namensschild "Kalb · Holstein", Kuh-Menü "Kalb · 25 % Milch · groß in 4:12", Inventar-Karte "Kalb 4:12", Zucht-Liste ausgegraut, Shop-Karte "Wächst · Pause".
+
+**Kuh-Mutationen** (`CowData.CowMutations`, CowManager `rollCowMutations`): dauerhafte Eigenschaften der Kuh, wie die Pflanzen-Mutationen in Grow a Garden. Jede Kuh **auf der Farm** (Kalb oder ausgewachsen) kann sie jederzeit bekommen: alle 15 s wird gewürfelt, Chance nach Wetter, höchstens eine neue pro Wurf. Sie **stapeln** sich und **verbinden** sich, sobald alle Zutaten da sind (auch als Kette). Eine Mutation, die schon in einer Verbindung steckt, kommt nicht nochmal (gefrorene Kuh wird nicht wieder nass).
+
+| Mutation | Wert | Woher |
+|---|---|---|
+| ☀ Sonnengeküsst | x1,5 | Sonne, 0,08 % pro Wurf |
+| 💧 Nass | x2 | Regen/Gewitter, 3 % (ein Regen: ~27 % der Kühe) |
+| ❄ Gekühlt | x2 | Schnee, 3 % |
+| 🌙 Mondschein | x3 | Sternennacht, 2,5 % |
+| ⚡ Geladen | x10 | Gewitter, 0,4 % (ein Gewitter: ~3 %) |
+| 🧊 Gefroren | x10 | Nass + Gekühlt |
+| 🌈 Regenbogenglanz | x15 | Nass + Sonnengeküsst |
+| ✨ Sternenfrost | x30 | Gefroren + Mondschein |
+| 🌌 Polarlicht | x60 | Gefroren + Geladen |
+
+- Wert: Kuh-Faktor = 1 + Summe(Multiplikator − 1); Eimer-Wert = Liter × 2 × Milch-Faktor × Kuh-Faktor. Der Eimer merkt sich die Kuh-Mutationen beim Melken (`CowMutations`).
+- Aussehen: `CowModelBuilder.ApplyCowMutations` (Tropfen, Schneeflocken, eisiges Fell, Funken, Regenbogen-/Sternen-Partikel, kleines Licht). Neue Mutation → Kuh wird neu gebaut (wie beim Wachsen, nicht während des Melkens), Pop-up + Meldung; Verbindung → seltene Meldung, ab x30 für den ganzen Server.
+- Zucht: jede Mutation der Eltern wird mit 25 % vererbt (`InheritChance`), Verbindungen danach.
+- Anzeige: Namensschild mit farbiger Mutations-Zeile, Kuh-Menü ("Nass · Gefroren · Milch x11 wert"), Inventar-Karte, Zucht-Liste (Symbole), Eimer-Details ("Kuh: Gefroren (x10)"), Hotbar-Eimer (Symbole).
+- Test in Studio: Chancen x5 (`StudioBoost`); Wetter im Server-Modus über das Workspace-Attribut `Weather` setzen.
 
 **Wetter** (`CowData.Weather`, `WeatherManager`, `WeatherClient`): nach 4–7 Minuten Sonne kommt Regen (40), Schnee (25), Gewitter (15) oder Sternennacht (10), je 2–2,5 Minuten. Anzeige mit Restzeit im HUD unter "Nächstes Ziel". In Studio kommt das erste Event schon nach 30 s; zum Testen kann man im Server-Modus am Workspace das Attribut `Weather` setzen.
 

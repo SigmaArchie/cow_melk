@@ -7,6 +7,8 @@
 --   * Melk-Cooldown pro Kuh
 --   * Wachstum: Kälber sind klein und geben weniger Milch; bei jeder neuen Stufe wird die Kuh größer
 --     neu aufgebaut (CowData.Growth). Züchten geht nur mit ausgewachsenen Kühen.
+--   * Kuh-Mutationen: Kühe auf der Farm bekommen je nach Wetter dauerhafte Mutationen, die sich stapeln
+--     und verbinden (CowData.CowMutations); sie machen die Milch dieser Kuh mehr wert und werden vererbt.
 --   * Milch-Eimer: jedes Melken gibt einen Eimer (Hotbar/Eimer-Lager) mit Litern und Mutationen
 --     (CowData.MilkTypes, Wetter zählt mit); Remotes.BucketAction: verkaufen, in Hotbar, ins Lager
 --   * Milch verkaufen (nach Wert), Shop mit Lager (ShopService), Kisten (Coins/Robux), Breeding,
@@ -21,6 +23,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local MarketplaceService = game:GetService("MarketplaceService")
 local TweenService = game:GetService("TweenService")
 local Debris = game:GetService("Debris")
+local RunService = game:GetService("RunService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local CowData = require(Shared:WaitForChild("CowData"))
@@ -702,9 +705,12 @@ local function createInfoBillboard(cow, torso, stage)
 	local grown = not stage or stage.Scale >= 1
 
 	-- kleines Namensschild über dem Kopf (Marineblau, dünner Rahmen in der Seltenheitsfarbe)
+	local mutations = cow.Mutations or {}
+	local hasMutations = #mutations > 0
+
 	local billboard = Instance.new("BillboardGui")
 	billboard.Name = "Info"
-	billboard.Size = UDim2.fromOffset(136, 52)
+	billboard.Size = UDim2.fromOffset(hasMutations and 150 or 136, hasMutations and 68 or 52)
 	billboard.StudsOffsetWorldSpace = Vector3.new(0, 4.6 * scale + (1 - scale) * 0.8, 0)
 	billboard.MaxDistance = 55
 	billboard.LightInfluence = 0
@@ -738,13 +744,27 @@ local function createInfoBillboard(cow, torso, stage)
 		l.Parent = background
 		return l
 	end
-	label("NameLabel", cow.Name, 0.05, 0.38, Palette.Fonts.Heading, Palette.Colors.Cream)
 	local typeText = (info.IsSpecial and "★ " or "") .. info.DisplayName
 	if not grown then
 		typeText = stage.Name .. " · " .. typeText
 	end
-	label("RarityLabel", typeText, 0.44, 0.22, Palette.Fonts.Body, accent)
-	return label("Status", "", 0.7, 0.24, Palette.Fonts.Body, Palette.Colors.SubText)
+	if not hasMutations then
+		label("NameLabel", cow.Name, 0.05, 0.38, Palette.Fonts.Heading, Palette.Colors.Cream)
+		label("RarityLabel", typeText, 0.44, 0.22, Palette.Fonts.Body, accent)
+		return label("Status", "", 0.7, 0.24, Palette.Fonts.Body, Palette.Colors.SubText)
+	end
+
+	-- mit Kuh-Mutationen: eigene Zeile, jede in ihrer Farbe ("Nass · Gefroren")
+	label("NameLabel", cow.Name, 0.04, 0.3, Palette.Fonts.Heading, Palette.Colors.Cream)
+	local parts = {}
+	for _, id in ipairs(mutations) do
+		local mutation = CowData.CowMutations[id]
+		table.insert(parts, ('<font color="#%s">%s</font>'):format(mutation.Color:ToHex(), mutation.DisplayName))
+	end
+	local mutationLabel = label("MutationLabel", table.concat(parts, " · "), 0.35, 0.18, Palette.Fonts.Body, accent)
+	mutationLabel.RichText = true
+	label("RarityLabel", typeText, 0.55, 0.17, Palette.Fonts.Body, accent)
+	return label("Status", "", 0.75, 0.19, Palette.Fonts.Body, Palette.Colors.SubText)
 end
 
 local function showPopup(part, message, color)
@@ -1111,7 +1131,7 @@ local function freeHotbarForCow(data)
 	local cheapest, cheapestValue = nil, math.huge
 	for _, bucket in pairs(data.Buckets) do
 		if bucket.Hotbar then
-			local value = CowData.GetBucketValue(bucket.Liters, bucket.Mutations)
+			local value = CowData.GetBucketValue(bucket.Liters, bucket.Mutations, bucket.CowMutations)
 			if value < cheapestValue then
 				cheapest, cheapestValue = bucket, value
 			end
@@ -1155,6 +1175,12 @@ local function normalizeCows(data)
 	local cells, hotbar = {}, {}
 	local list = sortedCows(data)
 	for _, cow in ipairs(list) do
+		if cow.Mutations ~= nil then
+			cow.Mutations = CowData.CleanCowMutations(cow.Mutations)
+			if #cow.Mutations == 0 then
+				cow.Mutations = nil
+			end
+		end
 		if
 			cow.Slot ~= nil and (type(cow.Slot) ~= "number" or cow.Slot < 1 or cow.Slot > GRID_CELLS or cells[cow.Slot])
 		then
@@ -1306,11 +1332,13 @@ local function buildSpot(player, farm, cow)
 				MilkReadyAt = current.MilkReadyAt or 0,
 				BornAt = current.BornAt,
 				GrowTime = current.GrowTime,
+				Mutations = current.Mutations or {},
 				ServerTime = os.time(),
 			})
 		end
 	end)
 
+	CowModelBuilder.ApplyCowMutations(cowModel, refs.Torso, cow.Mutations)
 	local status = createInfoBillboard(cow, refs.Torso, stage)
 
 	spotModel.Parent = farm.CowsFolder
@@ -1325,6 +1353,7 @@ local function buildSpot(player, farm, cow)
 		SetFill = setFill,
 		Status = status,
 		Stage = stageIndex, -- Wachstums-Stufe, in der das Modell gebaut wurde
+		MutationKey = table.concat(cow.Mutations or {}, ","), -- Kuh-Mutationen, mit denen es gebaut wurde
 	}
 	farm.Spots[cow.Id] = spot
 	return spot
@@ -1956,13 +1985,30 @@ local function finishBreeding(player, data)
 	local rarity =
 		CowData.RollBreeding(parentA and parentA.Rarity or "Common", parentB and parentB.Rarity or "Common", rng)
 
+	-- jede Mutation der Eltern wird mit InheritChance vererbt (Verbindungen macht AddCow)
+	local inherited = {}
+	for _, parent in ipairs({ parentA, parentB }) do
+		for _, id in ipairs(parent and parent.Mutations or {}) do
+			if not table.find(inherited, id) and rng:NextNumber() < CowData.CowMutationSettings.InheritChance then
+				table.insert(inherited, id)
+			end
+		end
+	end
+
 	data.Breeding = nil
-	local calf = DataService.AddCow(player, rarity)
+	local calf = DataService.AddCow(player, rarity, { Mutations = inherited })
 	refreshCowLabels(player)
 
 	if calf then
 		local names = (parentA and parentA.Name or "?") .. " & " .. (parentB and parentB.Name or "?")
 		announceNewCow(player, calf, "🍼 Kalb von " .. names)
+		if calf.Mutations and #calf.Mutations > 0 then
+			DataService.Notify(
+				player,
+				("🧬 %s hat geerbt: %s"):format(calf.Name, CowData.FormatCowMutations(calf.Mutations)),
+				"rare"
+			)
+		end
 	end
 end
 
@@ -2039,6 +2085,7 @@ local function buildInventory(player)
 			MilkReadyAt = cow.MilkReadyAt or 0,
 			BornAt = cow.BornAt,
 			GrowTime = cow.GrowTime,
+			Mutations = cow.Mutations or {},
 			Slot = cow.Slot,
 			Hotbar = cow.Hotbar,
 			Stored = cow.Stored == true,
@@ -2059,7 +2106,8 @@ local function buildInventory(player)
 			CowType = bucket.CowType,
 			Hotbar = bucket.Hotbar,
 			Auto = bucket.Auto == true,
-			Value = CowData.GetBucketValue(bucket.Liters, bucket.Mutations),
+			CowMutations = bucket.CowMutations or {},
+			Value = CowData.GetBucketValue(bucket.Liters, bucket.Mutations, bucket.CowMutations),
 		})
 	end
 	table.sort(buckets, function(a, b)
@@ -2291,32 +2339,50 @@ local function growBurst(torso)
 	Debris:AddItem(emitter, 2)
 end
 
--- Erst die neue (größere) Kuh bauen, DANN die alte entfernen. Klappt das Bauen nicht,
--- bleibt die alte Kuh auf ihrem Feld stehen (die Kuh verschwindet nie von der Farm).
-local function regrowCow(player, cow, stageIndex)
+-- Kuh neu aufbauen (neue Größe oder neue Mutationen): erst die neue bauen, DANN die alte entfernen.
+-- Klappt das Bauen nicht, bleibt die alte Kuh auf ihrem Feld stehen (die Kuh verschwindet nie von der Farm).
+-- Gibt den neuen Spot zurück oder nil.
+local function rebuildSpot(player, cow, reason)
 	local farm = farms[player]
 	local oldSpot = farm and farm.Spots[cow.Id]
 	if not oldSpot or oldSpot.Regrowing then
-		return
+		return nil
 	end
 	oldSpot.Regrowing = true
 	farm.Spots[cow.Id] = nil -- sonst gibt spawnCow die alte Kuh zurück
 	local newSpot = spawnCow(player, cow)
 	if farms[player] ~= farm then
-		return -- Spieler ist weg
+		return nil -- Spieler ist weg
 	end
 	if not newSpot then
 		if not farm.Spots[cow.Id] and cow.Slot then
 			farm.Spots[cow.Id] = oldSpot
 		end
-		oldSpot.Stage = stageIndex -- nicht jede Sekunde neu versuchen
+		-- nicht jede Sekunde neu versuchen
+		local _, stageIndex = CowData.GetGrowth(cow, os.time())
+		oldSpot.Stage = stageIndex
+		oldSpot.MutationKey = table.concat(cow.Mutations or {}, ",")
 		oldSpot.Regrowing = nil
-		warn(("[CowManager] %s (%s) konnte nicht wachsen – bleibt in der alten Größe."):format(cow.Name, cow.Id))
+		warn(
+			("[CowManager] %s (%s) konnte nicht neu gebaut werden (%s) – bleibt wie sie ist."):format(
+				cow.Name,
+				cow.Id,
+				reason
+			)
+		)
 		refreshCowLabels(player)
-		return
+		return nil
 	end
 	oldSpot.Model:Destroy()
 	refreshCowLabels(player)
+	return newSpot
+end
+
+local function regrowCow(player, cow, stageIndex)
+	local newSpot = rebuildSpot(player, cow, "Wachstum")
+	if not newSpot then
+		return
+	end
 	growBurst(newSpot.Torso)
 	local stages = CowData.Growth.Stages
 	if stageIndex >= #stages then
@@ -2328,6 +2394,19 @@ local function regrowCow(player, cow, stageIndex)
 	playSound(newSpot.Torso, Config.NewCowSoundId, 0.6, 1.3)
 end
 
+-- neue Kuh-Mutation: Kuh mit neuem Aussehen bauen + kleiner Effekt
+local function remutateCow(player, cow)
+	local newSpot = rebuildSpot(player, cow, "Mutation")
+	if not newSpot then
+		return
+	end
+	growBurst(newSpot.Torso)
+	local newest = cow.Mutations and CowData.CowMutations[cow.Mutations[#cow.Mutations]]
+	if newest then
+		showPopup(newSpot.Torso, newest.Icon .. " " .. newest.DisplayName .. "!", newest.Color)
+	end
+end
+
 local function checkGrowth(player, data)
 	local farm = farms[player]
 	if not farm then
@@ -2335,20 +2414,114 @@ local function checkGrowth(player, data)
 	end
 	local now = os.time()
 	local session = sessions[player]
-	local grown = {} -- erst sammeln, dann umbauen (nicht farm.Spots ändern, während wir durchgehen)
+	local grown, mutated = {}, {} -- erst sammeln, dann umbauen (nicht farm.Spots ändern, während wir durchgehen)
 	for cowId, spot in pairs(farm.Spots) do
 		local cow = data.Cows[cowId]
-		if cow and spot.Stage and not (session and session.CowId == cowId) then
+		if cow and spot.Stage and not spot.Regrowing and not (session and session.CowId == cowId) then
 			local _, stageIndex = CowData.GetGrowth(cow, now)
 			if stageIndex ~= spot.Stage then
 				table.insert(grown, { Cow = cow, Stage = stageIndex })
+			elseif table.concat(cow.Mutations or {}, ",") ~= spot.MutationKey then
+				table.insert(mutated, cow)
 			end
 		end
 	end
 	for _, entry in ipairs(grown) do
 		task.spawn(regrowCow, player, entry.Cow, entry.Stage)
 	end
+	for _, cow in ipairs(mutated) do
+		task.spawn(remutateCow, player, cow)
+	end
 end
+
+------------------------------------------------------------------------
+-- Kuh-Mutationen würfeln: alle TickInterval Sekunden für jede Kuh auf der Farm (CowData.CowMutations).
+-- Höchstens eine neue Mutation pro Kuh und Wurf; danach werden Verbindungen angewendet.
+-- Das neue Aussehen baut checkGrowth (1-Sekunden-Schleife) – auch erst nach dem Melken.
+------------------------------------------------------------------------
+local mutationBoost = RunService:IsStudio() and CowData.CowMutationSettings.StudioBoost or 1
+
+local function rollCowMutations(player, data)
+	local farm = farms[player]
+	if not farm then
+		return
+	end
+	local weather = workspace:GetAttribute("Weather") or "Clear"
+	local changed = false
+	for cowId in pairs(farm.Spots) do
+		local cow = data.Cows[cowId]
+		if cow and cow.Slot then
+			local current = cow.Mutations or {}
+			for _, id in ipairs(CowData.CowMutationOrder) do
+				local chance = CowData.GetCowMutationChance(id, weather) * mutationBoost
+				if chance > 0 and CowData.CanGainCowMutation(current, id) and rng:NextNumber() < chance then
+					local list = table.clone(current)
+					table.insert(list, id)
+					local newList, made = CowData.ApplyCowMutationCombos(list)
+					cow.Mutations = newList
+					changed = true
+
+					local info = CowData.CowMutations[id]
+					DataService.Notify(
+						player,
+						("%s %s ist jetzt %s! (Milch %s wert)"):format(
+							info.Icon,
+							cow.Name,
+							info.DisplayName,
+							CowData.FormatMultiplier(info.Multiplier)
+						),
+						info.Multiplier >= 10 and "rare" or "success"
+					)
+					for _, combo in ipairs(made) do
+						local result = CowData.CowMutations[combo.Result]
+						local names = {}
+						for _, need in ipairs(combo.Needs) do
+							table.insert(names, CowData.CowMutations[need].DisplayName)
+						end
+						DataService.Notify(
+							player,
+							("%s Verbindung! %s = %s (%s, Milch %s wert)"):format(
+								result.Icon,
+								table.concat(names, " + "),
+								result.DisplayName,
+								cow.Name,
+								CowData.FormatMultiplier(result.Multiplier)
+							),
+							"rare"
+						)
+						if result.Multiplier >= 30 then
+							DataService.NotifyAll(
+								("%s %s hat eine Kuh mit %s!"):format(
+									result.Icon,
+									player.DisplayName,
+									result.DisplayName
+								),
+								"rare",
+								player
+							)
+						end
+					end
+					break -- eine neue Mutation pro Wurf reicht
+				end
+			end
+		end
+	end
+	if changed then
+		DataService.FireInventoryChanged(player)
+	end
+end
+
+task.spawn(function()
+	while true do
+		task.wait(CowData.CowMutationSettings.TickInterval)
+		for player in pairs(farms) do
+			local data = DataService.Get(player)
+			if data then
+				rollCowMutations(player, data)
+			end
+		end
+	end
+end)
 
 ------------------------------------------------------------------------
 -- Schleifen: Zucht-Timer, Wachstum, Statusanzeigen, Melk-Abstand

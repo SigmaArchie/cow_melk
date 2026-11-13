@@ -90,6 +90,30 @@ local function findBucket(bucketId)
 	return nil
 end
 
+-- Kuh-Mutationen als farbiger RichText: "Nass · Gefroren" (leer -> "")
+local function cowMutationRichText(mutations)
+	local parts = {}
+	for _, id in ipairs(mutations or {}) do
+		local mutation = CowData.CowMutations[id]
+		if mutation then
+			table.insert(parts, ('<font color="#%s">%s</font>'):format(mutation.Color:ToHex(), mutation.DisplayName))
+		end
+	end
+	return table.concat(parts, " · ")
+end
+
+-- Symbole der Kuh-Mutationen: "💧🧊"
+local function cowMutationIcons(mutations)
+	local icons = ""
+	for _, id in ipairs(mutations or {}) do
+		local mutation = CowData.CowMutations[id]
+		if mutation then
+			icons ..= mutation.Icon
+		end
+	end
+	return icons
+end
+
 -- Farbe der wertvollsten Mutation (normale Milch = Creme)
 local function bucketColor(bucket)
 	local top = bucket.Mutations and bucket.Mutations[1]
@@ -114,6 +138,16 @@ local function bucketDescription(bucket)
 		)
 	else
 		table.insert(parts, "keine Mutation")
+	end
+	local cowMutations = bucket.CowMutations or {}
+	if #cowMutations > 0 then
+		table.insert(
+			parts,
+			("Kuh: %s (%s)"):format(
+				CowData.FormatCowMutations(cowMutations),
+				CowData.FormatMultiplier(CowData.GetCowMutationMultiplier(cowMutations))
+			)
+		)
 	end
 	table.insert(parts, "Wert " .. CowData.FormatNumber(bucket.Value) .. " Coins")
 	return table.concat(parts, "  ·  ")
@@ -291,6 +325,7 @@ local function renderHotbar()
 				tagText = CowData.MilkTypes[top].ShortName
 					.. (#item.Mutations > 1 and (" +" .. (#item.Mutations - 1)) or "")
 			end
+			tagText ..= cowMutationIcons(item.CowMutations)
 			Theme.label(widget.Content, {
 				AnchorPoint = Vector2.new(1, 0),
 				Position = UDim2.new(1, -4, 0, 3),
@@ -710,6 +745,18 @@ local function renderCows()
 			CowName = cow.Name,
 			Size = UDim2.fromOffset(226, 150),
 		})
+		if cow.Mutations and #cow.Mutations > 0 then
+			Theme.label(card, {
+				Name = "Mutations",
+				Position = UDim2.fromOffset(68, 62),
+				Size = UDim2.new(1, -76, 0, 13),
+				Font = Theme.BodyFont,
+				TextSize = Theme.TextSize.Tiny,
+				TextTruncate = Enum.TextTruncate.AtEnd,
+				RichText = true,
+				Text = cowMutationRichText(cow.Mutations),
+			})
+		end
 		-- Rahmen: ausgewählte Kuh (wird gerade platziert / Menü offen) in Blau
 		local cardStroke = card:FindFirstChildOfClass("UIStroke")
 		if cardStroke and (cow.Id == placingCowId or cow.Id == popupCowId) then
@@ -869,7 +916,12 @@ local function renderBuckets()
 			TextTruncate = Enum.TextTruncate.AtEnd,
 			Text = CowData.FormatNumber(bucket.Liters)
 				.. " L"
-				.. ((bucket.CowName and not bucket.Auto) and (" · von " .. bucket.CowName) or ""),
+				.. ((bucket.CowName and not bucket.Auto) and (" · von " .. bucket.CowName) or "")
+				.. (
+					(bucket.CowMutations and #bucket.CowMutations > 0)
+						and (" " .. cowMutationIcons(bucket.CowMutations))
+					or ""
+				),
 		})
 		Theme.label(card, {
 			Position = UDim2.fromOffset(68, 54),
@@ -877,9 +929,13 @@ local function renderBuckets()
 			Font = Theme.BodyFont,
 			TextSize = Theme.TextSize.Small,
 			TextColor3 = Colors.Gold,
-			Text = "Wert " .. CowData.FormatNumber(bucket.Value) .. (mutated and ("  (" .. CowData.FormatMultiplier(
-				CowData.GetMutationMultiplier(bucket.Mutations)
-			) .. ")") or ""),
+			Text = (function()
+				local factor = CowData.GetMutationMultiplier(bucket.Mutations)
+					* CowData.GetCowMutationMultiplier(bucket.CowMutations)
+				return "Wert "
+					.. CowData.FormatNumber(bucket.Value)
+					.. (factor > 1 and ("  (" .. CowData.FormatMultiplier(factor) .. ")") or "")
+			end)(),
 		})
 
 		local where, whereColor = "Eimer-Lager", Colors.Grey
@@ -987,7 +1043,7 @@ UIBus.ToggleInventory.Event:Connect(toggleWindow)
 ------------------------------------------------------------------------
 local popup = Theme.panel(gui, {
 	Name = "CowMenu",
-	Size = UDim2.fromOffset(250, 158),
+	Size = UDim2.fromOffset(250, 178),
 	BackgroundColor3 = Colors.Panel,
 	Visible = false,
 	ZIndex = 30,
@@ -1016,6 +1072,17 @@ local popupGrowth = Theme.label(popup, {
 	TextSize = 12,
 	TextColor3 = Colors.Orange,
 	TextTruncate = Enum.TextTruncate.AtEnd,
+	Text = "",
+	Outline = 0,
+})
+-- Kuh-Mutationen: "Nass · Gefroren · Milch x11 wert"
+local popupMutations = Theme.label(popup, {
+	Position = UDim2.fromOffset(14, 103),
+	Size = UDim2.new(1, -28, 0, 16),
+	Font = Theme.BodyFont,
+	TextSize = 12,
+	TextTruncate = Enum.TextTruncate.AtEnd,
+	RichText = true,
 	Text = "",
 	Outline = 0,
 })
@@ -1090,6 +1157,14 @@ Remotes.CowClicked.OnClientEvent:Connect(function(cow)
 			formatTime(CowData.GetTimeToGrown(cow, now))
 		)
 	end
+	if cow.Mutations and #cow.Mutations > 0 then
+		popupMutations.Text = ("%s · Milch %s wert"):format(
+			cowMutationRichText(cow.Mutations),
+			CowData.FormatMultiplier(CowData.GetCowMutationMultiplier(cow.Mutations))
+		)
+	else
+		popupMutations.Text = '<font color="#9aa0a8">Noch keine Mutation – Wetter abwarten!</font>'
+	end
 	local waitTime = (cow.MilkReadyAt or 0) - (cow.ServerTime or os.time())
 	if waitTime > 0 then
 		popupStatus.Text = "Braucht noch " .. formatTime(waitTime) .. " Pause"
@@ -1103,7 +1178,7 @@ Remotes.CowClicked.OnClientEvent:Connect(function(cow)
 	local camera = workspace.CurrentCamera
 	local viewport = camera and camera.ViewportSize or Vector2.new(1280, 720)
 	local mouse = UserInputService:GetMouseLocation() - game:GetService("GuiService"):GetGuiInset()
-	local w, h = 250 * popupScale.Scale, 158 * popupScale.Scale
+	local w, h = 250 * popupScale.Scale, 178 * popupScale.Scale
 	popup.Position = UDim2.fromOffset(
 		math.clamp(mouse.X + 18, 8, viewport.X - w - 8),
 		math.clamp(mouse.Y - h / 2, 8, viewport.Y - h - 110)
