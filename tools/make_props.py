@@ -445,8 +445,10 @@ def render_preview(parts):
 
 # ----------------------------------------------------------------------------- Export
 def rbx(v):
-    """Blender (Z oben) -> Roblox (Y oben): x, z, -y"""
-    return (v.x, v.z, -v.y)
+    """Blender (Z oben) -> Roblox (Y oben): -x, z, y
+    So legt der Roblox-3D-Importer die Meshes an (in Studio geprüft): wie (x, z, -y),
+    aber um 180 Grad um die Hochachse gedreht. Blender +X wird Roblox -X, Blender +Y wird Roblox +Z."""
+    return (-v.x, v.z, v.y)
 
 
 def bounds(obj):
@@ -540,4 +542,5 @@ def main():
                                                     sum(len(p.vertices) - 2 for p in parts[name].data.polygons)))
 
 
-main()
+if __name__ == "__main__":  # beim Import aus make_tools.py nicht ausführen
+    main()
