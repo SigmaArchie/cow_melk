@@ -1,6 +1,6 @@
 -- GearModels.lua
 -- 3D-Modelle für das Werkzeug (CowData.Gears). Server UND Client benutzen sie:
---   * Server: aufgestelltes Werkzeug auf der Weide (GearManager), Deko am Werkzeug-Shop (MapBuilder)
+--   * Server: aufgestelltes Werkzeug auf den Farmen (GearManager), Deko am Werkzeug-Shop (MapBuilder)
 --   * Client: Bilder in Shop und Werkzeug-Fenster (ViewportFrame), Vorschau beim Aufstellen
 -- GearModels.Build(gearType, cf, options) baut das Modell auf dem Boden-CFrame cf (Vorderseite -Z).
 --   options.Ghost = true: halb durchsichtig, ohne Licht/Partikel (Vorschau beim Aufstellen)

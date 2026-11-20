@@ -35,7 +35,7 @@ src/server/  -> ServerScriptService.Server
   ShopService.lua           Lager des Kuh-Shops (Abschnitt, Lager, was der Spieler schon gekauft hat)
   ShopManager.server        GetShopStock, neues Lager ansagen (ShopRestocked + Meldung)
   GearService.lua           Werkzeug-Logik nur mit Daten (Lager, Kaufen, Aufstellen, Ablaufen, Wirkung, an der Kuh benutzen)
-  GearManager.server        Werkzeug-Remotes (GetGearStock, BuyGear, GearAction), Modelle auf der Weide, Wachstums-Schleife
+  GearManager.server        Werkzeug-Remotes (GetGearStock, BuyGear, GearAction), Modelle auf den Farmen, Wachstums-Schleife
   WeatherManager.server     Wetter-Events für den ganzen Server (workspace-Attribute Weather / WeatherEndsAt)
   LoginStreak.server        Tagesbonus, 7 Tage am Stück -> Rainbow Cow
   MapBuilder.server         runder Marktplatz mit Brunnen + 4 Shop-Gebäuden (NPC), Feldwege, Landschaft zwischen den Farmen, Wald, Hügel
@@ -43,9 +43,9 @@ src/client/  -> StarterPlayerScripts.Client
   Theme.lua                 EIN UI-Stil für alles (Farben, Schrift, Abstände, Knöpfe, Fenster, Balken, Abzeichen, Kuh-Karten, Meldungen, Symbole, Skalierung)
   UIBus.lua                 Signale zwischen Client-Scripts (Fenster öffnen sich gegenseitig)
   CoinDisplay.client        HUD (ScreenGui "HUD"): Coins/Milch, Seitenknöpfe, Meldungen, VERKAUFEN
-  InventoryClient.client    Hotbar (Kühe + Milch-Eimer, Tasten 1-9), Fenster "MEINE KÜHE" mit Reitern Kühe/Eimer, Platzier-Modus, Kuh-Menü
+  InventoryClient.client    Hotbar (Kühe + Milch-Eimer + Werkzeug, Tasten 1-9), Fenster "MEINE KÜHE" mit Reitern Kühe/Eimer, Platzier-Modus, Kuh-Menü
   OverviewClient.client     Fenster "KARTE" mit gezeichneter Karte + Reisen
-  GearClient.client         Fenster "MEIN WERKZEUG" (Taste G), Aufstell-Modus, Werkzeug-Knöpfe unter dem Kuh-Menü
+  GearClient.client         Fenster "MEIN WERKZEUG" (Taste G), Aufstell-Modus (frei auf der Farm), Kuh-Modus, Knöpfe unter dem Kuh-Menü
   GearView.lua              Werkzeug-Modell als drehendes 3D-Bild (ViewportFrame) für Shop und Werkzeug-Fenster
   MenuUI.client             Fenster Kuh-Shop, Kisten, Zucht-Stall, Tagesbonus, Auto-Melker (ScreenGui "MenuUI", Fenster "Window")
   MilkingClient.client      Melk-Minispiel
@@ -76,7 +76,7 @@ src/client/  -> StarterPlayerScripts.Client
 | ShopRestocked | RE | S→C | neues Lager im Kuh-Shop (offenes Shop-Fenster lädt neu) |
 | GetGearStock | RF | C→S | Werkzeug-Lager → { Cycle, RestockAt, ServerTime, Items = { Type, Order, Price, Amount, Remaining } } |
 | BuyGear | RF | C→S | (Werkzeug) → ok, msg – nur, was im aktuellen Werkzeug-Lager ist |
-| GearAction | RF | C→S | ("Place", Werkzeug, Ecke 1-25) aufstellen · ("UseOnCow", Werkzeug, cowId) an einer Kuh benutzen → ok, msg |
+| GearAction | RF | C→S | ("Place", Werkzeug, x, z, yaw) irgendwo auf der eigenen Farm aufstellen (lokale Plot-Koordinaten) · ("UseOnCow", Werkzeug, cowId) an einer Kuh benutzen · ("Hotbar", Werkzeug, Platz \| nil) / ("Unhotbar", Werkzeug) → ok, msg |
 | CowClicked | RE | S→C | eigene Kuh angeklickt → Menü (Melken/Aufheben) |
 | OpenShop | RE | S→C | Shop-Gebäude angeklickt → Fenster öffnen |
 | Notify | RE | S→C | (text, kind) kind = info/success/error/rare |
@@ -96,7 +96,8 @@ Spieler-Attribute (Server setzt sie): `Coins`, `Milk` (Liter in allen Eimern), `
   NextCowId, Breeding = {ParentA, ParentB, StartedAt, ReadyAt} | nil,
   LoginStreak = {Streak, LastDay, Best}, Receipts = {[PurchaseId]=time},
   ShopStock = { Cycle, Bought = { [Kuh-Art]=Anzahl } },
-  Gears = { [Werkzeug]=Anzahl }, PlacedGear = { { Id, Type, Corner, PlacedAt, ExpiresAt } }, NextGearId,
+  Gears = { [Werkzeug]=Anzahl }, GearHotbar = { [Werkzeug]=Hotbar-Platz },
+  PlacedGear = { { Id, Type, X, Z, Yaw, PlacedAt, ExpiresAt } } (alte Einträge mit Corner werden umgerechnet), NextGearId,
   GearStock = { Cycle, Bought = { [Werkzeug]=Anzahl } },   -- Kuh: Brushed = true (gestriegelt)
   ReceivedStarterCow, TutorialDone }
 ```
@@ -208,10 +209,11 @@ Alles dreht sich um die Kartenmitte (0, 0, 0). Winkel im Uhrzeigersinn von Norde
 Daten in `CowData.Gears` / `CowData.GearShop` / `CowData.GearSettings`, Logik in `GearService` (nur Daten, getestet), Server in `GearManager`, Oberfläche in `MenuUI` (Seite "Gear") und `GearClient`. Vorschau-Bilder: `assets_src/previews/werkzeug/`.
 
 - **Lager** wie beim Kuh-Shop: alle 5 Minuten neu, in allen Servern gleich (`CowData.RollGearStock`), jeder Spieler darf bis zur Lager-Menge kaufen (`GearStock`). Seltenes (ab 10.000 Coins) wird im Server angesagt.
-- **Für eine Kuh** (Kuh anklicken → Knöpfe unter dem Kuh-Menü): **Heubündel** 150 (Pause sofort vorbei), **Striegel** 400 (nächster voller Eimer +50 % Milch), **Wunder-Spray** 60.000 (zufällige Kuh-Mutation, Gewichte `SprayWeights`, Verbindungen zählen).
-- **Zum Aufstellen** (Fenster WERKZEUG → "Aufstellen" → grünen Punkt anklicken): steht an einer der 25 Ecken zwischen den Feldern (dort laufen keine Kühe, `CowData.GetGearCornerLocal`), wirkt auf alle Kühe, deren Feld im Radius liegt, und läuft nach Ablauf ab. **Futtertrog** 800 (Kälber wachsen x2, 4 Felder, 10 Min), **Kuhglocke** 2.500 (Wetter-Mutationen x2, 4 Felder, 10 Min), **Goldener Futtertrog** 10.000 (x3, 12 Felder, 15 Min), **Wetterhahn** 25.000 (Mutationen x3, 12 Felder, 15 Min). Höchstens 6 gleichzeitig. Mehrere Werkzeuge: der beste Faktor zählt.
+- **Hotbar:** gekauftes Werkzeug kommt als Stapel (Bild + Anzahl) auf einen freien Hotbar-Platz (`GearService.AutoHotbar`), Kühe und Eimer gehen vor. Im Werkzeug-Fenster "+ Hotbar" / "– Hotbar". Platz anklicken bzw. Zahl drücken = Werkzeug in die Hand (`UIBus.SelectGear`); leerer Stapel gibt den Platz frei.
+- **Für eine Kuh** (Werkzeug in die Hand → eigene Kuh anklicken, oder Kuh anklicken → Knöpfe unter dem Kuh-Menü): **Heubündel** 150 (Pause sofort vorbei), **Striegel** 400 (nächster voller Eimer +50 % Milch), **Wunder-Spray** 60.000 (zufällige Kuh-Mutation, Gewichte `SprayWeights`, Verbindungen zählen).
+- **Zum Aufstellen** (wie die Sprinkler in Grow a Garden; Hotbar oder Fenster → "Aufstellen"): Vorschau folgt der Maus **irgendwo auf der eigenen Farm** (auch neben dem Bauernhaus), R = drehen, Klick = aufstellen, X = fertig. Die 36 Kuh-Plätze leuchten grün, wenn das Werkzeug sie erreicht; ein Schild zeigt "🐄 3 Kühe in Reichweite". Wirkt auf jede Kuh, deren Platz (Feld-Mitte + `CowOffsetX`) höchstens `Radius` entfernt ist (`CowData.GearCoversCell` / `GetGearCells`). Regeln: auf der Farm mit 2 Studs Rand (`IsGearPositionValid`), mind. 3,5 Studs zu anderem Werkzeug, höchstens 6. Zwischen 4 Feldern erreicht Radius 12 die 4 Plätze rundherum, Radius 26 zwölf. **Futtertrog** 800 (Kälber wachsen x2, kleiner Kreis R 12, 10 Min), **Kuhglocke** 2.500 (Wetter-Mutationen x2, R 12, 10 Min), **Goldener Futtertrog** 10.000 (x3, großer Kreis R 26, 15 Min), **Wetterhahn** 25.000 (Mutationen x3, R 26, 15 Min). Höchstens 6 gleichzeitig. Mehrere Werkzeuge: der beste Faktor zählt.
 - Wachstum: alle 5 s bekommen Kälber im Bereich `5 · (Faktor − 1)` Sekunden geschenkt (`BornAt` rückt vor, nie über "ausgewachsen" hinaus); den Umbau zur nächsten Stufe macht wie immer `CowManager.checkGrowth`. Mutations-Glück multipliziert in `rollCowMutations` die Wetter-Chance.
-- Auf der Weide: Modell + halbdurchsichtiger Wirkungsbereich + Schild mit Restzeit (Folder `Gear` im Plot). Glocke schwingt, Wetterhahn dreht sich (Tag `Spinner`, `SwingAngle`).
+- Auf der Farm: Modell + halbdurchsichtiger Wirkungsbereich + Schild mit Restzeit (Folder `Gear` im Plot). Glocke schwingt, Wetterhahn dreht sich (Tag `Spinner`, `SwingAngle`).
 - HUD-Knopf **WERKZEUG** (Taste G) links; Shop-Karten und Werkzeug-Fenster zeigen die Modelle als drehendes 3D-Bild.
 
 ## Kuhmodell & Animation
@@ -260,6 +262,8 @@ Funktioniert vermutlich: Coins `4590662766`, Muhen `535690488`. **Aus** (IDs war
 ## Behobene Fehler
 
 - **Zwei Kühe ineinander** (Pass 3): `CowModelBuilder.BuildCow` wartet beim ersten Mal auf die Mesh-Prüfung. In dieser Zeit haben Gratis-Kuh (`CowAdded`) und Laden der Farm (`onPlayerAdded`) dieselbe Kuh zweimal gebaut. Jetzt merkt sich `farm.Spawning`, welche Kuh gerade gebaut wird; ein zweiter Aufruf wartet darauf.
+
+- **Gekaufte Kühe alle auf demselben Feld**: `DataService.AddCow` schickt die Kuh über ein `BindableEvent` an `CowManager` – Roblox **kopiert** Tabellen dabei. `assignLocation` hat das Feld nur in die Kopie geschrieben, die echte Kuh in den Daten blieb ohne Feld, also bekam jede neue Kuh wieder Feld 1. Jetzt holt sich der `CowAdded`-Handler zuerst die echte Kuh (`data.Cows[cow.Id]`). Merke: über BindableEvents nie Tabellen schicken, die der Empfänger ändern soll.
 
 - **Remote fehlt → Script bricht ab**: Server-Scripts holen neue Remotes über `DataService.GetRemote` – fehlt eines (Rojo nicht neu gestartet), wird es zur Laufzeit angelegt (mit Warnung).
 

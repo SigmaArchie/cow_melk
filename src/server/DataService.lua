@@ -56,9 +56,10 @@ local function createDefaultData()
 		LoginStreak = { Streak = 0, LastDay = 0, Best = 0 },
 		Receipts = {}, -- bereits verarbeitete Robux-Käufe
 		ShopStock = { Cycle = 0, Bought = {} }, -- im aktuellen Kuh-Shop-Lager schon gekauft: [Kuh-Art] = Anzahl
-		-- Werkzeug (GearService): im Rucksack, auf der Weide aufgestellt, im Werkzeug-Lager schon gekauft
+		-- Werkzeug (GearService): im Rucksack, auf der Farm aufgestellt, im Werkzeug-Lager schon gekauft
 		Gears = {}, -- [Werkzeug] = Anzahl
-		PlacedGear = {}, -- { { Id, Type, Corner, PlacedAt, ExpiresAt } }
+		PlacedGear = {}, -- { { Id, Type, X, Z, Yaw, PlacedAt, ExpiresAt } }
+		GearHotbar = {}, -- [Werkzeug] = Hotbar-Platz
 		NextGearId = 1,
 		GearStock = { Cycle = 0, Bought = {} },
 		ReceivedStarterCow = false,
@@ -380,7 +381,7 @@ end
 ------------------------------------------------------------------------
 -- Milch-Eimer (jeder Melk-Vorgang = ein Eimer; Hotbar teilen sich Kühe und Eimer)
 ------------------------------------------------------------------------
--- Was liegt auf welchem Hotbar-Platz? [Platz] = Kuh oder Eimer
+-- Was liegt auf welchem Hotbar-Platz? [Platz] = Kuh, Eimer oder { Gear = Werkzeug }
 function DataService.GetHotbarItems(data)
 	local used = {}
 	for _, cow in pairs(data.Cows) do
@@ -391,6 +392,22 @@ function DataService.GetHotbarItems(data)
 	for _, bucket in pairs(data.Buckets) do
 		if bucket.Hotbar then
 			used[bucket.Hotbar] = bucket
+		end
+	end
+	-- Werkzeug-Stapel (GearService) belegen ihren Platz auch. Setzt jemand .Hotbar am Eintrag
+	-- (Plätze tauschen), wandert der Stapel mit (nil = aus der Hotbar, bleibt im Rucksack).
+	for gearType, index in pairs(data.GearHotbar or {}) do
+		if (data.Gears and data.Gears[gearType] or 0) > 0 and not used[index] then
+			used[index] = setmetatable({ Gear = gearType }, {
+				__index = function(_, key)
+					return key == "Hotbar" and data.GearHotbar[gearType] or nil
+				end,
+				__newindex = function(_, key, value)
+					if key == "Hotbar" then
+						data.GearHotbar[gearType] = value
+					end
+				end,
+			})
 		end
 	end
 	return used

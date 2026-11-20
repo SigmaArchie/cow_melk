@@ -837,7 +837,7 @@ local function occupiedCells(data)
 	return used
 end
 
--- Hotbar-Plätze teilen sich Kühe und Milch-Eimer: [Platz] = Kuh oder Eimer
+-- Hotbar-Plätze teilen sich Kühe, Milch-Eimer und Werkzeug-Stapel: [Platz] = Kuh, Eimer oder Werkzeug
 local function occupiedHotbar(data)
 	return DataService.GetHotbarItems(data)
 end
@@ -1160,6 +1160,9 @@ DataService.CowAdded:Connect(function(player, cow)
 		return
 	end
 	local data = DataService.Get(player)
+	-- WICHTIG: Ein BindableEvent schickt eine KOPIE der Tabelle. Ohne diese Zeile bekäme nur die Kopie
+	-- ein Feld, die echte Kuh in den Daten nicht – dann landen alle neuen Kühe auf demselben Feld.
+	cow = data and data.Cows[cow.Id] or cow
 	if data and not cow.Slot and not cow.Hotbar and not cow.Stored then
 		local where = assignLocation(data, cow)
 		if where == "hotbar" then
@@ -1782,6 +1785,7 @@ local function buildInventory(player)
 	if not data then
 		return nil
 	end
+	GearService.Ensure(data) -- Werkzeug-Daten aufräumen (z.B. Hotbar-Plätze, die eine Kuh belegt)
 
 	local cows = {}
 	for _, cow in pairs(data.Cows) do
@@ -1838,14 +1842,24 @@ local function buildInventory(player)
 		ServerTime = os.time(),
 		HotbarSize = HOTBAR_SIZE,
 		CellCount = GRID_CELLS,
-		-- Werkzeug: im Rucksack und auf der Weide (GearClient)
+		-- Werkzeug: im Rucksack, in der Hotbar und auf der Farm (GearClient, InventoryClient)
 		Gears = table.clone(data.Gears or {}),
+		GearHotbar = (function()
+			-- nur Werkzeug, das man hat (leere Stapel geben ihren Platz frei)
+			local slots = {}
+			for gearType, index in pairs(data.GearHotbar or {}) do
+				if (data.Gears and data.Gears[gearType] or 0) > 0 then
+					slots[gearType] = index
+				end
+			end
+			return slots
+		end)(),
 		PlacedGear = (function()
 			local placed = {}
 			for _, entry in ipairs(GearService.GetActive(data, os.time())) do
 				table.insert(
 					placed,
-					{ Id = entry.Id, Type = entry.Type, Corner = entry.Corner, ExpiresAt = entry.ExpiresAt }
+					{ Id = entry.Id, Type = entry.Type, X = entry.X, Z = entry.Z, ExpiresAt = entry.ExpiresAt }
 				)
 			end
 			return placed

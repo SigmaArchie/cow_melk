@@ -5,7 +5,9 @@
 --
 -- Gespeichert wird in den Spielerdaten:
 --   data.Gears       = { [Werkzeug] = Anzahl }                       (im Rucksack)
---   data.PlacedGear  = { { Id, Type, Corner, PlacedAt, ExpiresAt } } (auf der Weide aufgestellt)
+--   data.PlacedGear  = { { Id, Type, X, Z, Yaw, PlacedAt, ExpiresAt } } (auf der Farm aufgestellt,
+--                      X/Z = lokale Plot-Koordinaten, Yaw = Drehung in Grad)
+--   data.GearHotbar  = { [Werkzeug] = Hotbar-Platz }                 (Werkzeug-Stapel in der Hotbar)
 --   data.NextGearId  = Zahl
 --   data.GearStock   = { Cycle, Bought = { [Werkzeug] = Anzahl } }   (im aktuellen Lager schon gekauft)
 --   cow.Brushed      = true, wenn der nächste volle Eimer der Kuh mehr Milch hat
@@ -39,19 +41,60 @@ function GearService.Ensure(data)
 	local clean = {}
 	for _, entry in ipairs(data.PlacedGear) do
 		local info = type(entry) == "table" and Gears[entry.Type]
-		if
-			info
-			and info.Kind == "Place"
-			and type(entry.Id) == "string"
-			and type(entry.Corner) == "number"
-			and entry.Corner >= 1
-			and entry.Corner <= CowData.GetGearCornerCount()
-			and type(entry.ExpiresAt) == "number"
-		then
-			table.insert(clean, entry)
+		if info and info.Kind == "Place" and type(entry.Id) == "string" and type(entry.ExpiresAt) == "number" then
+			-- ältere Version: an einer Ecke zwischen 4 Feldern (1-25) statt an einer freien Stelle
+			if type(entry.X) ~= "number" or type(entry.Z) ~= "number" then
+				local map = CowData.Map
+				local index = math.clamp(math.floor(tonumber(entry.Corner) or 13), 1, 25) - 1
+				entry.X = (index % 5 - 2) * map.GridCellX + (map.CowOffsetX or 0)
+				entry.Z = map.GridFirstRowZ + map.GridCellZ / 2 + math.floor(index / 5) * map.GridCellZ
+				entry.Corner = nil
+			end
+			if type(entry.Yaw) ~= "number" then
+				entry.Yaw = 0
+			end
+			if CowData.IsGearPositionValid(entry.X, entry.Z) then
+				table.insert(clean, entry)
+			end
 		end
 	end
 	data.PlacedGear = clean
+	-- Hotbar: nur Werkzeug, das man hat, gültige Plätze, keine Doppelbelegung (Kühe/Eimer gehen vor)
+	if type(data.GearHotbar) ~= "table" then
+		data.GearHotbar = {}
+	end
+	local taken = {}
+	for _, cow in pairs(data.Cows or {}) do
+		if cow.Hotbar then
+			taken[cow.Hotbar] = true
+		end
+	end
+	for _, bucket in pairs(data.Buckets or {}) do
+		if bucket.Hotbar then
+			taken[bucket.Hotbar] = true
+		end
+	end
+	for _, gearType in ipairs(CowData.GearOrder) do
+		local index = data.GearHotbar[gearType]
+		if index ~= nil then
+			local valid = type(index) == "number"
+				and index == math.floor(index)
+				and index >= 1
+				and index <= CowData.Config.HotbarSize
+				and not taken[index]
+				and (data.Gears[gearType] or 0) > 0
+			if valid then
+				taken[index] = true
+			else
+				data.GearHotbar[gearType] = nil
+			end
+		end
+	end
+	for gearType in pairs(data.GearHotbar) do
+		if not Gears[gearType] then
+			data.GearHotbar[gearType] = nil
+		end
+	end
 	if type(data.NextGearId) ~= "number" then
 		data.NextGearId = 1
 	end
@@ -72,6 +115,79 @@ end
 local function takeOne(data, gearType)
 	local count = GearService.GetCount(data, gearType) - 1
 	data.Gears[gearType] = count > 0 and count or nil
+	if count <= 0 and data.GearHotbar then
+		data.GearHotbar[gearType] = nil -- leerer Stapel macht seinen Hotbar-Platz frei
+	end
+end
+
+------------------------------------------------------------------------
+-- Hotbar (die Werkzeug-Stapel teilen sich die 9 Plätze mit Kühen und Eimern)
+------------------------------------------------------------------------
+-- Belegte Plätze: [Platz] = "cow" | "bucket" | Werkzeug-Name
+function GearService.GetUsedHotbar(data)
+	local used = {}
+	for _, cow in pairs(data.Cows or {}) do
+		if cow.Hotbar then
+			used[cow.Hotbar] = "cow"
+		end
+	end
+	for _, bucket in pairs(data.Buckets or {}) do
+		if bucket.Hotbar then
+			used[bucket.Hotbar] = "bucket"
+		end
+	end
+	for gearType, index in pairs(data.GearHotbar or {}) do
+		if GearService.GetCount(data, gearType) > 0 then
+			used[index] = gearType
+		end
+	end
+	return used
+end
+
+-- Neues Werkzeug: auf einen freien Hotbar-Platz legen (wenn es noch keinen hat und einer frei ist)
+function GearService.AutoHotbar(data, gearType)
+	GearService.Ensure(data)
+	if data.GearHotbar[gearType] or GearService.GetCount(data, gearType) <= 0 then
+		return data.GearHotbar[gearType]
+	end
+	local used = GearService.GetUsedHotbar(data)
+	for index = 1, CowData.Config.HotbarSize do
+		if not used[index] then
+			data.GearHotbar[gearType] = index
+			return index
+		end
+	end
+	return nil
+end
+
+-- In die Hotbar legen (index = nil: erster freier Platz). Liegt dort ein anderes Werkzeug, tauschen
+-- die beiden; Kühe und Eimer werden nicht verdrängt. Gibt ok, Meldung zurück.
+function GearService.SetHotbar(data, gearType, index)
+	GearService.Ensure(data)
+	if GearService.GetCount(data, gearType) <= 0 then
+		return false, "Davon hast du keins."
+	end
+	if index == nil then
+		return GearService.AutoHotbar(data, gearType) ~= nil, "Die Hotbar ist voll."
+	end
+	if type(index) ~= "number" or index ~= math.floor(index) or index < 1 or index > CowData.Config.HotbarSize then
+		return false, "Ungültiger Platz."
+	end
+	local other = GearService.GetUsedHotbar(data)[index]
+	if other == "cow" or other == "bucket" then
+		return false, "Auf dem Platz liegt schon etwas."
+	end
+	if other and other ~= gearType then
+		data.GearHotbar[other] = data.GearHotbar[gearType] -- Plätze tauschen
+	end
+	data.GearHotbar[gearType] = index
+	return true
+end
+
+function GearService.RemoveFromHotbar(data, gearType)
+	GearService.Ensure(data)
+	data.GearHotbar[gearType] = nil
+	return true
 end
 
 ------------------------------------------------------------------------
@@ -164,16 +280,18 @@ function GearService.GetActive(data, now)
 	return active
 end
 
-function GearService.FindAtCorner(data, corner, now)
+-- Steht schon Werkzeug zu nah an dieser Stelle?
+function GearService.FindNear(data, x, z, now)
+	local spacing = CowData.GearSettings.MinSpacing
 	for _, entry in ipairs(GearService.GetActive(data, now)) do
-		if entry.Corner == corner then
+		if Vector3.new(entry.X - x, 0, entry.Z - z).Magnitude < spacing then
 			return entry
 		end
 	end
 	return nil
 end
 
-function GearService.CanPlace(data, gearType, corner, now)
+function GearService.CanPlace(data, gearType, x, z, now)
 	local info = Gears[gearType]
 	if not info or info.Kind ~= "Place" then
 		return false, "Das kann man nicht aufstellen."
@@ -181,35 +299,35 @@ function GearService.CanPlace(data, gearType, corner, now)
 	if GearService.GetCount(data, gearType) <= 0 then
 		return false, "Du hast kein " .. info.DisplayName .. "."
 	end
-	if
-		type(corner) ~= "number"
-		or corner ~= math.floor(corner)
-		or corner < 1
-		or corner > CowData.GetGearCornerCount()
-	then
-		return false, "Dort kann nichts stehen."
+	if not CowData.IsGearPositionValid(x, z) then
+		return false, "Dort geht das nicht – stell es auf deine Farm."
 	end
-	if GearService.FindAtCorner(data, corner, now) then
-		return false, "Dort steht schon etwas."
+	if GearService.FindNear(data, x, z, now) then
+		return false, "Zu nah an anderem Werkzeug."
 	end
 	if #GearService.GetActive(data, now) >= Settings.MaxPlaced then
-		return false, ("Es dürfen höchstens %d Werkzeuge auf der Weide stehen."):format(Settings.MaxPlaced)
+		return false, ("Es dürfen höchstens %d Werkzeuge auf deiner Farm stehen."):format(Settings.MaxPlaced)
 	end
 	return true
 end
 
--- Gibt den neuen Eintrag zurück (oder nil, Meldung)
-function GearService.Place(data, gearType, corner, now)
+-- Gibt den neuen Eintrag zurück (oder nil, Meldung). x, z = lokale Plot-Koordinaten, yaw = Grad
+function GearService.Place(data, gearType, x, z, yaw, now)
 	GearService.Ensure(data)
-	local ok, message = GearService.CanPlace(data, gearType, corner, now)
+	local ok, message = GearService.CanPlace(data, gearType, x, z, now)
 	if not ok then
 		return nil, message
+	end
+	if type(yaw) ~= "number" or yaw ~= yaw then
+		yaw = 0
 	end
 	takeOne(data, gearType)
 	local entry = {
 		Id = "g" .. data.NextGearId,
 		Type = gearType,
-		Corner = corner,
+		X = math.floor(x * 100 + 0.5) / 100,
+		Z = math.floor(z * 100 + 0.5) / 100,
+		Yaw = math.floor(yaw % 360),
 		PlacedAt = now,
 		ExpiresAt = now + Gears[gearType].Duration,
 	}
@@ -240,7 +358,7 @@ function GearService.GetBoost(data, cow, now, field)
 	local best = 1
 	for _, entry in ipairs(GearService.GetActive(data, now)) do
 		local value = Gears[entry.Type][field]
-		if value and value > best and CowData.GearCoversCell(entry.Type, entry.Corner, cow.Slot) then
+		if value and value > best and CowData.GearCoversCell(entry.Type, entry.X, entry.Z, cow.Slot) then
 			best = value
 		end
 	end

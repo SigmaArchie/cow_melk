@@ -1,9 +1,11 @@
 -- GearManager.server.lua
--- Werkzeug-Shop und Werkzeug auf der Weide (Daten: CowData.Gears / CowData.GearShop, Logik: GearService):
+-- Werkzeug-Shop und aufgestelltes Werkzeug auf den Farmen (Daten: CowData.Gears / CowData.GearShop, Logik: GearService):
 --   * Remotes.GetGearStock   -> Lager + was der Spieler schon gekauft hat (Shop-Fenster "Gear")
 --   * Remotes.BuyGear        -> kaufen (Lager, Coins prüft der Server)
---   * Remotes.GearAction     -> ("Place", Werkzeug, Ecke) aufstellen | ("UseOnCow", Werkzeug, KuhId) benutzen
---   * jede Sekunde: abgelaufenes Werkzeug abbauen, Modelle + Restzeit auf der Weide aktuell halten,
+--   * Remotes.GearAction     -> ("Place", Werkzeug, x, z, yaw) irgendwo auf der Farm aufstellen
+--                               ("UseOnCow", Werkzeug, KuhId) an einer Kuh benutzen
+--                               ("Hotbar", Werkzeug, Platz | nil) / ("Unhotbar", Werkzeug)
+--   * jede Sekunde: abgelaufenes Werkzeug abbauen, Modelle + Restzeit auf den Farmen aktuell halten,
 --     alle CowData.GearSettings.GrowthTick Sekunden das schnellere Wachsen anrechnen
 -- Mutations-Glück (Kuhglocke, Wetterhahn) und Striegel-Bonus rechnet CowManager über GearService ein.
 
@@ -53,7 +55,7 @@ local function formatTime(seconds)
 end
 
 ------------------------------------------------------------------------
--- Modelle auf der Weide
+-- Modelle auf den Farmen
 ------------------------------------------------------------------------
 local function findPlot(player)
 	local layout = workspace:FindFirstChild("CowFarmLayout")
@@ -69,24 +71,24 @@ local function findPlot(player)
 	return nil
 end
 
-local function cornerCFrame(player, corner)
+-- Boden-CFrame eines aufgestellten Werkzeugs (Stelle + Drehung auf der Farm des Spielers)
+local function gearCFrame(player, entry)
 	local slot = player:GetAttribute("PlotSlot")
 	if not slot then
 		return nil
 	end
-	-- leicht gedreht, damit nicht alles stur in dieselbe Richtung schaut
 	return CowData.GetPlotOrigin(slot)
-		* CowData.GetGearCornerLocal(corner)
-		* CFrame.Angles(0, math.rad(corner * 47 % 360), 0)
+		* CFrame.new(entry.X, CowData.Map.GroundTop, entry.Z)
+		* CFrame.Angles(0, math.rad(entry.Yaw or 0), 0)
 end
 
 local function buildModel(player, plot, entry)
-	local cf = cornerCFrame(player, entry.Corner)
+	local cf = gearCFrame(player, entry)
 	if not cf then
 		return nil
 	end
 	local info = Gears[entry.Type]
-	local model = GearModels.Build(entry.Type, cf, { Seed = entry.Corner })
+	local model = GearModels.Build(entry.Type, cf, { Seed = tonumber(entry.Id:sub(2)) or 7 })
 	if not model then
 		return nil
 	end
@@ -206,8 +208,10 @@ BuyGear.OnServerInvoke = function(player, gearType)
 		return false, "Nicht genug Coins!"
 	end
 	GearService.CompletePurchase(data, gearType, cycle)
+	GearService.AutoHotbar(data, gearType) -- wie in Grow a Garden: gleich in die Hotbar, wenn Platz ist
 	DataService.FireInventoryChanged(player)
-	return true, ("%s %s gekauft! Du findest es unter WERKZEUG (Taste G)."):format(info.Icon, info.DisplayName)
+	local where = data.GearHotbar[gearType] and ("Hotbar-Platz " .. data.GearHotbar[gearType]) or "WERKZEUG (Taste G)"
+	return true, ("%s %s gekauft! Liegt in: %s."):format(info.Icon, info.DisplayName, where)
 end
 
 local function useOnCow(player, data, gearType, cowId)
@@ -248,13 +252,13 @@ local function useOnCow(player, data, gearType, cowId)
 	return true, message
 end
 
-local function place(player, data, gearType, corner)
+local function place(player, data, gearType, x, z, yaw)
 	local plot = findPlot(player)
 	if not plot then
 		return false, "Du hast noch keine Farm."
 	end
 	local now = os.time()
-	local entry, message = GearService.Place(data, gearType, corner, now)
+	local entry, message = GearService.Place(data, gearType, x, z, yaw, now)
 	if not entry then
 		return false, message
 	end
@@ -264,7 +268,7 @@ local function place(player, data, gearType, corner)
 	return true, ("%s %s steht! Wirkt %d Minuten."):format(info.Icon, info.DisplayName, math.floor(info.Duration / 60))
 end
 
-GearAction.OnServerInvoke = function(player, action, gearType, target)
+GearAction.OnServerInvoke = function(player, action, gearType, a, b, c)
 	if not debounce(player, "GearAction", 0.25) then
 		return false, "Langsam!"
 	end
@@ -276,9 +280,20 @@ GearAction.OnServerInvoke = function(player, action, gearType, target)
 		return false, "Dieses Werkzeug gibt es nicht."
 	end
 	if action == "Place" then
-		return place(player, data, gearType, target)
+		return place(player, data, gearType, a, b, c)
 	elseif action == "UseOnCow" then
-		return useOnCow(player, data, gearType, target)
+		return useOnCow(player, data, gearType, a)
+	elseif action == "Hotbar" or action == "Unhotbar" then
+		local ok, message
+		if action == "Hotbar" then
+			ok, message = GearService.SetHotbar(data, gearType, a)
+		else
+			ok, message = GearService.RemoveFromHotbar(data, gearType)
+		end
+		if ok then
+			DataService.FireInventoryChanged(player)
+		end
+		return ok, (not ok) and message or nil
 	end
 	return false, "Unbekannte Aktion."
 end

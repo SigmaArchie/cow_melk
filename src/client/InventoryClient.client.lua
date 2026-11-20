@@ -1,7 +1,8 @@
 -- InventoryClient.client.lua
 -- Kühe und Milch-Eimer verwalten:
---   * Hotbar unten in der Mitte (9 Plätze, Tasten 1-9) im Roblox-Stil – für Kühe UND Milch-Eimer.
---     Eimer zeigen Liter und Mutationen; anklicken -> Eimer in der Hand + Details + "Verkaufen"
+--   * Hotbar unten in der Mitte (9 Plätze, Tasten 1-9) im Roblox-Stil – für Kühe, Milch-Eimer und
+--     Werkzeug-Stapel. Eimer zeigen Liter und Mutationen; anklicken -> Eimer in der Hand + Details +
+--     "Verkaufen". Werkzeug anklicken -> GearClient übernimmt (UIBus.SelectGear).
 --   * Fenster "MEINE KÜHE" (Taste I oder Knopf KÜHE) mit zwei Reitern: Kühe / Eimer
 --   * Platzier-Modus: Hotbar-Platz wählen -> freie Felder auf der eigenen Farm leuchten grün
 --     -> Feld anklicken. Abbrechen: Rechtsklick, Taste X oder "Abbrechen".
@@ -20,6 +21,8 @@ local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local Theme = require(script.Parent:WaitForChild("Theme"))
 local Palette = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Palette"))
 local UIBus = require(script.Parent:WaitForChild("UIBus"))
+
+local GearView = require(script.Parent:WaitForChild("GearView"))
 
 local Colors = Theme.Colors
 local player = Players.LocalPlayer
@@ -60,7 +63,7 @@ local function findCow(cowId)
 	return nil
 end
 
--- Was liegt auf dem Platz? Gibt (Kuh oder Eimer, "cow" | "bucket") zurück
+-- Was liegt auf dem Platz? Gibt (Kuh, Eimer oder { Gear, Count }, "cow" | "bucket" | "gear") zurück
 local function hotbarItem(index)
 	if not inventory then
 		return nil, nil
@@ -73,6 +76,12 @@ local function hotbarItem(index)
 	for _, bucket in ipairs(inventory.Buckets or {}) do
 		if bucket.Hotbar == index then
 			return bucket, "bucket"
+		end
+	end
+	for gearType, slot in pairs(inventory.GearHotbar or {}) do
+		local count = inventory.Gears and inventory.Gears[gearType] or 0
+		if slot == index and count > 0 and CowData.Gears[gearType] then
+			return { Gear = gearType, Count = count, Hotbar = slot }, "gear"
 		end
 	end
 	return nil, nil
@@ -288,6 +297,7 @@ end
 --   belegt      – Karte mit Kuhkopf und Name, Rahmen in der Seltenheitsfarbe
 --   ausgewählt  – hellblauer, dicker Rahmen (Kuh wird gerade platziert)
 local selectedBucketId = nil -- Eimer, dessen Details gerade unten stehen
+local selectedGear = nil -- Werkzeug, das gerade in der Hand ist (GearClient macht den Rest)
 
 local function renderHotbar()
 	for index, widget in ipairs(slots) do
@@ -349,6 +359,37 @@ local function renderHotbar()
 				Text = CowData.FormatNumber(item.Liters) .. " L",
 			})
 			accent = #item.Mutations > 0 and color or Colors.Line
+		elseif kind == "gear" then
+			-- Werkzeug: kleines 3D-Bild, oben rechts die Anzahl, unten der Name
+			local info = CowData.Gears[item.Gear]
+			GearView.new(widget.Content, item.Gear, {
+				AnchorPoint = Vector2.new(0.5, 0),
+				Position = UDim2.new(0.5, -3, 0, 7),
+				Size = UDim2.fromOffset(42, 42),
+				Spin = false,
+				ZIndex = Theme.zOf(widget.Content), -- Anzahl und Name (danach angelegt) liegen darüber
+			})
+			Theme.label(widget.Content, {
+				AnchorPoint = Vector2.new(1, 0),
+				Position = UDim2.new(1, -4, 0, 3),
+				Size = UDim2.new(1, -22, 0, 14),
+				TextXAlignment = Enum.TextXAlignment.Right,
+				TextSize = Theme.TextSize.Small,
+				TextColor3 = Colors.Text,
+				Text = "x" .. item.Count,
+			})
+			Theme.label(widget.Content, {
+				AnchorPoint = Vector2.new(0.5, 1),
+				Position = UDim2.new(0.5, 0, 1, -3),
+				Size = UDim2.new(1, -6, 0, 14),
+				TextXAlignment = Enum.TextXAlignment.Center,
+				Font = Theme.BodyFont,
+				TextSize = Theme.TextSize.Tiny,
+				TextTruncate = Enum.TextTruncate.AtEnd,
+				TextColor3 = info.Color,
+				Text = info.DisplayName,
+			})
+			accent = info.Color
 		end
 
 		if item then
@@ -501,10 +542,22 @@ local function paintCells()
 	end
 end
 
+-- Werkzeug weglegen, wenn GearClient gerade eins in der Hand hat (auch aus dem Werkzeug-Fenster)
+local function dropGear()
+	if selectedGear or player:GetAttribute("GearMode") then
+		selectedGear = nil
+		UIBus.SelectGear:Fire(nil)
+	end
+end
+
 local function stopPlacing()
 	placingCowId = nil
 	selectedIndex = nil
 	selectedBucketId = nil
+	if selectedGear then
+		selectedGear = nil
+		UIBus.SelectGear:Fire(nil) -- Werkzeug weglegen
+	end
 	setHeld(nil)
 	hoveredCell = nil
 	hint.Visible = false
@@ -518,6 +571,7 @@ local function startPlacing(cowId)
 		return
 	end
 	Theme.closeAllWindows()
+	dropGear()
 	selectedBucketId = nil
 	setHeld(nil)
 	placingCowId = cowId
@@ -533,6 +587,7 @@ local function selectBucket(bucket)
 	if placingCowId then
 		stopPlacing()
 	end
+	dropGear()
 	selectedBucketId = bucket.Id
 	selectedIndex = bucket.Hotbar
 	setHeld(bucket.Id) -- Eimer in die Hand
@@ -550,10 +605,40 @@ local function selectHotbar(index)
 		startPlacing(item.Id)
 	elseif kind == "bucket" then
 		selectBucket(item)
+	elseif kind == "gear" then
+		stopPlacing()
+		selectedGear = item.Gear
+		selectedIndex = index
+		renderHotbar()
+		UIBus.SelectGear:Fire(item.Gear) -- GearClient: Aufstellen bzw. Kuh anklicken
 	else
 		stopPlacing()
 	end
 end
+
+-- GearClient hat Werkzeug in die Hand genommen (z.B. aus dem Werkzeug-Fenster): Platz markieren
+UIBus.GearModeStarted.Event:Connect(function(gearType)
+	if selectedGear == gearType then
+		return
+	end
+	selectedGear = nil -- nicht zurückmelden, GearClient hat es gerade erst gestartet
+	stopPlacing()
+	local slot = inventory and inventory.GearHotbar and inventory.GearHotbar[gearType]
+	if slot then
+		selectedGear = gearType
+		selectedIndex = slot
+		renderHotbar()
+	end
+end)
+
+-- GearClient ist fertig (abgebrochen, aufgebraucht ...): Auswahl aufheben
+UIBus.GearModeEnded.Event:Connect(function(gearType)
+	if selectedGear and selectedGear == gearType then
+		selectedGear = nil
+		selectedIndex = nil
+		renderHotbar()
+	end
+end)
 
 for index, widget in ipairs(slots) do
 	widget.Button.Activated:Connect(function()
@@ -564,6 +649,9 @@ for index, widget in ipairs(slots) do
 		local item, kind = hotbarItem(index)
 		if kind == "bucket" and not placingCowId and not selectedIndex then
 			showHint(bucketDescription(item))
+		elseif kind == "gear" and not placingCowId and not selectedIndex then
+			local info = CowData.Gears[item.Gear]
+			showHint(("%s %s x%d – %s"):format(info.Icon, info.DisplayName, item.Count, info.Description))
 		end
 	end)
 	widget.Button.MouseLeave:Connect(function()
@@ -1129,8 +1217,8 @@ local function closePopup()
 end
 
 Remotes.CowClicked.OnClientEvent:Connect(function(cow)
-	if placingCowId then
-		return
+	if placingCowId or player:GetAttribute("GearMode") then
+		return -- Kuh wird platziert bzw. Werkzeug ist in der Hand (GearClient benutzt es an der Kuh)
 	end
 	popupCowId = cow.Id
 	popupToken += 1
@@ -1260,6 +1348,17 @@ table.insert(refreshCallbacks, function()
 			showHint(bucketDescription(bucket))
 		else
 			stopPlacing()
+		end
+	end
+	-- ausgewähltes Werkzeug aufgebraucht oder aus der Hotbar genommen? -> Platz nachziehen
+	if selectedGear then
+		local slot = inventory.GearHotbar and inventory.GearHotbar[selectedGear]
+		if slot then
+			selectedIndex = slot
+		elseif player:GetAttribute("GearMode") ~= selectedGear then
+			stopPlacing()
+		else
+			selectedIndex = nil -- noch in der Hand, aber nicht mehr in der Hotbar
 		end
 	end
 	renderHotbar()

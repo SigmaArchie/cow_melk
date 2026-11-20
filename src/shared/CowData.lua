@@ -604,10 +604,10 @@ CowData.Shop = {
 ------------------------------------------------------------------------
 -- Werkzeug (wie die Ausrüstung im Gear-Shop von Grow a Garden)
 -- Kind = "Cow":   wird an einer Kuh benutzt (Kuh anklicken -> Knopf unter dem Kuh-Menü)
--- Kind = "Place": wird auf der Weide aufgestellt, an einer Ecke zwischen vier Feldern
---                 (CowData.GetGearCornerLocal); wirkt Duration Sekunden auf alle Kühe, deren
---                 Feld-Mitte höchstens Radius Studs entfernt ist (12 = die 4 Felder rundherum,
---                 26 = 12 Felder, siehe CowData.CountGearCells).
+-- Kind = "Place": wird irgendwo auf der eigenen Farm aufgestellt (wie die Sprinkler in Grow a Garden);
+--                 wirkt Duration Sekunden auf alle Kühe, deren Platz höchstens Radius Studs entfernt ist
+--                 (CowData.GearCoversCell / GetGearCells). Zwischen 4 Feldern erreicht Radius 12 die
+--                 4 Plätze rundherum, Radius 26 bis zu 12 Plätze.
 --   Growth        Kälber wachsen so viel schneller (x2 = doppelt so schnell)
 --   MutationLuck  Kuh-Mutationen durch Wetter kommen so viel öfter
 --   MilkBonus     (Striegel) der nächste volle Eimer dieser Kuh hat so viel mehr Milch
@@ -640,7 +640,7 @@ CowData.Gears = {
 		Radius = 12,
 		Duration = 600,
 		Growth = 2,
-		Description = "Kälber auf den 4 Feldern rundherum wachsen doppelt so schnell. Hält 10 Minuten.",
+		Description = "Kälber in der Nähe (kleiner Kreis) wachsen doppelt so schnell. Hält 10 Minuten.",
 		Color = Color3.fromRGB(236, 140, 60),
 	},
 	CowBell = {
@@ -651,7 +651,7 @@ CowData.Gears = {
 		Radius = 12,
 		Duration = 600,
 		MutationLuck = 2,
-		Description = "Kühe auf den 4 Feldern rundherum bekommen bei Wetter doppelt so oft Mutationen. Hält 10 Minuten.",
+		Description = "Kühe in der Nähe (kleiner Kreis) bekommen bei Wetter doppelt so oft Mutationen. Hält 10 Minuten.",
 		Color = Color3.fromRGB(240, 196, 70),
 	},
 	GoldenTrough = {
@@ -662,7 +662,7 @@ CowData.Gears = {
 		Radius = 26,
 		Duration = 900,
 		Growth = 3,
-		Description = "Kälber auf 12 Feldern rundherum wachsen dreimal so schnell. Hält 15 Minuten.",
+		Description = "Kälber in einem großen Kreis wachsen dreimal so schnell. Hält 15 Minuten.",
 		Color = Color3.fromRGB(255, 214, 80),
 	},
 	WeatherVane = {
@@ -673,7 +673,7 @@ CowData.Gears = {
 		Radius = 26,
 		Duration = 900,
 		MutationLuck = 3,
-		Description = "Kühe auf 12 Feldern rundherum bekommen bei Wetter dreimal so oft Mutationen. Hält 15 Minuten.",
+		Description = "Kühe in einem großen Kreis bekommen bei Wetter dreimal so oft Mutationen. Hält 15 Minuten.",
 		Color = Color3.fromRGB(110, 200, 230),
 	},
 	MutationSpray = {
@@ -687,7 +687,9 @@ CowData.Gears = {
 }
 
 CowData.GearSettings = {
-	MaxPlaced = 6, -- so viel Werkzeug darf gleichzeitig auf einer Weide stehen
+	MaxPlaced = 6, -- so viel Werkzeug darf gleichzeitig auf einer Farm stehen
+	MinSpacing = 3.5, -- Mindestabstand zwischen zwei aufgestellten Werkzeugen (Studs)
+	EdgeMargin = 2, -- Abstand zum Rand der Farm
 	GrowthTick = 5, -- alle 5 s wird das schnellere Wachsen angerechnet
 	-- Wunder-Spray: welche Mutation wie oft (nur welche die Kuh noch bekommen kann)
 	SprayWeights = { Sunkissed = 3, Wet = 3, Chilled = 3, Moonlit = 2, Shocked = 1 },
@@ -1279,58 +1281,41 @@ function CowData.IsValidGear(gearType)
 	return type(gearType) == "string" and CowData.Gears[gearType] ~= nil
 end
 
--- Ecken zwischen den Feldern (nur innen): (Spalten-1) x (Reihen-1) = 5 x 5 = 25
-function CowData.GetGearCornerCount()
-	local map = CowData.Map
-	return (map.GridColumns - 1) * (map.GridRows - 1)
+-- Heimat-Platz der Kuh auf Feld "cell" (lokale Plot-Koordinaten, Boden)
+function CowData.GetCowHomeLocal(cell)
+	return CowData.GetGridCellLocal(cell).Position + Vector3.new(CowData.Map.CowOffsetX or 0, 0, 0)
 end
 
--- Mitte einer Ecke (1 .. GetGearCornerCount) in lokalen Plot-Koordinaten (auf dem Boden).
--- Dort ist am meisten Platz: jede Kuh bleibt in ihrem Feld (siehe CowWander).
-function CowData.GetGearCornerLocal(corner)
-	local map = CowData.Map
-	local columns = map.GridColumns - 1
-	local index = corner - 1
-	local column = index % columns
-	local row = math.floor(index / columns)
-	local x = (column - (columns - 1) / 2) * map.GridCellX + (map.CowOffsetX or 0)
-	local z = map.GridFirstRowZ + map.GridCellZ / 2 + row * map.GridCellZ
-	return CFrame.new(x, map.GroundTop, z)
-end
-
--- nächste Ecke zu einem Punkt (lokale Plot-Koordinaten); nil, wenn weiter weg als maxDistance
-function CowData.GetNearestGearCorner(localPosition, maxDistance)
-	local best, bestDistance = nil, maxDistance or math.huge
-	for corner = 1, CowData.GetGearCornerCount() do
-		local position = CowData.GetGearCornerLocal(corner).Position
-		local distance = Vector3.new(position.X - localPosition.X, 0, position.Z - localPosition.Z).Magnitude
-		if distance <= bestDistance then
-			best, bestDistance = corner, distance
-		end
-	end
-	return best
-end
-
--- Wirkt aufgestelltes Werkzeug an dieser Ecke auf dieses Feld?
-function CowData.GearCoversCell(gearType, corner, cell)
-	local info = CowData.Gears[gearType]
-	if not info or not info.Radius or type(corner) ~= "number" or type(cell) ~= "number" then
+-- Darf an dieser Stelle (lokale Plot-Koordinaten) Werkzeug stehen? Überall auf der eigenen Farm,
+-- mit etwas Abstand zum Zaun.
+function CowData.IsGearPositionValid(x, z)
+	if type(x) ~= "number" or type(z) ~= "number" or x ~= x or z ~= z then
 		return false
 	end
-	local a = CowData.GetGearCornerLocal(corner).Position
-	local b = CowData.GetGridCellLocal(cell).Position + Vector3.new(CowData.Map.CowOffsetX or 0, 0, 0)
-	return Vector3.new(a.X - b.X, 0, a.Z - b.Z).Magnitude <= info.Radius
+	local map = CowData.Map
+	local margin = CowData.GearSettings.EdgeMargin
+	return math.abs(x) <= map.PlotWidth / 2 - margin and math.abs(z) <= map.PlotDepth / 2 - margin
 end
 
--- Auf wie viele Felder wirkt das Werkzeug an dieser Ecke? (für die Beschreibung / Tests)
-function CowData.CountGearCells(gearType, corner)
-	local count = 0
+-- Wirkt Werkzeug an der Stelle (x, z) auf die Kuh mit diesem Feld? (Abstand zum Kuh-Platz <= Radius)
+function CowData.GearCoversCell(gearType, x, z, cell)
+	local info = CowData.Gears[gearType]
+	if not info or not info.Radius or type(x) ~= "number" or type(z) ~= "number" or type(cell) ~= "number" then
+		return false
+	end
+	local home = CowData.GetCowHomeLocal(cell)
+	return Vector3.new(home.X - x, 0, home.Z - z).Magnitude <= info.Radius
+end
+
+-- Welche Kuh-Plätze erreicht das Werkzeug an der Stelle (x, z)? Liste der Felder
+function CowData.GetGearCells(gearType, x, z)
+	local cells = {}
 	for cell = 1, CowData.GetGridCellCount() do
-		if CowData.GearCoversCell(gearType, corner, cell) then
-			count += 1
+		if CowData.GearCoversCell(gearType, x, z, cell) then
+			table.insert(cells, cell)
 		end
 	end
-	return count
+	return cells
 end
 
 ------------------------------------------------------------------------

@@ -1,11 +1,13 @@
 -- GearClient.client.lua
 -- Werkzeug auf dem Client (Daten: CowData.Gears, Server: GearManager.server.lua):
 --   * Fenster "MEIN WERKZEUG" (Taste G oder Knopf WERKZEUG links): was im Rucksack liegt und was
---     auf der Weide steht (mit Restzeit). "Aufstellen" startet den Aufstell-Modus.
---   * Aufstell-Modus: auf der eigenen Weide leuchten die Ecken zwischen den Feldern (grün = frei),
---     dazu eine durchsichtige Vorschau mit Wirkungsbereich. Klick = aufstellen; X / Rechtsklick = Abbrechen.
---   * Kuh anklicken: unter dem Kuh-Menü (InventoryClient) erscheinen Knöpfe für Werkzeug, das man an
---     einer Kuh benutzt (Heubündel, Striegel, Wunder-Spray).
+--     auf der Farm steht (mit Restzeit). "Aufstellen" / "In die Hand" startet den passenden Modus,
+--     "Hotbar" legt den Stapel in die Hotbar (oder nimmt ihn heraus).
+--   * Hotbar (InventoryClient): Werkzeug-Platz anklicken / Zahl drücken -> UIBus.SelectGear.
+--   * Aufstell-Modus: Vorschau folgt der Maus irgendwo auf der eigenen Farm, die Kuh-Plätze in
+--     Reichweite leuchten grün. Klick = aufstellen, R = drehen, X / Rechtsklick = fertig.
+--   * Kuh-Modus (Heubündel, Striegel, Wunder-Spray): eigene Kuh anklicken = benutzen. Zusätzlich gibt
+--     es Knöpfe unter dem Kuh-Menü (InventoryClient).
 -- Der Server prüft alles (Remotes.GearAction).
 
 local Players = game:GetService("Players")
@@ -67,9 +69,10 @@ local function findCow(cowId)
 	return nil
 end
 
-local function gearAction(action, gearType, target)
+local function gearAction(action, gearType, ...)
+	local args = table.pack(...)
 	local called, ok, message = pcall(function()
-		return Remotes:WaitForChild("GearAction", 5):InvokeServer(action, gearType, target)
+		return Remotes:WaitForChild("GearAction", 5):InvokeServer(action, gearType, table.unpack(args, 1, args.n))
 	end)
 	if not called then
 		return false, "Keine Antwort vom Server."
@@ -118,6 +121,7 @@ local function showHint(text, color, duration)
 	local token = hintToken
 	hintText.Text = text
 	hintText.TextColor3 = color or Colors.Text
+	cancelButton.Parent.Visible = player:GetAttribute("GearMode") ~= nil
 	hint.Visible = true
 	if duration then
 		task.delay(duration, function()
@@ -129,182 +133,414 @@ local function showHint(text, color, duration)
 end
 
 ------------------------------------------------------------------------
--- Aufstell-Modus
+-- Aufstell-Modus: Werkzeug irgendwo auf die eigene Farm stellen (wie die Sprinkler in Grow a Garden).
+-- Die 36 Kuh-Plätze leuchten grün, wenn das Werkzeug sie von der Mausposition aus erreicht.
+-- Kuh-Modus: Werkzeug für Kühe "in der Hand" – eine eigene Kuh anklicken benutzt es.
 ------------------------------------------------------------------------
-local placing = nil -- { Type, Origin, Plot, Markers = { [corner] = part }, Ghost, Hovered }
+local SPOT_IDLE = Color3.fromRGB(236, 236, 226)
+local ROTATE_STEP = 45
+
+local placing = nil -- { Type, Origin, GroundY, Ghost, Ring, Label, Spots, X, Z, Yaw, Shown, Valid }
+local cowMode = nil -- Werkzeug-Name (Kind "Cow") oder nil
 local markerFolder = nil
 
-local function findMyPlot()
-	local layout = workspace:FindFirstChild("CowFarmLayout")
-	local plots = layout and layout:FindFirstChild("Plots")
-	if not plots then
-		return nil
-	end
-	for _, plot in ipairs(plots:GetChildren()) do
-		if plot:GetAttribute("OwnerUserId") == player.UserId then
-			return plot
-		end
-	end
-	return nil
+local function currentMode()
+	return placing and placing.Type or cowMode
 end
 
-local function takenCorners()
-	local taken = {}
+-- InventoryClient fragt das ab: solange Werkzeug in der Hand ist, öffnet ein Kuh-Klick kein Kuh-Menü
+local function setModeAttribute(gearType)
+	player:SetAttribute("GearMode", gearType)
+end
+
+local function activeGear()
 	local now = serverNow()
+	local list = {}
 	for _, entry in ipairs(inventory and inventory.PlacedGear or {}) do
-		if entry.ExpiresAt > now then
-			taken[entry.Corner] = true
+		if entry.ExpiresAt > now and type(entry.X) == "number" then
+			table.insert(list, entry)
 		end
 	end
-	return taken
+	return list
 end
 
-local function stopPlacing()
+-- Dieselben Regeln wie GearService.CanPlace (der Server prüft trotzdem selbst)
+local function checkSpot(x, z)
+	if not CowData.IsGearPositionValid(x, z) then
+		return false, "Nur auf deiner eigenen Farm"
+	end
+	local active = activeGear()
+	for _, entry in ipairs(active) do
+		if Vector3.new(entry.X - x, 0, entry.Z - z).Magnitude < CowData.GearSettings.MinSpacing then
+			return false, "Zu nah an anderem Werkzeug"
+		end
+	end
+	if #active >= CowData.GearSettings.MaxPlaced then
+		return false, ("Schon %d Werkzeuge aufgestellt"):format(CowData.GearSettings.MaxPlaced)
+	end
+	return true
+end
+
+-- Anleitung unten in der Hinweis-Leiste (passend zum aktiven Modus)
+local function modeHint()
+	local gearType = currentMode()
+	if not gearType then
+		hint.Visible = false
+		return
+	end
+	local info = Gears[gearType]
+	if placing then
+		showHint(
+			("%s %s x%d: Klick auf deine Farm zum Aufstellen. R = drehen, X = fertig"):format(
+				info.Icon,
+				info.DisplayName,
+				gearCount(gearType)
+			)
+		)
+	else
+		showHint(
+			("%s %s x%d in der Hand: Klicke eine deiner Kühe an. X = weglegen"):format(
+				info.Icon,
+				info.DisplayName,
+				gearCount(gearType)
+			)
+		)
+	end
+end
+
+-- kurze Meldung, danach wieder die Anleitung
+local function flashHint(text, color)
+	showHint(text, color)
+	local token = hintToken
+	task.delay(2.5, function()
+		if hintToken == token then
+			modeHint()
+		end
+	end)
+end
+
+-- notify = true: GearClient beendet selbst (Abbrechen, aufgebraucht, ...) -> Hotbar hebt die Auswahl auf
+local function endModes(notify)
+	local ended = currentMode()
 	if markerFolder then
 		markerFolder:Destroy()
 		markerFolder = nil
 	end
-	if placing and placing.Ghost then
-		placing.Ghost:Destroy()
-	end
 	placing = nil
+	cowMode = nil
+	setModeAttribute(nil)
 	hint.Visible = false
+	if notify and ended then
+		UIBus.GearModeEnded:Fire(ended)
+	end
 end
 
-local function paintMarkers()
+local function stopPlacing()
+	endModes(true)
+end
+
+local function myCowCells()
+	local cells = {}
+	for _, cow in ipairs(inventory and inventory.Cows or {}) do
+		if cow.Slot then
+			cells[cow.Slot] = true
+		end
+	end
+	return cells
+end
+
+-- Vorschau an die Stelle (x, z) setzen (nil = Maus nicht über dem Boden)
+local function updateGhost(x, z, force)
 	if not placing then
 		return
 	end
-	local taken = takenCorners()
-	for corner, marker in pairs(placing.Markers) do
-		local busy = taken[corner]
-		marker.Color = busy and TAKEN_COLOR or FREE_COLOR
-		marker.Transparency = corner == placing.Hovered and 0.05 or 0.4
+	if not force and x == placing.X and z == placing.Z and placing.Shown == placing.Yaw then
+		return
+	end
+	placing.X, placing.Z, placing.Shown = x, z, placing.Yaw
+	local visible = x ~= nil
+	local ok, reason = false, nil
+	if visible then
+		ok, reason = checkSpot(x, z)
+	end
+	placing.Valid = ok
+
+	if placing.Ghost then
+		if visible then
+			placing.Ghost:PivotTo(
+				placing.Origin * CFrame.new(x, CowData.Map.GroundTop, z) * CFrame.Angles(0, math.rad(placing.Yaw), 0)
+			)
+		end
+		for _, item in ipairs(placing.Ghost:GetDescendants()) do
+			if item:IsA("BasePart") then
+				item.LocalTransparencyModifier = visible and 0 or 1
+			end
+		end
+		if placing.Ring then
+			placing.Ring.Color = ok and Gears[placing.Type].Color or TAKEN_COLOR
+		end
+	end
+
+	-- Kuh-Plätze in Reichweite
+	local cows = myCowCells()
+	local spots, reached = 0, 0
+	for cell, spot in pairs(placing.Spots) do
+		local covered = visible and CowData.GearCoversCell(placing.Type, x, z, cell)
+		spot.Color = covered and FREE_COLOR or SPOT_IDLE
+		spot.Transparency = covered and 0.05 or 0.6
+		if covered then
+			spots += 1
+			if cows[cell] then
+				reached += 1
+			end
+		end
+	end
+
+	if placing.Label then
+		placing.Label.Enabled = visible
+		local text = placing.Label:FindFirstChild("Text")
+		if text then
+			if ok then
+				text.Text = ("🐄 %d %s in Reichweite  ·  %d %s"):format(
+					reached,
+					reached == 1 and "Kuh" or "Kühe",
+					spots,
+					spots == 1 and "Platz" or "Plätze"
+				)
+				text.TextColor3 = Color3.fromRGB(190, 245, 170)
+			else
+				text.Text = "✖ " .. (reason or "Hier nicht")
+				text.TextColor3 = Color3.fromRGB(255, 160, 150)
+			end
+		end
 	end
 end
 
 local function startPlacing(gearType)
-	stopPlacing()
+	endModes(false)
+	local info = Gears[gearType]
 	local slot = player:GetAttribute("PlotSlot")
-	local plot = findMyPlot()
-	if not slot or not plot then
+	if not info or info.Kind ~= "Place" then
+		return
+	end
+	if not slot then
 		showHint("Du hast noch keine Farm.", Colors.Red, 3)
+		UIBus.GearModeEnded:Fire(gearType)
+		return
+	end
+	if gearCount(gearType) <= 0 then
+		showHint(("Du hast kein %s mehr."):format(info.DisplayName), Colors.Orange, 3)
+		UIBus.GearModeEnded:Fire(gearType)
 		return
 	end
 	Theme.closeAllWindows()
 	local origin = CowData.GetPlotOrigin(slot)
-	placing = { Type = gearType, Origin = origin, Plot = plot, Markers = {}, Hovered = nil }
+	placing = {
+		Type = gearType,
+		Origin = origin,
+		GroundY = (origin * CFrame.new(0, CowData.Map.GroundTop, 0)).Position.Y,
+		Spots = {},
+		Yaw = 0,
+	}
+	setModeAttribute(gearType)
+	UIBus.GearModeStarted:Fire(gearType)
 
 	markerFolder = Instance.new("Folder")
 	markerFolder.Name = "GearPlacement"
 	markerFolder.Parent = workspace
-	for corner = 1, CowData.GetGearCornerCount() do
-		local marker = Instance.new("Part")
-		marker.Name = "Corner" .. corner
-		marker.Anchored = true
-		marker.CanCollide = false
-		marker.CanTouch = false
-		marker.CastShadow = false
-		marker.Shape = Enum.PartType.Cylinder
-		marker.Size = Vector3.new(0.15, 3.2, 3.2)
-		marker.Material = Enum.Material.Neon
-		marker.CFrame = origin
-			* CowData.GetGearCornerLocal(corner)
-			* CFrame.new(0, 0.12, 0)
+	for cell = 1, CowData.GetGridCellCount() do
+		local spot = Instance.new("Part")
+		spot.Name = "Spot" .. cell
+		spot.Anchored = true
+		spot.CanCollide = false
+		spot.CanTouch = false
+		spot.CanQuery = false
+		spot.CastShadow = false
+		spot.Shape = Enum.PartType.Cylinder
+		spot.Size = Vector3.new(0.2, 2.8, 2.8)
+		spot.Material = Enum.Material.Neon
+		spot.Color = SPOT_IDLE
+		spot.Transparency = 0.6
+		spot.CFrame = origin
+			* CFrame.new(CowData.GetCowHomeLocal(cell) + Vector3.new(0, 0.12, 0))
 			* CFrame.Angles(0, 0, math.rad(90))
-		marker:SetAttribute("Corner", corner)
-		marker.Parent = markerFolder
-		placing.Markers[corner] = marker
+		spot.Parent = markerFolder
+		placing.Spots[cell] = spot
 	end
 
-	local info = Gears[gearType]
-	local ghost = GearModels.Build(gearType, origin * CowData.GetGearCornerLocal(1), { Ghost = true })
+	local start = origin * CFrame.new(0, CowData.Map.GroundTop, 0)
+	local ghost = GearModels.Build(gearType, start, { Ghost = true })
 	if ghost then
-		local ring = GearModels.AddRangeRing(ghost, origin * CowData.GetGearCornerLocal(1), info.Radius, info.Color)
-		ring.Transparency = 0.7
+		local ring = GearModels.AddRangeRing(ghost, start, info.Radius, info.Color)
+		ring.Transparency = 0.6
+		placing.Ring = ring
+		-- Schild über der Vorschau: wie viele Kühe erreicht werden (oder warum es hier nicht geht)
+		local anchor = Instance.new("Part")
+		anchor.Name = "LabelAnchor"
+		anchor.Anchored = true
+		anchor.CanCollide = false
+		anchor.CanTouch = false
+		anchor.CanQuery = false
+		anchor.Transparency = 1
+		anchor.Size = Vector3.new(0.2, 0.2, 0.2)
+		anchor.CFrame = start * CFrame.new(0, 8, 0)
+		anchor.Parent = ghost
+		local label = Instance.new("BillboardGui")
+		label.Name = "ReachLabel"
+		label.Size = UDim2.fromOffset(280, 34)
+		label.AlwaysOnTop = true
+		label.LightInfluence = 0
+		label.Parent = anchor
+		local text = Instance.new("TextLabel")
+		text.Name = "Text"
+		text.Size = UDim2.fromScale(1, 1)
+		text.BackgroundColor3 = Color3.fromRGB(28, 32, 38)
+		text.BackgroundTransparency = 0.25
+		text.Font = Theme.BodyFont
+		text.TextSize = 17
+		text.Text = ""
+		text.Parent = label
+		Theme.corner(text, 8)
+		placing.Label = label
 		ghost.Parent = markerFolder
 		placing.Ghost = ghost
 	end
-	paintMarkers()
-	showHint(
-		("%s %s aufstellen: Klicke auf einen grünen Punkt deiner Weide. (X = Abbrechen)"):format(
-			info.Icon,
-			info.DisplayName
-		)
-	)
+	updateGhost(nil, nil, true)
+	modeHint()
 end
 
-local raycastParams = RaycastParams.new()
-raycastParams.FilterType = Enum.RaycastFilterType.Include
+local function startCowMode(gearType)
+	endModes(false)
+	local info = Gears[gearType]
+	if not info or info.Kind ~= "Cow" then
+		return
+	end
+	if gearCount(gearType) <= 0 then
+		showHint(("Du hast kein %s mehr."):format(info.DisplayName), Colors.Orange, 3)
+		UIBus.GearModeEnded:Fire(gearType)
+		return
+	end
+	Theme.closeAllWindows()
+	cowMode = gearType
+	setModeAttribute(gearType)
+	UIBus.GearModeStarted:Fire(gearType)
+	modeHint()
+end
 
--- Ecke unter der Maus / dem Finger (oder nil).
+-- Werkzeug aus der Hotbar / dem Fenster in die Hand nehmen (nil = weglegen)
+local function selectGear(gearType)
+	local info = gearType and Gears[gearType]
+	if not info then
+		endModes(false)
+	elseif info.Kind == "Place" then
+		startPlacing(gearType)
+	else
+		startCowMode(gearType)
+	end
+end
+UIBus.SelectGear.Event:Connect(selectGear)
+
+-- Stelle auf dem Boden der eigenen Farm unter dem Bildschirmpunkt (lokale x, z; halbe Studs)
 -- isViewport: Position kommt von GetMouseLocation (mit Inset), sonst von input.Position (ohne)
-local function cornerAt(position, isViewport)
+local function groundPoint(position, isViewport)
 	local camera = workspace.CurrentCamera
 	if not placing or not camera then
 		return nil
 	end
 	local ray = isViewport and camera:ViewportPointToRay(position.X, position.Y)
 		or camera:ScreenPointToRay(position.X, position.Y)
-	raycastParams.FilterDescendantsInstances = { placing.Plot, markerFolder }
-	local result = workspace:Raycast(ray.Origin, ray.Direction * 600, raycastParams)
-	if not result then
+	if ray.Direction.Y > -0.01 then
 		return nil
 	end
-	local corner = result.Instance:GetAttribute("Corner")
-	if corner then
-		return corner
+	local distance = (placing.GroundY - ray.Origin.Y) / ray.Direction.Y
+	if distance < 0 or distance > 900 then
+		return nil
 	end
-	return CowData.GetNearestGearCorner(placing.Origin:PointToObjectSpace(result.Position), 7)
+	local localPoint = placing.Origin:PointToObjectSpace(ray.Origin + ray.Direction * distance)
+	local x = math.floor(localPoint.X * 2 + 0.5) / 2
+	local z = math.floor(localPoint.Z * 2 + 0.5) / 2
+	-- weit neben der Farm: keine Vorschau
+	local map = CowData.Map
+	if math.abs(x) > map.PlotWidth / 2 + 12 or math.abs(z) > map.PlotDepth / 2 + 12 then
+		return nil
+	end
+	return x, z
 end
 
 RunService.RenderStepped:Connect(function()
 	if not placing then
 		return
 	end
-	local mouse = UserInputService:GetMouseLocation()
-	local corner = cornerAt(mouse, true)
-	if corner ~= placing.Hovered then
-		placing.Hovered = corner
-		paintMarkers()
-		if placing.Ghost then
-			if corner then
-				placing.Ghost:PivotTo(placing.Origin * CowData.GetGearCornerLocal(corner))
-			end
-			for _, item in ipairs(placing.Ghost:GetDescendants()) do
-				if item:IsA("BasePart") then
-					item.LocalTransparencyModifier = corner and 0 or 1
-				end
-			end
-		end
-	end
+	local x, z = groundPoint(UserInputService:GetMouseLocation(), true)
+	updateGhost(x, z)
 end)
 
-local placeBusy = false
+local busy = false
 local function tryPlace(screenPosition)
-	if not placing or placeBusy then
+	if not placing or busy then
 		return
 	end
-	local corner = cornerAt(screenPosition)
-	if not corner then
-		showHint("Klicke auf einen grünen Punkt auf deiner Weide.", Colors.Orange)
+	local x, z = groundPoint(screenPosition, false)
+	if not x then
+		flashHint("Klicke auf den Boden deiner Farm.", Colors.Orange)
 		return
 	end
-	if takenCorners()[corner] then
-		showHint("Dort steht schon etwas – nimm einen grünen Punkt.", Colors.Orange)
+	local ok, reason = checkSpot(x, z)
+	if not ok then
+		flashHint(reason .. ".", Colors.Orange)
 		return
 	end
-	placeBusy = true
-	local gearType = placing.Type
-	local ok, message = gearAction("Place", gearType, corner)
-	placeBusy = false
-	if ok then
-		stopPlacing()
-		showHint(message or "Aufgestellt!", Color3.fromRGB(140, 214, 124), 3)
-		task.spawn(refresh)
+	busy = true
+	local gearType, yaw = placing.Type, placing.Yaw
+	local placed, message = gearAction("Place", gearType, x, z, yaw)
+	busy = false
+	if not placed then
+		flashHint(message or "Aufstellen ging nicht.", Colors.Red)
+		return
+	end
+	-- gleich lokal eintragen (die neue Liste kommt kurz danach vom Server)
+	if inventory then
+		inventory.Gears[gearType] = math.max(0, gearCount(gearType) - 1)
+		table.insert(inventory.PlacedGear, {
+			Id = "lokal",
+			Type = gearType,
+			X = x,
+			Z = z,
+			ExpiresAt = serverNow() + Gears[gearType].Duration,
+		})
+	end
+	if placing and placing.Type == gearType and gearCount(gearType) > 0 then
+		flashHint("✅ " .. (message or "Aufgestellt!"), Color3.fromRGB(140, 214, 124))
+		updateGhost(placing.X, placing.Z, true)
 	else
-		showHint(message or "Aufstellen ging nicht.", Colors.Red)
+		endModes(true)
+		showHint("✅ " .. (message or "Aufgestellt!"), Color3.fromRGB(140, 214, 124), 3)
 	end
+	task.spawn(refresh)
+end
+
+-- Kuh-Modus: angeklickte Kuh bekommt das Werkzeug
+local function useOnClickedCow(cowId)
+	if not cowMode or busy then
+		return
+	end
+	busy = true
+	local gearType = cowMode
+	local ok, message = gearAction("UseOnCow", gearType, cowId)
+	busy = false
+	if not ok then
+		flashHint(message or "Das ging nicht.", Colors.Orange)
+		return
+	end
+	if inventory then
+		inventory.Gears[gearType] = math.max(0, gearCount(gearType) - 1)
+	end
+	if cowMode == gearType and gearCount(gearType) > 0 then
+		modeHint()
+	else
+		endModes(true)
+	end
+	task.spawn(refresh)
 end
 
 cancelButton.Activated:Connect(stopPlacing)
@@ -412,29 +648,42 @@ local function renderWindow()
 			owned += count
 			order += 1
 			local info = Gears[gearType]
-			local card = gearCard(order, gearType, ("x%d im Rucksack"):format(count))
-			local buttonText = info.Kind == "Place" and "Aufstellen" or "Kuh anklicken"
+			local hotbarSlot = inventory.GearHotbar and inventory.GearHotbar[gearType]
+			local title = ("x%d im Rucksack"):format(count)
+			if hotbarSlot then
+				title = ("x%d · Hotbar %d"):format(count, hotbarSlot)
+			end
+			local card = gearCard(order, gearType, title)
 			local face = Theme.button(card, {
-				Text = buttonText,
+				Text = info.Kind == "Place" and "Aufstellen" or "In die Hand",
 				Color = info.Kind == "Place" and Colors.Green or Colors.Steel,
-				TextSize = 16,
+				TextSize = 15,
 				Radius = 9,
 				Lip = 4,
-				AnchorPoint = Vector2.new(0.5, 1),
-				Position = UDim2.new(0.5, 0, 1, -8),
-				Size = UDim2.new(1, -20, 0, 36),
+				AnchorPoint = Vector2.new(0, 1),
+				Position = UDim2.new(0, 8, 1, -8),
+				Size = UDim2.new(0.6, -12, 0, 36),
 			})
 			face.Activated:Connect(function()
-				if info.Kind == "Place" then
-					startPlacing(gearType)
-				else
-					window:Close()
-					showHint(
-						("%s Klicke eine deiner Kühe an und wähle %s."):format(info.Icon, info.DisplayName),
-						nil,
-						5
-					)
+				selectGear(gearType)
+			end)
+			-- in die Hotbar legen / herausnehmen
+			local hotbarButton = Theme.button(card, {
+				Text = hotbarSlot and "– Hotbar" or "+ Hotbar",
+				Color = hotbarSlot and Colors.Red or Colors.Blue,
+				TextSize = 14,
+				Radius = 9,
+				Lip = 4,
+				AnchorPoint = Vector2.new(1, 1),
+				Position = UDim2.new(1, -8, 1, -8),
+				Size = UDim2.new(0.4, -4, 0, 36),
+			})
+			hotbarButton.Activated:Connect(function()
+				local ok, message = gearAction(hotbarSlot and "Unhotbar" or "Hotbar", gearType)
+				if not ok then
+					showHint(message or "Das ging nicht.", Colors.Orange, 3)
 				end
+				task.spawn(refresh)
 			end)
 		end
 	end
@@ -445,7 +694,7 @@ local function renderWindow()
 		if entry.ExpiresAt > now then
 			placed += 1
 			order += 1
-			local card = gearCard(order, entry.Type, "steht auf der Weide", Color3.fromRGB(140, 214, 124))
+			local card = gearCard(order, entry.Type, "steht auf der Farm", Color3.fromRGB(140, 214, 124))
 			local timer = Theme.label(card, {
 				AnchorPoint = Vector2.new(0.5, 1),
 				Position = UDim2.new(0.5, 0, 1, -12),
@@ -459,7 +708,7 @@ local function renderWindow()
 		end
 	end
 
-	summary.Text = ("%d Werkzeuge im Rucksack  ·  %d / %d auf der Weide"):format(
+	summary.Text = ("%d Werkzeuge im Rucksack  ·  %d / %d auf der Farm"):format(
 		owned,
 		placed,
 		CowData.GearSettings.MaxPlaced
@@ -478,7 +727,13 @@ table.insert(onRefresh, function()
 	if window:IsOpen() then
 		renderWindow()
 	end
-	paintMarkers()
+	-- Werkzeug in der Hand aufgebraucht? -> weglegen
+	local gearType = currentMode()
+	if gearType and gearCount(gearType) <= 0 then
+		endModes(true)
+	elseif placing then
+		updateGhost(placing.X, placing.Z, true)
+	end
 end)
 
 local function toggleWindow()
@@ -589,7 +844,14 @@ local function buildCowBar(cowId)
 end
 
 Remotes.CowClicked.OnClientEvent:Connect(function(cow)
-	if placing or type(cow) ~= "table" then
+	if type(cow) ~= "table" then
+		return
+	end
+	if cowMode then
+		useOnClickedCow(cow.Id) -- Werkzeug in der Hand: gleich benutzen (InventoryClient zeigt kein Menü)
+		return
+	end
+	if placing then
 		return
 	end
 	buildCowBar(cow.Id)
@@ -604,12 +866,17 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	end
 	if input.KeyCode == Enum.KeyCode.G then
 		toggleWindow()
-	elseif placing then
+	elseif currentMode() then
 		if input.KeyCode == Enum.KeyCode.X or input.UserInputType == Enum.UserInputType.MouseButton2 then
 			stopPlacing()
+		elseif placing and input.KeyCode == Enum.KeyCode.R then
+			placing.Yaw = (placing.Yaw + ROTATE_STEP) % 360
 		elseif
-			input.UserInputType == Enum.UserInputType.MouseButton1
-			or input.UserInputType == Enum.UserInputType.Touch
+			placing
+			and (
+				input.UserInputType == Enum.UserInputType.MouseButton1
+				or input.UserInputType == Enum.UserInputType.Touch
+			)
 		then
 			tryPlace(Vector2.new(input.Position.X, input.Position.Y))
 		end
