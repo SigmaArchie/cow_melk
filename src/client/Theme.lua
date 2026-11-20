@@ -1,8 +1,9 @@
 -- Theme.lua (ModuleScript, nur Client)
--- EIN Stil für die ganze Oberfläche:
---   tiefes Marineblau für Flächen, Creme/Off-White für Schrift, Grasgrün für Haupt-Aktionen,
---   Himmelblau als Akzent, Gold NUR für Coins und seltene Belohnungen.
---   Abgerundete Ecken, dünne einheitliche Umrandung, weiche Schatten, kurze Tweens.
+-- EIN Stil für die ganze Oberfläche: "Holz-Farm"
+--   Fenster aus warmem Holz (Bretter, dicker dunkelbrauner Rand), oben ein Gras-Streifen mit
+--   zackiger Kante, der Titel auf einem eigenen Holzschild mit Äpfeln und Blättern, rotes X.
+--   Weiße, dicke Schrift mit dunkelbraunem Umriss. Kräftige Knöpfe mit dunklem Rand und
+--   Unterkante: Grün = Kaufen/Coins, Gold = Robux/Seltenes, Blau = Info, Orange = Aktion, Rot = Schließen.
 --
 -- Bildschirm-Zonen (damit sich nichts überlappt):
 --   oben links     Coins / Milch            (HUD)
@@ -27,6 +28,7 @@
 local ContextActionService = game:GetService("ContextActionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local GuiService = game:GetService("GuiService")
+local TextService = game:GetService("TextService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
@@ -46,9 +48,10 @@ Theme.TextFont = Palette.Fonts.Text -- Fließtext
 
 Theme.TextSize = { Title = 30, Heading = 22, Body = 16, Small = 13, Tiny = 11 }
 Theme.Spacing = { XS = 4, S = 8, M = 12, L = 16, XL = 24 }
-Theme.Radius = { S = 8, M = 12, L = 16, XL = 20 }
-Theme.Stroke = { Thin = 1.5, Normal = 2 }
-Theme.Shadow = { Transparency = 0.8, Offset = 5 }
+Theme.Radius = { S = 5, M = 7, L = 9, XL = 11 } -- eher eckig wie Holzbretter
+Theme.Stroke = { Thin = 2.5, Normal = 3.5 } -- dicke dunkelbraune Ränder
+Theme.TextStroke = 2 -- Umriss um weiße Schrift
+Theme.Shadow = { Transparency = 0.7, Offset = 6 }
 Theme.Time = { Fast = 0.12, Normal = 0.2, Slow = 0.35 }
 
 local Colors = Theme.Colors
@@ -101,15 +104,42 @@ function Theme.border(object, thickness, color, transparency)
 	return s
 end
 
--- sehr dünner, weicher Umriss um Schrift (nur wo der Hintergrund wechselt, z.B. auf der Karte)
+-- dunkelbrauner Umriss um weiße Schrift (Holz-Farm-Stil: überall)
 function Theme.textOutline(label, thickness)
 	local s = Instance.new("UIStroke")
 	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
-	s.Thickness = math.min(thickness or 1, 1.5)
+	s.Thickness = math.clamp(thickness or Theme.TextStroke, 1, 4)
 	s.Color = Colors.Outline
-	s.Transparency = 0.35
+	s.Transparency = 0
+	s.LineJoinMode = Enum.LineJoinMode.Round
 	s.Parent = label
 	return s
+end
+
+-- Holz-Verlauf (oben heller, unten dunkler) auf eine Fläche
+function Theme.woodGradient(frame, strength)
+	local g = Instance.new("UIGradient")
+	g.Rotation = 90
+	local k = strength or 1
+	g.Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.new(1, 1, 1):Lerp(Color3.new(0, 0, 0), 0.22 * k))
+	g.Parent = frame
+	return g
+end
+
+-- Brett-Fugen: dünne dunkle Linien quer über die Fläche (alle gap Pixel)
+function Theme.woodPlanks(frame, height, gap)
+	gap = gap or 38
+	for y = gap, height - 8, gap do
+		local line = Instance.new("Frame")
+		line.Name = "Plank"
+		line.Position = UDim2.fromOffset(0, y)
+		line.Size = UDim2.new(1, 0, 0, 2)
+		line.BackgroundColor3 = Colors.Outline
+		line.BackgroundTransparency = 0.72
+		line.BorderSizePixel = 0
+		line.ZIndex = frame.ZIndex
+		line.Parent = frame
+	end
 end
 
 function Theme.padding(parent, px)
@@ -122,7 +152,7 @@ function Theme.padding(parent, px)
 	return p
 end
 
--- Text. props.Outline > 0 = dünner Umriss (Standard: keiner)
+-- Text. Standard: weiße Schrift mit dunkelbraunem Umriss. props.Outline = Dicke, 0 = kein Umriss
 function Theme.label(parent, props)
 	local label = Instance.new("TextLabel")
 	label.BackgroundTransparency = 1
@@ -132,19 +162,22 @@ function Theme.label(parent, props)
 	label.TextXAlignment = Enum.TextXAlignment.Left
 	label.ZIndex = Theme.zOf(parent)
 	local outline = props.Outline
+	if outline == nil then
+		outline = Theme.TextStroke
+	end
 	for key, value in pairs(props) do
 		if key ~= "Outline" then
 			label[key] = value
 		end
 	end
-	if outline and outline > 0 then
+	if outline > 0 then
 		Theme.textOutline(label, outline)
 	end
 	label.Parent = parent
 	return label
 end
 
--- Marineblaue Fläche mit dünner Umrandung
+-- Holzfläche mit dickem dunklem Rand und leichtem Verlauf
 -- props.Radius, props.Outline (Dicke, 0 = keine), props.OutlineColor
 function Theme.panel(parent, props)
 	local frame = Instance.new("Frame")
@@ -161,6 +194,7 @@ function Theme.panel(parent, props)
 	if outline ~= 0 then
 		Theme.border(frame, outline or Theme.Stroke.Thin, outlineColor)
 	end
+	Theme.woodGradient(frame, 0.6)
 	frame.Parent = parent
 	return frame
 end
@@ -226,7 +260,7 @@ end
 --   api.SetText(text)
 function Theme.button(parent, props)
 	local baseColor = props.Color or Colors.Green
-	local lipHeight = props.Lip or 4
+	local lipHeight = props.Lip or 5
 	local radius = props.Radius or Theme.Radius.M
 
 	local holder = Instance.new("Frame")
@@ -242,7 +276,7 @@ function Theme.button(parent, props)
 	local lip = Instance.new("Frame")
 	lip.Name = "Lip"
 	lip.Size = UDim2.fromScale(1, 1)
-	lip.BackgroundColor3 = Theme.darken(baseColor, 0.45)
+	lip.BackgroundColor3 = Theme.darken(baseColor, 0.55)
 	lip.BorderSizePixel = 0
 	lip.ZIndex = holder.ZIndex
 	lip.Parent = holder
@@ -262,17 +296,17 @@ function Theme.button(parent, props)
 	face.SelectionImageObject = selectionImage
 	face.Parent = holder
 	Theme.corner(face, radius)
-	Theme.textOutline(face, 1)
-	local faceStroke = Theme.border(face, Theme.Stroke.Thin, Theme.darken(baseColor, 0.4), 0.2)
+	Theme.textOutline(face)
+	local faceStroke = Theme.border(face, Theme.Stroke.Thin, Theme.darken(baseColor, 0.6), 0)
 
-	-- Glanzstreifen (dezent)
+	-- helle Oberkante (wie die Referenz: Knöpfe glänzen oben)
 	local shine = Instance.new("Frame")
 	shine.Name = "Shine"
 	shine.AnchorPoint = Vector2.new(0.5, 0)
 	shine.Position = UDim2.new(0.5, 0, 0, 3)
-	shine.Size = UDim2.new(1, -12, 0.34, 0)
+	shine.Size = UDim2.new(1, -10, 0.3, 0)
 	shine.BackgroundColor3 = Color3.new(1, 1, 1)
-	shine.BackgroundTransparency = 0.88
+	shine.BackgroundTransparency = 0.72
 	shine.BorderSizePixel = 0
 	shine.ZIndex = face.ZIndex
 	shine.Parent = face
@@ -286,8 +320,8 @@ function Theme.button(parent, props)
 			shown = Theme.lighten(shown, 0.12)
 		end
 		Theme.tween(face, { BackgroundColor3 = shown }, Theme.Time.Fast)
-		Theme.tween(lip, { BackgroundColor3 = Theme.darken(shown, 0.45) }, Theme.Time.Fast)
-		Theme.tween(faceStroke, { Color = Theme.darken(shown, 0.4) }, Theme.Time.Fast)
+		Theme.tween(lip, { BackgroundColor3 = Theme.darken(shown, 0.55) }, Theme.Time.Fast)
+		Theme.tween(faceStroke, { Color = Theme.darken(shown, 0.6) }, Theme.Time.Fast)
 		Theme.tween(face, { TextTransparency = state.Disabled and 0.35 or 0 }, Theme.Time.Fast)
 		-- gedrückt: Fläche sinkt auf die Unterkante
 		local target = (state.Down and not state.Disabled) and UDim2.fromOffset(0, lipHeight - 1) or UDim2.new()
@@ -357,7 +391,7 @@ Theme.destructiveButton = variantButton(Colors.Red) -- Schließen, Abbrechen
 ------------------------------------------------------------------------
 -- Abzeichen, Balken, Karten
 ------------------------------------------------------------------------
--- kleines Schild: farbiger Hintergrund, dunkle Schrift
+-- kleines Schild: farbiger Hintergrund mit dunklem Rand, weiße Schrift mit Umriss
 function Theme.tag(parent, props)
 	local tag = Theme.label(parent, {
 		Name = props.Name or "Tag",
@@ -367,14 +401,16 @@ function Theme.tag(parent, props)
 		AutomaticSize = Enum.AutomaticSize.X,
 		LayoutOrder = props.LayoutOrder or 0,
 		BackgroundTransparency = 0,
-		BackgroundColor3 = props.Color,
+		BackgroundColor3 = Theme.darken(props.Color, 0.12),
 		Font = Theme.BodyFont,
-		TextSize = props.TextSize or Theme.TextSize.Small - 1,
-		TextColor3 = Colors.Outline,
+		TextSize = props.TextSize or Theme.TextSize.Small,
+		TextColor3 = Colors.Text,
 		TextXAlignment = Enum.TextXAlignment.Center,
 		Text = props.Text,
+		Outline = 1.5,
 	})
-	Theme.corner(tag, UDim.new(0, 10))
+	Theme.corner(tag, UDim.new(0, 5))
+	Theme.border(tag, 2, Colors.Outline)
 	local padding = Theme.padding(tag, 0)
 	padding.PaddingLeft = UDim.new(0, 8)
 	padding.PaddingRight = UDim.new(0, 8)
@@ -774,6 +810,180 @@ local function usingGamepad()
 	return input.Name:sub(1, 7) == "Gamepad"
 end
 
+-- Gras-Streifen oben an einer Fläche: zackige Unterkante, kleine Halme oben, dunkler Rand.
+-- width = Breite der Fläche in px, height = Höhe des Streifens, seed = Zahl für das Zacken-Muster,
+-- radius = Ecken oben (wie die Fläche). Gibt den Streifen (Frame) zurück.
+function Theme.grassStrip(parent, width, height, seed, radius)
+	radius = radius or Theme.Radius.XL
+	seed = seed or 0
+	local strip = Instance.new("Frame")
+	strip.Name = "Header"
+	strip.Size = UDim2.new(1, 0, 0, height)
+	strip.BackgroundColor3 = Colors.Grass
+	strip.BorderSizePixel = 0
+	strip.ZIndex = Theme.zOf(parent) + 1
+	strip.Parent = parent
+	Theme.corner(strip, radius)
+	local fill = Instance.new("Frame") -- untere Ecken gerade
+	fill.Position = UDim2.new(0, 0, 1, -radius)
+	fill.Size = UDim2.new(1, 0, 0, radius)
+	fill.BackgroundColor3 = Colors.Grass
+	fill.BorderSizePixel = 0
+	fill.ZIndex = strip.ZIndex
+	fill.Parent = strip
+	local x = 0
+	local i = 0
+	while x < width do
+		i += 1
+		local w = 14 + (seed + i * 5) % 10
+		local h = 5 + (seed + i * 7) % 4 * 3 -- 5 / 8 / 11 / 14 px
+		-- dunkler Rand der Zacke, darüber die helle Zacke
+		local dark = Instance.new("Frame")
+		dark.Name = "GrassEdge"
+		dark.Position = UDim2.fromOffset(x, height - 2)
+		dark.Size = UDim2.fromOffset(math.min(w, width - x), h + 3)
+		dark.BackgroundColor3 = Colors.GrassDark
+		dark.BorderSizePixel = 0
+		dark.ZIndex = strip.ZIndex
+		dark.Parent = strip
+		local light = dark:Clone()
+		light.Size = UDim2.fromOffset(math.min(w, width - x), h)
+		light.BackgroundColor3 = Colors.Grass
+		light.ZIndex = strip.ZIndex + 1
+		light.Parent = strip
+		if i % 3 == 0 and x > 16 and x < width - 24 then -- Grashalm oben
+			local tuft = Instance.new("Frame")
+			tuft.Name = "Tuft"
+			tuft.Position = UDim2.fromOffset(x + 4, -5)
+			tuft.Size = UDim2.fromOffset(6, 6)
+			tuft.BackgroundColor3 = Colors.Grass
+			tuft.BorderSizePixel = 0
+			tuft.ZIndex = strip.ZIndex
+			tuft.Parent = strip
+		end
+		x += w
+	end
+	Theme.border(strip, 3, Colors.GrassDark)
+	return strip
+end
+
+-- Apfel mit zwei Blättern (Deko am Titelschild). side = -1 links, 1 rechts vom Schild
+local function signApple(sign, side, signHeight)
+	local holder = Instance.new("Frame")
+	holder.Name = "Deco"
+	holder.BackgroundTransparency = 1
+	holder.AnchorPoint = Vector2.new(0.5, 0.5)
+	holder.Position = side < 0 and UDim2.new(0, -6, 0.5, 2) or UDim2.new(1, 6, 0.5, 2)
+	holder.Size = UDim2.fromOffset(34, 34)
+	holder.ZIndex = sign.ZIndex + 1
+	holder.Parent = sign
+	local scale = Instance.new("UIScale")
+	scale.Scale = math.clamp(signHeight / 54, 0.6, 1)
+	scale.Parent = holder
+	for k, angle in ipairs({ -40, 40 }) do
+		local leaf = Instance.new("Frame")
+		leaf.Name = "Leaf"
+		leaf.AnchorPoint = Vector2.new(0.5, 1)
+		leaf.Position = UDim2.new(0.5, (k == 1 and -6 or 6) * side, 0.25, 2)
+		leaf.Size = UDim2.fromOffset(12, 20)
+		leaf.Rotation = angle * side
+		leaf.BackgroundColor3 = k == 1 and Colors.Grass or Colors.GrassDark
+		leaf.BorderSizePixel = 0
+		leaf.ZIndex = holder.ZIndex
+		leaf.Parent = holder
+		Theme.corner(leaf, UDim.new(1, 0))
+		Theme.border(leaf, 2, Colors.Outline)
+	end
+	local fruit = Instance.new("Frame")
+	fruit.Name = "Apple"
+	fruit.AnchorPoint = Vector2.new(0.5, 0.5)
+	fruit.Position = UDim2.fromScale(0.5, 0.6)
+	fruit.Size = UDim2.fromOffset(26, 24)
+	fruit.BackgroundColor3 = Color3.fromRGB(232, 72, 44)
+	fruit.BorderSizePixel = 0
+	fruit.ZIndex = holder.ZIndex + 1
+	fruit.Parent = holder
+	Theme.corner(fruit, UDim.new(1, 0))
+	Theme.border(fruit, 2.5, Colors.Outline)
+	local glint = Instance.new("Frame")
+	glint.Position = UDim2.fromOffset(6, 5)
+	glint.Size = UDim2.fromOffset(6, 5)
+	glint.BackgroundColor3 = Color3.new(1, 1, 1)
+	glint.BackgroundTransparency = 0.35
+	glint.BorderSizePixel = 0
+	glint.ZIndex = fruit.ZIndex
+	glint.Parent = fruit
+	Theme.corner(glint, UDim.new(1, 0))
+end
+
+-- Holzschild mit Titel, Akzentstreifen und zwei Äpfeln (wie über jedem Fenster).
+-- props: Title, Color (Akzentstreifen), Position, AnchorPoint, Height (Standard 54), TextSize,
+--        MinWidth, MaxWidth, ZIndex, Apples (Standard true)
+-- Gibt { Frame, Title, Accent, SetTitle(text), SetColor(farbe) } zurück.
+function Theme.titleSign(parent, props)
+	local height = props.Height or 54
+	local big = height >= 48
+	local sign = Instance.new("Frame")
+	sign.Name = "TitleSign"
+	sign.AnchorPoint = props.AnchorPoint or Vector2.new(0.5, 0.5)
+	sign.Position = props.Position or UDim2.fromScale(0.5, 0)
+	sign.Size = UDim2.fromOffset(props.MinWidth or 200, height)
+	sign.BackgroundColor3 = Colors.WoodLight
+	sign.BorderSizePixel = 0
+	sign.ZIndex = props.ZIndex or Theme.zOf(parent) + 3
+	sign.Parent = parent
+	Theme.corner(sign, 6)
+	Theme.border(sign, big and 3.5 or 3, Colors.Outline)
+	Theme.woodGradient(sign, 1.2)
+	local accent = Instance.new("Frame") -- Akzentstreifen unten im Schild (SetColor)
+	accent.Name = "Accent"
+	accent.AnchorPoint = Vector2.new(0.5, 1)
+	accent.Position = UDim2.new(0.5, 0, 1, big and -5 or -4)
+	accent.Size = UDim2.new(1, 8, 0, big and 4 or 3)
+	accent.BackgroundColor3 = props.Color or Colors.Gold
+	accent.BorderSizePixel = 0
+	accent.ZIndex = sign.ZIndex
+	accent.Parent = sign
+	Theme.corner(accent, 2)
+
+	local title = Theme.label(sign, {
+		Name = "Title",
+		Size = UDim2.fromScale(1, 1),
+		TextSize = props.TextSize or Theme.TextSize.Title + 2,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		Text = props.Title or "",
+		ZIndex = sign.ZIndex + 1,
+		Outline = big and 3 or 2.5,
+	})
+	local apples = props.Apples ~= false
+	-- Schild so breit wie der Titel (+ Platz für die Äpfel), in den Grenzen MinWidth..MaxWidth
+	local function fit()
+		local textWidth = TextService:GetTextSize(title.Text, title.TextSize, title.Font, Vector2.new(2000, 100)).X
+		local extra = apples and 76 or 36
+		local width = math.clamp(textWidth + extra, props.MinWidth or 120, props.MaxWidth or 2000)
+		sign.Size = UDim2.fromOffset(width, height)
+	end
+	fit()
+	if apples then
+		signApple(sign, -1, height)
+		signApple(sign, 1, height)
+	end
+
+	return {
+		Frame = sign,
+		Title = title,
+		Accent = accent,
+		SetTitle = function(text)
+			title.Text = text
+			fit()
+		end,
+		SetColor = function(color)
+			Theme.tween(accent, { BackgroundColor3 = color }, Theme.Time.Fast)
+		end,
+	}
+end
+
 -- props: Name, Title, Color (Akzentlinie), Size (Vector2), OnClose
 -- Gibt ein Objekt zurück: { Root, Panel, Body, Header, Open(), Close(), IsOpen(), SetTitle(text), SetColor(color) }
 -- Root = der Halter (das Tutorial prüft Root.Visible), Panel = die eigentliche Fläche.
@@ -816,48 +1026,36 @@ function Theme.window(gui, props)
 		Radius = Theme.Radius.XL,
 		Outline = Theme.Stroke.Normal,
 	})
+	Theme.woodPlanks(panel, size.Y, 40)
 
-	local HEADER = 58
-	local header = Instance.new("Frame")
-	header.Name = "Header"
-	header.Size = UDim2.new(1, 0, 0, HEADER)
-	header.BackgroundColor3 = Colors.Deep
-	header.BorderSizePixel = 0
-	header.ZIndex = panel.ZIndex
-	header.Parent = panel
-	Theme.corner(header, Theme.Radius.XL)
-	local headerFill = Instance.new("Frame") -- untere Ecken gerade
-	headerFill.Position = UDim2.new(0, 0, 1, -Theme.Radius.XL)
-	headerFill.Size = UDim2.new(1, 0, 0, Theme.Radius.XL)
-	headerFill.BackgroundColor3 = header.BackgroundColor3
-	headerFill.BorderSizePixel = 0
-	headerFill.ZIndex = panel.ZIndex
-	headerFill.Parent = header
-	local accent = Instance.new("Frame") -- Akzentlinie unter der Kopfzeile
-	accent.Name = "Accent"
-	accent.Position = UDim2.fromScale(0, 1)
-	accent.Size = UDim2.new(1, 0, 0, 3)
-	accent.BackgroundColor3 = props.Color or Colors.Blue
-	accent.BorderSizePixel = 0
-	accent.ZIndex = panel.ZIndex
-	accent.Parent = header
-
-	local title = Theme.label(header, {
-		Name = "Title",
-		Position = UDim2.fromOffset(Theme.Spacing.XL, 0),
-		Size = UDim2.new(1, -90, 1, 0),
-		TextSize = Theme.TextSize.Title,
-		Text = props.Title or "",
+	-- Gras-Streifen oben + Titel auf einem Holzschild (ragt oben über das Fenster)
+	local HEADER = 64
+	Theme.grassStrip(panel, size.X, 40, #(props.Name or "") * 7, Theme.Radius.XL)
+	local sign = Theme.titleSign(panel, {
+		Title = props.Title,
+		Color = props.Color,
+		Position = UDim2.new(0.5, 0, 0, 10),
+		MinWidth = math.min(240, size.X * 0.5),
+		MaxWidth = size.X - 150,
+		ZIndex = panel.ZIndex + 3,
 	})
 
-	local closeFace = Theme.destructiveButton(header, {
+	-- rotes eckiges X oben rechts
+	-- eigene Ebene, damit der Knopf über dem Gras liegt (Geschwister werden nach ZIndex gezeichnet)
+	local closeLayer = Instance.new("Frame")
+	closeLayer.Name = "CloseLayer"
+	closeLayer.BackgroundTransparency = 1
+	closeLayer.Size = UDim2.fromScale(1, 1)
+	closeLayer.ZIndex = panel.ZIndex + 4
+	closeLayer.Parent = panel
+	local closeFace = Theme.destructiveButton(closeLayer, {
 		Name = "Close",
 		Text = "X",
-		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.new(1, -12, 0.5, 0),
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(1, -26, 0, 16),
 		Size = UDim2.fromOffset(46, 46),
-		TextSize = Theme.TextSize.Heading,
-		Radius = 10,
+		TextSize = Theme.TextSize.Heading + 2,
+		Radius = 6,
 	})
 
 	local body = Instance.new("Frame")
@@ -928,10 +1126,10 @@ function Theme.window(gui, props)
 		end
 	end
 	function win:SetTitle(text)
-		title.Text = text
+		sign.SetTitle(text)
 	end
 	function win:SetColor(color)
-		Theme.tween(accent, { BackgroundColor3 = color }, Theme.Time.Fast)
+		sign.SetColor(color)
 	end
 
 	closeFace.Activated:Connect(function()
@@ -944,7 +1142,6 @@ function Theme.window(gui, props)
 	win.Root = root
 	win.Panel = panel
 	win.Body = body
-	win.Header = header
 	table.insert(windows, win)
 	return win
 end

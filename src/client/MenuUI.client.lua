@@ -292,7 +292,7 @@ do
 	local timerText = label(header, {
 		Name = "Timer",
 		Position = UDim2.fromOffset(Theme.Spacing.L, 0),
-		Size = UDim2.new(0.5, 0, 1, 0),
+		Size = UDim2.fromScale(0.5, 1),
 		Font = Theme.Font,
 		TextSize = Theme.TextSize.Body + 2,
 		TextWrapped = false,
@@ -1008,7 +1008,7 @@ do
 				end)
 			end
 			if crate.CoinPrice then
-				local coinApi, coinFace, coinHolder = priceButton(card, {
+				local coinApi, coinFace = priceButton(card, {
 					Price = crate.CoinPrice,
 					AnchorPoint = Vector2.new(0, 1),
 					Position = UDim2.new(0, 0, 1, buttonY),
@@ -1025,7 +1025,7 @@ do
 				end
 				updateColor()
 				local connection = player:GetAttributeChangedSignal("Coins"):Connect(updateColor)
-				coinHolder.Destroying:Connect(function()
+				coinApi.Holder.Destroying:Connect(function()
 					connection:Disconnect()
 				end)
 

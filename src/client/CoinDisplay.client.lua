@@ -309,6 +309,19 @@ sideLayout.SortOrder = Enum.SortOrder.LayoutOrder
 sideLayout.Parent = side
 Theme.autoScale(side)
 
+-- Mittig links, aber nie über der Spalte oben links (Coins, Milch, Ziel, Wetter wachsen nach unten)
+side.AnchorPoint = Vector2.zero
+local function placeSide()
+	local top = gui.AbsolutePosition.Y
+	local below = currency.AbsolutePosition.Y + currency.AbsoluteSize.Y - top + Theme.Spacing.M
+	local centered = (gui.AbsoluteSize.Y - side.AbsoluteSize.Y) / 2
+	side.Position = UDim2.fromOffset(Theme.Spacing.L, math.max(centered, below))
+end
+currency:GetPropertyChangedSignal("AbsoluteSize"):Connect(placeSide)
+side:GetPropertyChangedSignal("AbsoluteSize"):Connect(placeSide)
+gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(placeSide)
+task.defer(placeSide)
+
 local function sideButton(order, text, color, keyHint, drawIcon, onClick, textSize)
 	local face, holder = Theme.button(side, {
 		Name = text,

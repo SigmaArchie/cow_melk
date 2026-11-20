@@ -15,6 +15,7 @@ CowData.Config = {
 
 	MilkSellPrice = 2, -- Coins pro Liter Milch
 	UseImportedCowModel = true, -- false = immer die Ersatz-Kuh aus Parts (z.B. wenn das Blender-Modell Probleme macht)
+	UseImportedProps = true, -- false = Schemel und Eimer immer aus Parts (statt assets/PropParts.rbxm aus Blender)
 	MaxCows = 40, -- maximale Kühe insgesamt (Farm + Hotbar + Inventar)
 	HotbarSize = 9, -- Plätze in der Hotbar (Tasten 1-9), für Kühe UND Milch-Eimer
 	MaxBuckets = 100, -- so viele Milch-Eimer passen ins Lager (Hotbar + Eimer-Lager), dann erst verkaufen

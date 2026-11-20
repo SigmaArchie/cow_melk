@@ -51,12 +51,45 @@ local mapFrame = Theme.panel(window.Body, {
 	Size = UDim2.fromOffset(MAP_SIZE.X, MAP_SIZE.Y),
 	BackgroundColor3 = GRASS,
 	ClipsDescendants = true,
-	Radius = 12,
+	Radius = 10,
+	Outline = 4,
+	OutlineColor = Colors.Outline,
 })
+-- Wiese mit Mäh-Streifen (liegt unter der gezeichneten Karte)
+for i = 0, math.ceil(MAP_SIZE.Y / 28) do
+	if i % 2 == 0 then
+		local stripe = Instance.new("Frame")
+		stripe.Name = "Stripe"
+		stripe.Position = UDim2.fromOffset(0, i * 28)
+		stripe.Size = UDim2.new(1, 0, 0, 28)
+		stripe.BackgroundColor3 = World.GrassLight
+		stripe.BackgroundTransparency = 0.75
+		stripe.BorderSizePixel = 0
+		stripe.ZIndex = 1
+		stripe.Parent = mapFrame
+	end
+end
 local layer = Instance.new("Frame")
 layer.Size = UDim2.fromScale(1, 1)
 layer.BackgroundTransparency = 1
+layer.ZIndex = 2
 layer.Parent = mapFrame
+
+-- Nord-Pfeil oben rechts (kleines Holzschild)
+local north = Theme.label(mapFrame, {
+	Name = "North",
+	AnchorPoint = Vector2.new(1, 0),
+	Position = UDim2.new(1, -10, 0, 10),
+	Size = UDim2.fromOffset(34, 34),
+	BackgroundTransparency = 0,
+	BackgroundColor3 = Colors.WoodLight,
+	TextXAlignment = Enum.TextXAlignment.Center,
+	TextSize = 18,
+	Text = "N",
+	ZIndex = 5,
+})
+Theme.corner(north, 6)
+Theme.border(north, 2.5, Colors.Outline)
 
 -- quadratischer Ausschnitt um die Kartenmitte, groß genug für alle Farmen
 local bounds = { MinX = -270, MaxX = 270, MinZ = -270, MaxZ = 270 }
@@ -237,6 +270,72 @@ Theme.label(places, {
 	Outline = 0,
 })
 
+------------------------------------------------------------------------
+-- Gezeichnete Symbole für die Orte (statt Buchstaben)
+------------------------------------------------------------------------
+local function shape(parent, size, position, color, round, rotation)
+	local f = Instance.new("Frame")
+	f.AnchorPoint = Vector2.new(0.5, 0.5)
+	f.Size = size
+	f.Position = position
+	f.Rotation = rotation or 0
+	f.BackgroundColor3 = color
+	f.BorderSizePixel = 0
+	f.ZIndex = parent.ZIndex + 1
+	f.Parent = parent
+	if round then
+		Theme.corner(f, round)
+	end
+	return f
+end
+
+-- Herz (Zucht-Stall): zwei Kreise + gedrehtes Quadrat
+local function heartIcon(parent)
+	local red = Color3.fromRGB(236, 72, 96)
+	local holder = shape(parent, UDim2.fromOffset(28, 26), UDim2.fromScale(0.5, 0.52), red, nil)
+	holder.BackgroundTransparency = 1
+	shape(holder, UDim2.fromOffset(15, 15), UDim2.fromOffset(8, 8), red, UDim.new(1, 0))
+	shape(holder, UDim2.fromOffset(15, 15), UDim2.fromOffset(20, 8), red, UDim.new(1, 0))
+	shape(holder, UDim2.fromOffset(15, 15), UDim2.fromOffset(14, 14), red, nil, 45)
+	shape(holder, UDim2.fromOffset(5, 4), UDim2.fromOffset(7, 6), Color3.new(1, 1, 1), UDim.new(1, 0))
+end
+
+-- Kiste (Kisten): Holzkasten mit Kreuz-Latten
+local function crateIcon(parent)
+	local wood = Color3.fromRGB(196, 136, 74)
+	local dark = Color3.fromRGB(120, 76, 40)
+	local crate = shape(parent, UDim2.fromOffset(28, 26), UDim2.fromScale(0.5, 0.5), wood, UDim.new(0, 4))
+	Theme.border(crate, 2, Colors.Outline)
+	shape(crate, UDim2.fromOffset(34, 4), UDim2.fromScale(0.5, 0.5), dark, nil, 43)
+	shape(crate, UDim2.fromOffset(34, 4), UDim2.fromScale(0.5, 0.5), dark, nil, -43)
+	crate.ClipsDescendants = true
+end
+
+-- Hammer (Werkzeug-Shop): gedrehter Stiel mit Metallkopf
+local function hammerIcon(parent)
+	local holder = shape(parent, UDim2.fromOffset(28, 28), UDim2.fromScale(0.5, 0.5), Color3.new(), nil, -35)
+	holder.BackgroundTransparency = 1
+	local handle =
+		shape(holder, UDim2.fromOffset(6, 22), UDim2.fromOffset(14, 17), Color3.fromRGB(176, 120, 76), UDim.new(0, 2))
+	Theme.border(handle, 1.5, Colors.Outline)
+	local head =
+		shape(holder, UDim2.fromOffset(22, 9), UDim2.fromOffset(14, 6), Color3.fromRGB(176, 184, 196), UDim.new(0, 2))
+	Theme.border(head, 1.5, Colors.Outline)
+end
+
+-- Symbol je Fenster-Seite (CowData.Map.Shops[i].Page); unbekannte Seiten bekommen den Anfangsbuchstaben
+local SHOP_ICONS = {
+	Shop = function(swatch)
+		Theme.coinIcon(swatch, 28, UDim2.fromScale(0.5, 0.5))
+	end,
+	Breeding = heartIcon,
+	Crates = crateIcon,
+	Gear = hammerIcon,
+	AutoMilker = function(swatch)
+		Theme.milkIcon(swatch, 28, UDim2.fromScale(0.5, 0.5))
+	end,
+}
+
 local function placeRow(order, color, title, subtitle, destination, drawIcon)
 	local row = Theme.panel(places, {
 		LayoutOrder = order,
@@ -244,12 +343,25 @@ local function placeRow(order, color, title, subtitle, destination, drawIcon)
 		BackgroundColor3 = Colors.Card,
 		Radius = 12,
 	})
-	local swatch = Theme.panel(row, {
-		Position = UDim2.fromOffset(9, 9),
-		Size = UDim2.fromOffset(40, 40),
+	-- Holz-Stil (Archie): dunkles Feld mit Umriss, darin das farbige Symbol; etwas kleiner,
+	-- damit alle 6 Orte (mit dem Werkzeug-Shop) untereinander passen
+	local inset = Theme.panel(row, {
+		Name = "IconBox",
+		Position = UDim2.fromOffset(7, 6),
+		Size = UDim2.fromOffset(46, 46),
+		BackgroundColor3 = Colors.Deep,
+		Radius = 8,
+		Outline = 2.5,
+		OutlineColor = Colors.Outline,
+	})
+	local swatch = Theme.panel(inset, {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(37, 37),
 		BackgroundColor3 = color,
-		Radius = 10,
+		Radius = 7,
 		Outline = 2,
+		OutlineColor = Theme.darken(color, 0.5),
 	})
 	if drawIcon then
 		drawIcon(swatch)
@@ -288,7 +400,7 @@ placeRow(1, Colors.Green, "Meine Farm", "Melken, Kühe platzieren, Milch verkauf
 	Theme.cowIcon(swatch, 32, UDim2.fromScale(0.5, 0.5), Color3.new(1, 1, 1), Color3.fromRGB(30, 30, 35))
 end)
 for i, shop in ipairs(Map.Shops) do
-	placeRow(1 + i, shop.Color, shop.Label, shop.Area, shop.Page, function(swatch)
+	placeRow(1 + i, shop.Color, shop.Label, shop.Area, shop.Page, SHOP_ICONS[shop.Page] or function(swatch)
 		Theme.label(swatch, {
 			Size = UDim2.fromScale(1, 1),
 			TextXAlignment = Enum.TextXAlignment.Center,
