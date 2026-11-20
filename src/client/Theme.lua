@@ -810,6 +810,180 @@ local function usingGamepad()
 	return input.Name:sub(1, 7) == "Gamepad"
 end
 
+-- Gras-Streifen oben an einer Fläche: zackige Unterkante, kleine Halme oben, dunkler Rand.
+-- width = Breite der Fläche in px, height = Höhe des Streifens, seed = Zahl für das Zacken-Muster,
+-- radius = Ecken oben (wie die Fläche). Gibt den Streifen (Frame) zurück.
+function Theme.grassStrip(parent, width, height, seed, radius)
+	radius = radius or Theme.Radius.XL
+	seed = seed or 0
+	local strip = Instance.new("Frame")
+	strip.Name = "Header"
+	strip.Size = UDim2.new(1, 0, 0, height)
+	strip.BackgroundColor3 = Colors.Grass
+	strip.BorderSizePixel = 0
+	strip.ZIndex = Theme.zOf(parent) + 1
+	strip.Parent = parent
+	Theme.corner(strip, radius)
+	local fill = Instance.new("Frame") -- untere Ecken gerade
+	fill.Position = UDim2.new(0, 0, 1, -radius)
+	fill.Size = UDim2.new(1, 0, 0, radius)
+	fill.BackgroundColor3 = Colors.Grass
+	fill.BorderSizePixel = 0
+	fill.ZIndex = strip.ZIndex
+	fill.Parent = strip
+	local x = 0
+	local i = 0
+	while x < width do
+		i += 1
+		local w = 14 + (seed + i * 5) % 10
+		local h = 5 + (seed + i * 7) % 4 * 3 -- 5 / 8 / 11 / 14 px
+		-- dunkler Rand der Zacke, darüber die helle Zacke
+		local dark = Instance.new("Frame")
+		dark.Name = "GrassEdge"
+		dark.Position = UDim2.fromOffset(x, height - 2)
+		dark.Size = UDim2.fromOffset(math.min(w, width - x), h + 3)
+		dark.BackgroundColor3 = Colors.GrassDark
+		dark.BorderSizePixel = 0
+		dark.ZIndex = strip.ZIndex
+		dark.Parent = strip
+		local light = dark:Clone()
+		light.Size = UDim2.fromOffset(math.min(w, width - x), h)
+		light.BackgroundColor3 = Colors.Grass
+		light.ZIndex = strip.ZIndex + 1
+		light.Parent = strip
+		if i % 3 == 0 and x > 16 and x < width - 24 then -- Grashalm oben
+			local tuft = Instance.new("Frame")
+			tuft.Name = "Tuft"
+			tuft.Position = UDim2.fromOffset(x + 4, -5)
+			tuft.Size = UDim2.fromOffset(6, 6)
+			tuft.BackgroundColor3 = Colors.Grass
+			tuft.BorderSizePixel = 0
+			tuft.ZIndex = strip.ZIndex
+			tuft.Parent = strip
+		end
+		x += w
+	end
+	Theme.border(strip, 3, Colors.GrassDark)
+	return strip
+end
+
+-- Apfel mit zwei Blättern (Deko am Titelschild). side = -1 links, 1 rechts vom Schild
+local function signApple(sign, side, signHeight)
+	local holder = Instance.new("Frame")
+	holder.Name = "Deco"
+	holder.BackgroundTransparency = 1
+	holder.AnchorPoint = Vector2.new(0.5, 0.5)
+	holder.Position = side < 0 and UDim2.new(0, -6, 0.5, 2) or UDim2.new(1, 6, 0.5, 2)
+	holder.Size = UDim2.fromOffset(34, 34)
+	holder.ZIndex = sign.ZIndex + 1
+	holder.Parent = sign
+	local scale = Instance.new("UIScale")
+	scale.Scale = math.clamp(signHeight / 54, 0.6, 1)
+	scale.Parent = holder
+	for k, angle in ipairs({ -40, 40 }) do
+		local leaf = Instance.new("Frame")
+		leaf.Name = "Leaf"
+		leaf.AnchorPoint = Vector2.new(0.5, 1)
+		leaf.Position = UDim2.new(0.5, (k == 1 and -6 or 6) * side, 0.25, 2)
+		leaf.Size = UDim2.fromOffset(12, 20)
+		leaf.Rotation = angle * side
+		leaf.BackgroundColor3 = k == 1 and Colors.Grass or Colors.GrassDark
+		leaf.BorderSizePixel = 0
+		leaf.ZIndex = holder.ZIndex
+		leaf.Parent = holder
+		Theme.corner(leaf, UDim.new(1, 0))
+		Theme.border(leaf, 2, Colors.Outline)
+	end
+	local fruit = Instance.new("Frame")
+	fruit.Name = "Apple"
+	fruit.AnchorPoint = Vector2.new(0.5, 0.5)
+	fruit.Position = UDim2.fromScale(0.5, 0.6)
+	fruit.Size = UDim2.fromOffset(26, 24)
+	fruit.BackgroundColor3 = Color3.fromRGB(232, 72, 44)
+	fruit.BorderSizePixel = 0
+	fruit.ZIndex = holder.ZIndex + 1
+	fruit.Parent = holder
+	Theme.corner(fruit, UDim.new(1, 0))
+	Theme.border(fruit, 2.5, Colors.Outline)
+	local glint = Instance.new("Frame")
+	glint.Position = UDim2.fromOffset(6, 5)
+	glint.Size = UDim2.fromOffset(6, 5)
+	glint.BackgroundColor3 = Color3.new(1, 1, 1)
+	glint.BackgroundTransparency = 0.35
+	glint.BorderSizePixel = 0
+	glint.ZIndex = fruit.ZIndex
+	glint.Parent = fruit
+	Theme.corner(glint, UDim.new(1, 0))
+end
+
+-- Holzschild mit Titel, Akzentstreifen und zwei Äpfeln (wie über jedem Fenster).
+-- props: Title, Color (Akzentstreifen), Position, AnchorPoint, Height (Standard 54), TextSize,
+--        MinWidth, MaxWidth, ZIndex, Apples (Standard true)
+-- Gibt { Frame, Title, Accent, SetTitle(text), SetColor(farbe) } zurück.
+function Theme.titleSign(parent, props)
+	local height = props.Height or 54
+	local big = height >= 48
+	local sign = Instance.new("Frame")
+	sign.Name = "TitleSign"
+	sign.AnchorPoint = props.AnchorPoint or Vector2.new(0.5, 0.5)
+	sign.Position = props.Position or UDim2.fromScale(0.5, 0)
+	sign.Size = UDim2.fromOffset(props.MinWidth or 200, height)
+	sign.BackgroundColor3 = Colors.WoodLight
+	sign.BorderSizePixel = 0
+	sign.ZIndex = props.ZIndex or Theme.zOf(parent) + 3
+	sign.Parent = parent
+	Theme.corner(sign, 6)
+	Theme.border(sign, big and 3.5 or 3, Colors.Outline)
+	Theme.woodGradient(sign, 1.2)
+	local accent = Instance.new("Frame") -- Akzentstreifen unten im Schild (SetColor)
+	accent.Name = "Accent"
+	accent.AnchorPoint = Vector2.new(0.5, 1)
+	accent.Position = UDim2.new(0.5, 0, 1, big and -5 or -4)
+	accent.Size = UDim2.new(1, 8, 0, big and 4 or 3)
+	accent.BackgroundColor3 = props.Color or Colors.Gold
+	accent.BorderSizePixel = 0
+	accent.ZIndex = sign.ZIndex
+	accent.Parent = sign
+	Theme.corner(accent, 2)
+
+	local title = Theme.label(sign, {
+		Name = "Title",
+		Size = UDim2.fromScale(1, 1),
+		TextSize = props.TextSize or Theme.TextSize.Title + 2,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		Text = props.Title or "",
+		ZIndex = sign.ZIndex + 1,
+		Outline = big and 3 or 2.5,
+	})
+	local apples = props.Apples ~= false
+	-- Schild so breit wie der Titel (+ Platz für die Äpfel), in den Grenzen MinWidth..MaxWidth
+	local function fit()
+		local textWidth = TextService:GetTextSize(title.Text, title.TextSize, title.Font, Vector2.new(2000, 100)).X
+		local extra = apples and 76 or 36
+		local width = math.clamp(textWidth + extra, props.MinWidth or 120, props.MaxWidth or 2000)
+		sign.Size = UDim2.fromOffset(width, height)
+	end
+	fit()
+	if apples then
+		signApple(sign, -1, height)
+		signApple(sign, 1, height)
+	end
+
+	return {
+		Frame = sign,
+		Title = title,
+		Accent = accent,
+		SetTitle = function(text)
+			title.Text = text
+			fit()
+		end,
+		SetColor = function(color)
+			Theme.tween(accent, { BackgroundColor3 = color }, Theme.Time.Fast)
+		end,
+	}
+end
+
 -- props: Name, Title, Color (Akzentlinie), Size (Vector2), OnClose
 -- Gibt ein Objekt zurück: { Root, Panel, Body, Header, Open(), Close(), IsOpen(), SetTitle(text), SetColor(color) }
 -- Root = der Halter (das Tutorial prüft Root.Visible), Panel = die eigentliche Fläche.
@@ -854,148 +1028,17 @@ function Theme.window(gui, props)
 	})
 	Theme.woodPlanks(panel, size.Y, 40)
 
-	-- Gras-Streifen oben mit zackiger Unterkante und kleinen Halmen oben
+	-- Gras-Streifen oben + Titel auf einem Holzschild (ragt oben über das Fenster)
 	local HEADER = 64
-	local GRASS = 40
-	local header = Instance.new("Frame")
-	header.Name = "Header"
-	header.Size = UDim2.new(1, 0, 0, GRASS)
-	header.BackgroundColor3 = Colors.Grass
-	header.BorderSizePixel = 0
-	header.ZIndex = panel.ZIndex + 1
-	header.Parent = panel
-	Theme.corner(header, Theme.Radius.XL)
-	local headerFill = Instance.new("Frame") -- untere Ecken gerade
-	headerFill.Position = UDim2.new(0, 0, 1, -Theme.Radius.XL)
-	headerFill.Size = UDim2.new(1, 0, 0, Theme.Radius.XL)
-	headerFill.BackgroundColor3 = Colors.Grass
-	headerFill.BorderSizePixel = 0
-	headerFill.ZIndex = header.ZIndex
-	headerFill.Parent = header
-	local seed = #(props.Name or "") * 7
-	local x = 0
-	local i = 0
-	while x < size.X do
-		i += 1
-		local w = 14 + (seed + i * 5) % 10
-		local h = 5 + (seed + i * 7) % 4 * 3 -- 5 / 8 / 11 / 14 px
-		-- dunkler Rand der Zacke, darüber die helle Zacke
-		local dark = Instance.new("Frame")
-		dark.Name = "GrassEdge"
-		dark.Position = UDim2.fromOffset(x, GRASS - 2)
-		dark.Size = UDim2.fromOffset(math.min(w, size.X - x), h + 3)
-		dark.BackgroundColor3 = Colors.GrassDark
-		dark.BorderSizePixel = 0
-		dark.ZIndex = header.ZIndex
-		dark.Parent = header
-		local light = dark:Clone()
-		light.Size = UDim2.fromOffset(math.min(w, size.X - x), h)
-		light.BackgroundColor3 = Colors.Grass
-		light.ZIndex = header.ZIndex + 1
-		light.Parent = header
-		if i % 3 == 0 and x > 16 and x < size.X - 24 then -- Grashalm oben
-			local tuft = Instance.new("Frame")
-			tuft.Name = "Tuft"
-			tuft.Position = UDim2.fromOffset(x + 4, -5)
-			tuft.Size = UDim2.fromOffset(6, 6)
-			tuft.BackgroundColor3 = Colors.Grass
-			tuft.BorderSizePixel = 0
-			tuft.ZIndex = header.ZIndex
-			tuft.Parent = header
-		end
-		x += w
-	end
-	local headerStroke = Theme.border(header, 3, Colors.GrassDark)
-	headerStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-
-	-- Titel auf einem Holzschild, mittig, ragt oben über das Fenster
-	local sign = Instance.new("Frame")
-	sign.Name = "TitleSign"
-	sign.AnchorPoint = Vector2.new(0.5, 0.5)
-	sign.Position = UDim2.new(0.5, 0, 0, 10)
-	sign.Size = UDim2.fromOffset(240, 54)
-	sign.BackgroundColor3 = Colors.WoodLight
-	sign.BorderSizePixel = 0
-	sign.ZIndex = panel.ZIndex + 3
-	sign.Parent = panel
-	Theme.corner(sign, 6)
-	Theme.border(sign, 3.5, Colors.Outline)
-	Theme.woodGradient(sign, 1.2)
-	local accent = Instance.new("Frame") -- Akzentstreifen unten im Schild (SetColor)
-	accent.Name = "Accent"
-	accent.AnchorPoint = Vector2.new(0.5, 1)
-	accent.Position = UDim2.new(0.5, 0, 1, -5)
-	accent.Size = UDim2.new(1, 8, 0, 4)
-	accent.BackgroundColor3 = props.Color or Colors.Gold
-	accent.BorderSizePixel = 0
-	accent.ZIndex = sign.ZIndex
-	accent.Parent = sign
-	Theme.corner(accent, 2)
-
-	local title = Theme.label(sign, {
-		Name = "Title",
-		Size = UDim2.fromScale(1, 1),
-		TextSize = Theme.TextSize.Title + 2,
-		TextXAlignment = Enum.TextXAlignment.Center,
-		Text = props.Title or "",
-		ZIndex = sign.ZIndex + 1,
-		Outline = 3,
+	Theme.grassStrip(panel, size.X, 40, #(props.Name or "") * 7, Theme.Radius.XL)
+	local sign = Theme.titleSign(panel, {
+		Title = props.Title,
+		Color = props.Color,
+		Position = UDim2.new(0.5, 0, 0, 10),
+		MinWidth = math.min(240, size.X * 0.5),
+		MaxWidth = size.X - 150,
+		ZIndex = panel.ZIndex + 3,
 	})
-	-- Schild so breit wie der Titel (+ Platz für die Äpfel), aber nicht breiter als das Fenster
-	local function fitSign()
-		local textWidth = TextService:GetTextSize(title.Text, title.TextSize, title.Font, Vector2.new(2000, 100)).X
-		local width = math.clamp(textWidth + 76, math.min(240, size.X * 0.5), size.X - 150)
-		sign.Size = UDim2.fromOffset(width, 54)
-	end
-	fitSign()
-
-	-- Deko links und rechts vom Schild: Apfel mit zwei Blättern
-	local function apple(side)
-		local holder = Instance.new("Frame")
-		holder.Name = "Deco"
-		holder.BackgroundTransparency = 1
-		holder.AnchorPoint = Vector2.new(0.5, 0.5)
-		holder.Position = side < 0 and UDim2.new(0, -6, 0.5, 2) or UDim2.new(1, 6, 0.5, 2)
-		holder.Size = UDim2.fromOffset(34, 34)
-		holder.ZIndex = sign.ZIndex + 1
-		holder.Parent = sign
-		for k, angle in ipairs({ -40, 40 }) do
-			local leaf = Instance.new("Frame")
-			leaf.Name = "Leaf"
-			leaf.AnchorPoint = Vector2.new(0.5, 1)
-			leaf.Position = UDim2.new(0.5, (k == 1 and -6 or 6) * side, 0.25, 2)
-			leaf.Size = UDim2.fromOffset(12, 20)
-			leaf.Rotation = angle * side
-			leaf.BackgroundColor3 = k == 1 and Colors.Grass or Colors.GrassDark
-			leaf.BorderSizePixel = 0
-			leaf.ZIndex = holder.ZIndex
-			leaf.Parent = holder
-			Theme.corner(leaf, UDim.new(1, 0))
-			Theme.border(leaf, 2, Colors.Outline)
-		end
-		local fruit = Instance.new("Frame")
-		fruit.Name = "Apple"
-		fruit.AnchorPoint = Vector2.new(0.5, 0.5)
-		fruit.Position = UDim2.fromScale(0.5, 0.6)
-		fruit.Size = UDim2.fromOffset(26, 24)
-		fruit.BackgroundColor3 = Color3.fromRGB(232, 72, 44)
-		fruit.BorderSizePixel = 0
-		fruit.ZIndex = holder.ZIndex + 1
-		fruit.Parent = holder
-		Theme.corner(fruit, UDim.new(1, 0))
-		Theme.border(fruit, 2.5, Colors.Outline)
-		local glint = Instance.new("Frame")
-		glint.Position = UDim2.fromOffset(6, 5)
-		glint.Size = UDim2.fromOffset(6, 5)
-		glint.BackgroundColor3 = Color3.new(1, 1, 1)
-		glint.BackgroundTransparency = 0.35
-		glint.BorderSizePixel = 0
-		glint.ZIndex = fruit.ZIndex
-		glint.Parent = fruit
-		Theme.corner(glint, UDim.new(1, 0))
-	end
-	apple(-1)
-	apple(1)
 
 	-- rotes eckiges X oben rechts
 	-- eigene Ebene, damit der Knopf über dem Gras liegt (Geschwister werden nach ZIndex gezeichnet)
@@ -1083,11 +1126,10 @@ function Theme.window(gui, props)
 		end
 	end
 	function win:SetTitle(text)
-		title.Text = text
-		fitSign()
+		sign.SetTitle(text)
 	end
 	function win:SetColor(color)
-		Theme.tween(accent, { BackgroundColor3 = color }, Theme.Time.Fast)
+		sign.SetColor(color)
 	end
 
 	closeFace.Activated:Connect(function()
@@ -1100,7 +1142,6 @@ function Theme.window(gui, props)
 	win.Root = root
 	win.Panel = panel
 	win.Body = body
-	win.Header = header
 	table.insert(windows, win)
 	return win
 end
