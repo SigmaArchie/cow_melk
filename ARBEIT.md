@@ -1,0 +1,51 @@
+# Wer macht gerade was
+
+Regeln dazu: [CLAUDE.md](CLAUDE.md). Kurz: **vor jeder Aufgabe** dieses Board auf `origin/main`
+lesen, belegte Dateien nicht anfassen, eigene Aufgabe hier eintragen und pushen, *bevor* Code
+geschrieben wird.
+
+## Gerade in Arbeit
+
+| Wer | Aufgabe | Branch | Belegte Dateien | Stand |
+|---|---|---|---|---|
+| Maxi | **Werkzeug-Shop** als 5. Shop am Marktplatz (beim Pavillon / Dorfbaum): Futtereimer (Kuh wächst schneller), Kuhglocke (mehr Mutations-Chance für Kühe in der Nähe), Bürste (eine Kuh kurz mehr Milch). Kaufen, auf die Weide stellen, wirkt eine Zeit lang. | noch nicht gepusht | *vermutet, Maxis Claude bitte korrigieren:* `CowData.lua`, `MapBuilder.server.lua`, `MenuUI.client.lua`, `CowManager.server.lua`, `DataService.lua`, `InventoryClient.client.lua`, `WorldAnimator.client.lua`, neue `Tool*`-Module | in Arbeit |
+| Archie | 3D-Eimer + Schemel aus Blender, Holz-Farm-UI, Kisten-Fix ([PR #2](https://github.com/SigmaArchie/cow_melk/pull/2)) | `feature/3d-eimer` | `Theme.lua`, `Palette.lua`, `CowModelBuilder.lua`, `CoinDisplay.client.lua`, `MenuUI.client.lua` (nur 2 Zeilen), `CowData.lua` (1 Zeile), `PropMeshData.lua`, `tools/make_props.py`, `assets/PropParts.rbxm` | fertig, wartet auf Merge |
+
+## Als Nächstes – Archie (stört den Werkzeug-Shop nicht)
+
+1. **3D-Modelle für die Werkzeuge** in Blender: Futtereimer, Kuhglocke, Bürste und ein kleiner
+   Werkzeug-Schuppen. Nur neue Dateien: `tools/make_tools.py`, `assets_src/tools/`,
+   `assets/ToolParts.rbxm`, `src/shared/ToolMeshData.lua`.
+   **Absprache mit Maxi:** Teile heißen `Futtereimer`, `Kuhglocke`, `Buerste`, `Schuppen` und
+   liegen in `ReplicatedStorage.Assets.ToolParts`. Maxis Code nimmt sie, wenn es sie gibt,
+   sonst baut er aus Parts.
+2. **Holz-Stil für Melk-Minispiel, Karte und Tutorial**: `MilkingClient.client.lua`,
+   `OverviewClient.client.lua`, `TutorialClient.client.lua` (+ evtl. `Theme.lua`).
+   Falls Maxi einen Tutorial-Schritt für Werkzeuge will: vorher hier absprechen.
+3. **Funktionierende Sound-IDs suchen** (Melken, Eimer voll, Musik, Shop öffnen, Fanfare) und
+   unten unter "Notizen" sammeln. In `CowData.lua` eintragen erst, wenn der Werkzeug-Shop gemergt ist.
+4. **3D-Deko in Blender** (Bäume, Laternen, Bänke, Heuballen, Fässer, Trog, Zaunstück): erst nur
+   die Modelle. Einbau in `MapBuilder` erst nach dem Werkzeug-Shop.
+
+## Als Nächstes – Maxi
+
+1. Werkzeug-Shop fertig machen (siehe oben), Branch früh pushen.
+2. Werkzeuge im Platzier-Modus der Hotbar aufstellen, in `DataService` speichern, Wirkzeit über
+   der Kuh/dem Werkzeug anzeigen (wie die Melk-Pause).
+3. Danach: Sounds aus den Notizen in `CowData.lua` eintragen.
+
+## Später (erst wenn beide Branches gemergt sind – betrifft fast alles)
+
+- `CowManager.server.lua` in Module aufteilen (Melken, Zucht, Kisten, Plots, Inventar).
+- Anfrage-Limit pro Spieler für alle Remotes (neues Modul `RateLimit.lua`).
+- Deko-Modelle und Shop-Gebäude als Meshes in `MapBuilder` einbauen.
+- Balancing: Auto-Melker ignoriert die Melk-Pause.
+
+## Erledigt
+
+- Kuh kippt nicht mehr beim Umdrehen (Maxi, PR #3)
+- Bauernhof-Karte umgebaut (PR #1)
+
+## Notizen
+
+- Sound-IDs: …
