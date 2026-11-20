@@ -9,7 +9,7 @@ geschrieben wird.
 | Wer | Aufgabe | Branch | Belegte Dateien | Stand |
 |---|---|---|---|---|
 | Maxi | **Werkzeug-Shop** als 5. Shop am Marktplatz (beim Pavillon / Dorfbaum): Futtereimer (Kuh wächst schneller), Kuhglocke (mehr Mutations-Chance für Kühe in der Nähe), Bürste (eine Kuh kurz mehr Milch). Kaufen, auf die Weide stellen, wirkt eine Zeit lang. | noch nicht gepusht | *vermutet, Maxis Claude bitte korrigieren:* `CowData.lua`, `MapBuilder.server.lua`, `MenuUI.client.lua`, `CowManager.server.lua`, `DataService.lua`, `InventoryClient.client.lua`, `WorldAnimator.client.lua`, neue `Tool*`-Module | in Arbeit |
-| Archie | 3D-Eimer + Schemel aus Blender, Holz-Farm-UI, Kisten-Fix ([PR #2](https://github.com/SigmaArchie/cow_melk/pull/2)) | `feature/3d-eimer` | `Theme.lua`, `Palette.lua`, `CowModelBuilder.lua`, `CoinDisplay.client.lua`, `MenuUI.client.lua` (nur 2 Zeilen), `CowData.lua` (1 Zeile), `PropMeshData.lua`, `tools/make_props.py`, `assets/PropParts.rbxm` | fertig, wartet auf Merge |
+| Archie | 3D-Modelle für die Werkzeuge: Futtereimer, Kuhglocke, Bürste, Werkzeug-Schuppen | `feature/werkzeug-modelle` | nur neue Dateien: `tools/make_tools.py`, `assets_src/tools/`, `assets/ToolParts.rbxm`, `src/shared/ToolMeshData.lua` | in Arbeit |
 
 ## Als Nächstes – Archie (stört den Werkzeug-Shop nicht)
 
@@ -43,6 +43,7 @@ geschrieben wird.
 
 ## Erledigt
 
+- 3D-Eimer + Schemel aus Blender, Holz-Farm-UI, Kisten-Fix (Archie, PR #2)
 - Kuh kippt nicht mehr beim Umdrehen (Maxi, PR #3)
 - Bauernhof-Karte umgebaut (PR #1)
 
