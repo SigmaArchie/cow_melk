@@ -9,6 +9,7 @@ geschrieben wird.
 | Wer | Aufgabe | Branch | Belegte Dateien | Stand |
 |---|---|---|---|---|
 | Maxi | **Werkzeug-Shop** als 5. Shop am Marktplatz (beim Pavillon / Dorfbaum): Futtereimer (Kuh wächst schneller), Kuhglocke (mehr Mutations-Chance für Kühe in der Nähe), Bürste (eine Kuh kurz mehr Milch). Kaufen, auf die Weide stellen, wirkt eine Zeit lang. | noch nicht gepusht | *vermutet, Maxis Claude bitte korrigieren:* `CowData.lua`, `MapBuilder.server.lua`, `MenuUI.client.lua`, `CowManager.server.lua`, `DataService.lua`, `InventoryClient.client.lua`, `WorldAnimator.client.lua`, neue `Tool*`-Module | in Arbeit |
+| Archie | Holz-Stil für Melk-Minispiel und Karte | `feature/holz-melken-karte` | `src/client/MilkingClient.client.lua`, `src/client/OverviewClient.client.lua`, `src/client/Theme.lua` | in Arbeit |
 
 ## Als Nächstes – Archie (stört den Werkzeug-Shop nicht)
 
@@ -18,7 +19,7 @@ geschrieben wird.
    **Absprache mit Maxi:** Teile heißen `Futtereimer`, `Kuhglocke`, `Buerste`, `Schuppen` und
    liegen in `ReplicatedStorage.Assets.ToolParts`. Maxis Code nimmt sie, wenn es sie gibt,
    sonst baut er aus Parts.
-2. **Holz-Stil für Melk-Minispiel, Karte und Tutorial**: `MilkingClient.client.lua`,
+2. **Holz-Stil für Melk-Minispiel, Karte und Tutorial** (Melken + Karte: in Arbeit): `MilkingClient.client.lua`,
    `OverviewClient.client.lua`, `TutorialClient.client.lua` (+ evtl. `Theme.lua`).
    Falls Maxi einen Tutorial-Schritt für Werkzeuge will: vorher hier absprechen.
 3. **Funktionierende Sound-IDs suchen** (Melken, Eimer voll, Musik, Shop öffnen, Fanfare) und
