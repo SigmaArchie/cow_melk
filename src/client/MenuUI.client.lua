@@ -290,7 +290,7 @@ do
 	local timerText = label(header, {
 		Name = "Timer",
 		Position = UDim2.fromOffset(Theme.Spacing.L, 0),
-		Size = UDim2.new(0.5, 0, 1, 0),
+		Size = UDim2.fromScale(0.5, 1),
 		Font = Theme.Font,
 		TextSize = Theme.TextSize.Body + 2,
 		TextWrapped = false,
