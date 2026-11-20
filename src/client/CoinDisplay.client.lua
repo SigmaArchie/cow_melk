@@ -196,7 +196,7 @@ local function currentGoal()
 		return ("Melke deine Kuh. Für Kuh Nr. 2 brauchst du %s Coins"):format(CowData.FormatNumber(cowPrice))
 	end
 	if coins >= cratePrice then
-		return ("Öffne eine Holzkiste am Nord-Markt (%s Coins)"):format(CowData.FormatNumber(cratePrice))
+		return ("Öffne eine Holzkiste am Marktplatz (%s Coins)"):format(CowData.FormatNumber(cratePrice))
 	end
 	if cows < Config.MaxCows then
 		return ("Melke deine Kühe, züchte im Zucht-Stall oder spare %s Coins für eine Holzkiste"):format(

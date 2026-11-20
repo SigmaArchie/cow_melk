@@ -1,7 +1,7 @@
 -- OverviewClient.client.lua
 -- Fenster "KARTE" (Taste M oder Knopf KARTE links):
---   links: gezeichnete Karte (Süd-Platz, Förderbänder, Nord-Markt, alle Farmen,
---          deine golden umrandet, weißer Punkt = du). Häuser und deine Farm anklickbar.
+--   links: gezeichnete Karte (runder Marktplatz mit Brunnen und Shops in der Mitte, Feldwege,
+--          alle Farmen im Kreis, deine blau umrandet, weißer Punkt = du). Häuser und deine Farm anklickbar.
 --   rechts: Orte mit "Reisen"-Knopf -> Teleport vor das Haus bzw. auf deine Farm.
 -- Stil: Theme.lua.
 
@@ -26,7 +26,7 @@ local World = Palette.World
 -- Kartenfarben aus der gemeinsamen Palette
 local GRASS = World.GrassDark
 local STONE = World.StonePath
-local CONVEYOR = Colors.Deep
+local DIRT = Color3.fromRGB(172, 142, 102)
 
 local gui = Instance.new("ScreenGui")
 gui.Name = "Overview"
@@ -39,13 +39,13 @@ local window = Theme.window(gui, {
 	Name = "MapWindow",
 	Title = "KARTE",
 	Color = Colors.Blue,
-	Size = Vector2.new(820, 540),
+	Size = Vector2.new(900, 540),
 })
 
 ------------------------------------------------------------------------
 -- Karte (links)
 ------------------------------------------------------------------------
-local MAP_SIZE = Vector2.new(310, 444)
+local MAP_SIZE = Vector2.new(444, 444)
 local mapFrame = Theme.panel(window.Body, {
 	Name = "Map",
 	Size = UDim2.fromOffset(MAP_SIZE.X, MAP_SIZE.Y),
@@ -58,36 +58,46 @@ layer.Size = UDim2.fromScale(1, 1)
 layer.BackgroundTransparency = 1
 layer.Parent = mapFrame
 
-local bounds = { MinX = -140, MaxX = 140, MinZ = -105, MaxZ = Map.NorthPlazaZ + Map.NorthPlazaSize.Z / 2 + 5 }
+-- quadratischer Ausschnitt um die Kartenmitte, groß genug für alle Farmen
+local bounds = { MinX = -270, MaxX = 270, MinZ = -270, MaxZ = 270 }
 local mapScale, mapOffset = 1, Vector2.zero
 
 local function computeBounds()
-	local maxX = 140
+	local radius = Map.PlotRingRadius + Map.PlotDepth / 2 + 12
 	for _, other in ipairs(Players:GetPlayers()) do
 		local slot = other:GetAttribute("PlotSlot")
 		if slot then
-			maxX = math.max(maxX, math.abs(CowData.GetPlotOrigin(slot).Position.X) + Map.PlotDepth / 2 + 5)
+			radius = math.max(radius, CowData.GetPlotOrigin(slot).Position.Magnitude + Map.PlotDepth / 2 + 12)
 		end
 	end
-	bounds.MinX, bounds.MaxX = -maxX, maxX
-	local width, height = bounds.MaxX - bounds.MinX, bounds.MaxZ - bounds.MinZ
-	mapScale = math.min((MAP_SIZE.X - 20) / width, (MAP_SIZE.Y - 20) / height)
-	mapOffset = Vector2.new((MAP_SIZE.X - width * mapScale) / 2, (MAP_SIZE.Y - height * mapScale) / 2)
+	bounds.MinX, bounds.MaxX, bounds.MinZ, bounds.MaxZ = -radius, radius, -radius, radius
+	local size = radius * 2
+	mapScale = math.min((MAP_SIZE.X - 16) / size, (MAP_SIZE.Y - 16) / size)
+	mapOffset = Vector2.new((MAP_SIZE.X - size * mapScale) / 2, (MAP_SIZE.Y - size * mapScale) / 2)
 end
 
 local function toMap(x, z)
 	return mapOffset + Vector2.new((x - bounds.MinX) * mapScale, (bounds.MaxZ - z) * mapScale)
 end
 
-local function rect(centerX, centerZ, sizeX, sizeZ, color)
-	local topLeft = toMap(centerX - sizeX / 2, centerZ + sizeZ / 2)
+-- gedrehtes Rechteck (Mitte cx/cz, Breite quer, Länge entlang "angle"; Winkel wie in CowData:
+-- im Uhrzeigersinn von Norden). Auf dem Bildschirm ist Norden oben, darum passt Rotation = angle.
+local function box(cx, cz, width, length, angle, color)
+	local center = toMap(cx, cz)
 	local frame = Instance.new("Frame")
-	frame.Position = UDim2.fromOffset(topLeft.X, topLeft.Y)
-	frame.Size = UDim2.fromOffset(sizeX * mapScale, sizeZ * mapScale)
+	frame.AnchorPoint = Vector2.new(0.5, 0.5)
+	frame.Position = UDim2.fromOffset(center.X, center.Y)
+	frame.Size = UDim2.fromOffset(width * mapScale, length * mapScale)
+	frame.Rotation = angle
 	frame.BackgroundColor3 = color
 	frame.BorderSizePixel = 0
 	frame.Parent = layer
 	return frame
+end
+
+local function polar(angle, radius)
+	local radians = math.rad(angle)
+	return radius * math.sin(radians), radius * math.cos(radians)
 end
 
 local function mapText(text, x, z, size, color)
@@ -142,48 +152,46 @@ local function drawMap()
 	end
 	computeBounds()
 
-	-- Plätze, Allee, Förderbänder
-	rect(0, -50, 120, 100, STONE)
-	rect(0, Map.NorthPlazaZ, Map.NorthPlazaSize.X, Map.NorthPlazaSize.Z, STONE)
-	local avenueEnd = Map.WalkwayStartZ + Map.WalkwayCycle + Map.WalkwayTileLength + 10
-	rect(0, avenueEnd / 2, 36, avenueEnd, STONE)
-	local laneLength = Map.WalkwayCycle + Map.WalkwayTileLength
-	local laneCenter = Map.WalkwayStartZ + laneLength / 2
-	for _, lane in ipairs({ { -Map.WalkwayX, "▲" }, { Map.WalkwayX, "▼" } }) do
-		local strip = rect(lane[1], laneCenter, Map.WalkwayWidth, laneLength, CONVEYOR)
-		for i = 1, 4 do
-			Theme.label(strip, {
-				AnchorPoint = Vector2.new(0.5, 0.5),
-				Position = UDim2.fromScale(0.5, i / 5),
-				Size = UDim2.fromOffset(12, 12),
-				TextXAlignment = Enum.TextXAlignment.Center,
-				TextSize = 10,
-				TextColor3 = Colors.Cream,
-				Text = lane[2],
-				Outline = 0,
-			})
-		end
+	-- Feldwege: vom Platz zu den Farm-Toren und Ringweg davor
+	local step = 360 / Map.PlotsPerRing
+	local gate = Map.PlotRingRadius - Map.PlotDepth / 2
+	for k = 0, Map.PlotsPerRing - 1 do
+		local x, z = polar(k * step, (Map.HubRadius + gate) / 2)
+		box(x, z, 9, gate - Map.HubRadius, k * step, DIRT)
 	end
-	local fountain = rect(0, -50, 16, 16, Colors.Blue)
+	local ring = box(0, 0, Map.RingRoadRadius * 2, Map.RingRoadRadius * 2, 0, DIRT)
+	ring.BackgroundTransparency = 1
+	Theme.corner(ring, UDim.new(1, 0))
+	Theme.border(ring, math.max(2, 8 * mapScale), DIRT)
+
+	-- Marktplatz mit Brunnen
+	local plaza = box(0, 0, Map.HubRadius * 2, Map.HubRadius * 2, 0, STONE)
+	Theme.corner(plaza, UDim.new(1, 0))
+	local fountain = box(0, 0, 18, 18, 0, Colors.Blue)
 	Theme.corner(fountain, UDim.new(1, 0))
 
-	-- Farmen
+	-- Farmen (gedreht, Tor zur Mitte)
 	for _, other in ipairs(Players:GetPlayers()) do
 		local slot = other:GetAttribute("PlotSlot")
 		if slot then
 			local origin = CowData.GetPlotOrigin(slot).Position
 			local mine = other == player
-			local plot = rect(origin.X, origin.Z, Map.PlotDepth, Map.PlotWidth, mine and World.GrassLight or World.Leaf)
+			local angle = CowData.GetPlotAngle(slot)
+			local plot = box(
+				origin.X,
+				origin.Z,
+				Map.PlotWidth,
+				Map.PlotDepth,
+				angle + 180,
+				mine and World.GrassLight or World.Leaf
+			)
 			Theme.corner(plot, 6)
 			Theme.border(plot, mine and 3 or 1.5, mine and Colors.Blue or Colors.Outline)
-			Theme.label(plot, {
-				Size = UDim2.fromScale(1, 1),
-				TextXAlignment = Enum.TextXAlignment.Center,
-				TextWrapped = true,
-				TextSize = mine and 16 or 12,
-				Text = mine and "DU" or other.DisplayName,
-				Outline = 2,
-			})
+			-- Hof (Tor-Seite) etwas heller/erdig
+			local yardX, yardZ = polar(angle, origin.Magnitude - (Map.PlotDepth / 2 + Map.PastureFrontZ) / 2)
+			local yardDepth = Map.PlotDepth / 2 - Map.PastureFrontZ
+			box(yardX, yardZ, Map.PlotWidth - 6, yardDepth - 4, angle + 180, DIRT).BackgroundTransparency = 0.35
+			mapText(mine and "DU" or other.DisplayName, origin.X, origin.Z, mine and 15 or 12, Colors.Text)
 			if mine then
 				clickable(plot, function()
 					teleport("Farm")
@@ -192,20 +200,19 @@ local function drawMap()
 		end
 	end
 
-	-- Häuser
+	-- Häuser am Platz (Symbol statt Name, die Namen stehen rechts in der Liste)
 	for _, shop in ipairs(Map.Shops) do
-		local house = rect(shop.Position.X, shop.Position.Z, 16, 20, shop.Color)
+		local house = box(shop.Position.X, shop.Position.Z, 20, 16, shop.Angle, shop.Color)
 		Theme.corner(house, 4)
 		Theme.border(house, 2)
 		clickable(house, function()
 			teleport(shop.Page)
 		end)
-		local labelX = shop.Position.X + (shop.Position.X < 0 and -1 or 1) * 2
-		mapText(shop.Label, labelX, shop.Position.Z - 16, 12)
+		local labelX, labelZ = polar(shop.Angle, Map.ShopRadius + 2)
+		mapText(shop.Icon, labelX, labelZ, 13)
 	end
 
-	mapText("SÜD-PLATZ", 0, -92, 14, Colors.Text)
-	mapText("NORD-MARKT", 0, Map.NorthPlazaZ + 42, 14, Colors.Text)
+	mapText("MARKTPLATZ", 0, -Map.HubRadius - 14, 13, Colors.Text)
 end
 
 ------------------------------------------------------------------------

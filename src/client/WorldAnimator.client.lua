@@ -1,13 +1,17 @@
 -- WorldAnimator.client.lua
 -- Alles, was sich in der Welt bewegt, läuft hier auf dem Client (flüssig, kein Netzwerkverkehr):
---   * Förderbänder (Tag "ConveyorTile"): RunService.Heartbeat, nach Serverzeit synchron
---   * Kühe (Tag "Cow"): schweben, Kopf dreht, Schwanz wedelt, Ohren flattern, schauen sich um
---     -> Werte per TweenService-Schleifen, angewendet einmal pro Frame mit workspace:BulkMoveTo
+--   * Windmühlen-Flügel (Tag "Spinner"): drehen sich langsam, nach Serverzeit
+--   * Kühe (Tag "Cow"): laufen auf ihrem Feld ein wenig herum (wohin, berechnet jeder Client gleich
+--     aus Serverzeit + Kuh-ID, siehe CowData.CowWander), grasen, schweben, Kopf dreht, Schwanz wedelt,
+--     Ohren flattern -> angewendet einmal pro Frame mit workspace:BulkMoveTo.
+--     Beim Melken steht die Kuh genau auf ihrem Platz (dort stehen Schemel und Eimer).
+--   * "Melken"-Prompt an der Kuh: nur beim Besitzer sichtbar und nicht während des Melkens
 --   * Regenbogen-Kuh: sanfter Farbwechsel alle 3 Sekunden
 --   * Shops: Hinweis "Klicken zum Öffnen" atmet ruhig, Verkäufer winkt
 --   * Sounds: Hintergrund-Musik, Kühe muhen ab und zu
 
 local CollectionService = game:GetService("CollectionService")
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local SoundService = game:GetService("SoundService")
@@ -15,6 +19,9 @@ local TweenService = game:GetService("TweenService")
 
 local CowData = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CowData"))
 local Config = CowData.Config
+local Wander = CowData.CowWander
+local HashRoll = CowData.HashRoll
+local localPlayer = Players.LocalPlayer
 
 local random = Random.new()
 local ANIMATION_DISTANCE = 160 -- weiter entfernte Kühe bleiben still (spart Leistung)
@@ -36,58 +43,46 @@ local function cameraPosition()
 end
 
 ------------------------------------------------------------------------
--- Förderbänder: 6 Kacheln pro Spur, Position aus der Serverzeit berechnet.
--- Erreicht eine Kachel das Ende, springt sie sofort an den Anfang (im Gehäuse unsichtbar).
+-- Drehende Teile (Tag "Spinner", z.B. Windmühlen-Flügel): drehen sich um die eigene Z-Achse
+-- ihres Pivots, Winkel aus der Serverzeit (bei allen Spielern gleich)
 ------------------------------------------------------------------------
-local conveyorTiles = {} -- [model] = { Parts, Offsets, ... }
+local SPIN_DISTANCE = 450
+local spinners = {} -- [model] = { Pivot, Parts, Offsets, Speed }
 
-local function registerTile(tile)
-	local plate = tile.PrimaryPart or tile:WaitForChild("Plate", 5)
-	if not plate then
-		return
-	end
-	local pivot = tile:GetPivot()
-	local entry = {
-		Parts = {},
-		Offsets = {},
-		Index = tile:GetAttribute("Index") or 0,
-		Direction = tile:GetAttribute("Direction") or 1,
-		X = tile:GetAttribute("X") or 0,
-		Y = tile:GetAttribute("Y") or 0,
-		StartZ = tile:GetAttribute("StartZ") or 0,
-		Cycle = tile:GetAttribute("Cycle") or 300,
-		Length = tile:GetAttribute("Length") or 50,
-		Speed = tile:GetAttribute("Speed") or 22,
-	}
-	entry.Facing = entry.Direction == 1 and CFrame.identity or CFrame.Angles(0, math.pi, 0)
-	for _, part in ipairs(tile:GetDescendants()) do
+local function registerSpinner(model)
+	task.wait() -- Teile sind beim Hinzufügen evtl. noch nicht alle da
+	local pivot = model:GetPivot()
+	local entry = { Pivot = pivot, Parts = {}, Offsets = {}, Speed = model:GetAttribute("SpinSpeed") or 20 }
+	for _, part in ipairs(model:GetDescendants()) do
 		if part:IsA("BasePart") then
 			table.insert(entry.Parts, part)
 			table.insert(entry.Offsets, pivot:ToObjectSpace(part.CFrame))
 		end
 	end
-	conveyorTiles[tile] = entry
+	spinners[model] = entry
 end
 
-for _, tile in ipairs(CollectionService:GetTagged("ConveyorTile")) do
-	task.spawn(registerTile, tile)
+for _, model in ipairs(CollectionService:GetTagged("Spinner")) do
+	task.spawn(registerSpinner, model)
 end
-CollectionService:GetInstanceAddedSignal("ConveyorTile"):Connect(function(tile)
-	task.spawn(registerTile, tile)
+CollectionService:GetInstanceAddedSignal("Spinner"):Connect(function(model)
+	task.spawn(registerSpinner, model)
 end)
-CollectionService:GetInstanceRemovedSignal("ConveyorTile"):Connect(function(tile)
-	conveyorTiles[tile] = nil
+CollectionService:GetInstanceRemovedSignal("Spinner"):Connect(function(model)
+	spinners[model] = nil
 end)
 
 RunService.Heartbeat:Connect(function()
 	local now = workspace:GetServerTimeNow()
+	local camPos = cameraPosition()
 	local parts, cframes = {}, {}
-	for _, tile in pairs(conveyorTiles) do
-		local u = (tile.Index * tile.Length + tile.Direction * now * tile.Speed) % tile.Cycle
-		local pivot = CFrame.new(tile.X, tile.Y, tile.StartZ + u + tile.Length / 2) * tile.Facing
-		for i, part in ipairs(tile.Parts) do
-			table.insert(parts, part)
-			table.insert(cframes, pivot * tile.Offsets[i])
+	for _, entry in pairs(spinners) do
+		if (entry.Pivot.Position - camPos).Magnitude < SPIN_DISTANCE then
+			local pivot = entry.Pivot * CFrame.Angles(0, 0, math.rad((now * entry.Speed) % 360))
+			for i, part in ipairs(entry.Parts) do
+				table.insert(parts, part)
+				table.insert(cframes, pivot * entry.Offsets[i])
+			end
 		end
 	end
 	if #parts > 0 then
@@ -142,6 +137,90 @@ local function collect(container, relativeTo)
 	return parts, offsets
 end
 
+------------------------------------------------------------------------
+-- Herumlaufen: Die Zeit ist in Abschnitte (Wander.Period) geteilt. In jedem Abschnitt k dreht sich
+-- die Kuh erst zum nächsten Punkt, läuft hin und grast dann. Die Punkte kommen aus
+-- CowData.HashRoll(Kuh-ID, k) -> jeder Client rechnet für jede Kuh exakt dasselbe aus.
+------------------------------------------------------------------------
+local function smooth(alpha)
+	alpha = math.clamp(alpha, 0, 1)
+	return alpha * alpha * (3 - 2 * alpha)
+end
+
+local function wrapAngle(angle)
+	return (angle + math.pi) % (2 * math.pi) - math.pi
+end
+
+-- Ziel-Punkt (Versatz vom Platz der Kuh) am Ende von Abschnitt k.
+-- Manchmal bleibt sie stehen: dann gilt der Punkt eines früheren Abschnitts.
+local function wanderPoint(state, k)
+	for depth = 0, 4 do
+		local index = k - depth
+		if depth == 4 or HashRoll(state.Seed, index, 3) >= Wander.StayChance then
+			local angle = HashRoll(state.Seed, index, 1) * math.pi * 2
+			local distance = state.Radius * math.sqrt(HashRoll(state.Seed, index, 2))
+			return Vector3.new(math.cos(angle) * distance, 0, math.sin(angle) * distance)
+		end
+	end
+	return Vector3.zero
+end
+
+-- Blickrichtung nach Abschnitt k: Richtung des letzten echten Wegs (Kuh schaut nach -Z, wenn 0)
+local function wanderHeading(state, k)
+	for depth = 0, 4 do
+		local delta = wanderPoint(state, k - depth) - wanderPoint(state, k - depth - 1)
+		if delta.Magnitude > 0.3 then
+			return math.atan2(-delta.X, -delta.Z)
+		end
+	end
+	return 0
+end
+
+-- Wo die Kuh laut Plan gerade ist: Versatz, Blickrichtung, läuft sie?, Kopf senken (0..1)
+local function wanderPose(state, now)
+	local period = Wander.Period
+	local t = now + state.TimeOffset
+	local k = math.floor(t / period)
+	if state.PlanK ~= k then
+		state.PlanK = k
+		state.From = wanderPoint(state, k - 1)
+		state.To = wanderPoint(state, k)
+		state.HeadingFrom = wanderHeading(state, k - 1)
+		local delta = state.To - state.From
+		state.HeadingTo = delta.Magnitude > 0.3 and math.atan2(-delta.X, -delta.Z) or state.HeadingFrom
+		state.WalkTime = math.min(delta.Magnitude / state.Speed, period - Wander.TurnTime - 1)
+		state.Grazes = HashRoll(state.Seed, k, 4) < 0.6
+	end
+	local u = t - k * period
+	local turnEnd = Wander.TurnTime
+	local walkEnd = turnEnd + state.WalkTime
+	if u < turnEnd then
+		local turn = wrapAngle(state.HeadingTo - state.HeadingFrom)
+		return state.From, state.HeadingFrom + turn * smooth(u / turnEnd), false, 0
+	elseif u < walkEnd and state.WalkTime > 0.05 then
+		return state.From:Lerp(state.To, smooth((u - turnEnd) / state.WalkTime)), state.HeadingTo, true, 0
+	end
+	local graze = 0
+	if state.Grazes then
+		graze = smooth((u - walkEnd - 0.4) / 0.6) * smooth((period - u - 0.2) / 0.6)
+	end
+	return state.To, state.HeadingTo, false, graze
+end
+
+-- "Melken"-Prompt: nur der Besitzer sieht ihn, und nicht während gemolken wird
+local function setupMilkPrompt(cow, torso)
+	local prompt = torso:WaitForChild("MilkPrompt", 5)
+	if not prompt then
+		return
+	end
+	local function update()
+		prompt.Enabled = cow:GetAttribute("OwnerUserId") == localPlayer.UserId
+			and cow:GetAttribute("BeingMilked") ~= true
+	end
+	update()
+	cow:GetAttributeChangedSignal("BeingMilked"):Connect(update)
+end
+
 local function startCow(cow)
 	if cows[cow] then
 		return
@@ -154,6 +233,8 @@ local function startCow(cow)
 	if not (torso and headGroup and tailGroup and earLeft and earRight) then
 		return
 	end
+
+	task.spawn(setupMilkPrompt, cow, torso)
 
 	-- neue Kühe fallen erst noch vom Himmel (Server-Animation) -> kurz warten
 	task.wait(1.2)
@@ -170,7 +251,16 @@ local function startCow(cow)
 		Instances = {},
 		Torso = torso,
 		Rested = false,
+		-- Herumlaufen (siehe wanderPose)
+		Seed = CowData.HashString(tostring(cow:GetAttribute("CowId") or cow:GetFullName())),
+		Radius = cow:GetAttribute("WanderRadius") or Wander.MinRadius,
+		Offset = Vector3.zero, -- aktuell angezeigter Versatz vom Platz
+		Heading = 0, -- aktuell angezeigte Blickrichtung (Bogenmaß)
+		Active = false, -- wurde im letzten Frame bewegt?
 	}
+	state.TimeOffset = HashRoll(state.Seed, 7, 9) * Wander.Period
+	-- Kälber (großer Radius) trippeln etwas schneller
+	state.Speed = Wander.Speed * (state.Radius > 3.5 and 1.3 or 1)
 
 	-- Körper = alles, was nicht in einer der Gruppen steckt
 	state.BodyParts, state.BodyOffsets = {}, {}
@@ -191,7 +281,6 @@ local function startCow(cow)
 
 	-- Animationswerte (alle per TweenService)
 	state.Float = newValue(state, 0) -- Studs nach oben
-	state.Turn = newValue(state, 0) -- Grad (ganzer Körper)
 	state.HeadYaw = newValue(state, -15) -- Grad
 	state.Tail = newValue(state, -20) -- Grad
 	state.Ear = newValue(state, 0) -- Grad
@@ -222,24 +311,6 @@ local function startCow(cow)
 				down.Completed:Wait()
 			end
 			task.wait(4)
-		end
-	end)
-
-	-- Alle 5-12 s: Körper 30° drehen (umschauen) und zurück
-	task.spawn(function()
-		while state.Alive do
-			task.wait(random:NextNumber(5, 12))
-			if not state.Alive then
-				break
-			end
-			local target = 30 * (random:NextNumber() < 0.5 and -1 or 1)
-			local turn = TweenService:Create(state.Turn, TweenInfo.new(0.8, Enum.EasingStyle.Back), { Value = target })
-			turn:Play()
-			turn.Completed:Wait()
-			task.wait(random:NextNumber(1, 2))
-			local back = TweenService:Create(state.Turn, TweenInfo.new(0.8, Enum.EasingStyle.Sine), { Value = 0 })
-			back:Play()
-			back.Completed:Wait()
 		end
 	end)
 
@@ -304,19 +375,25 @@ local function addGroup(parts, cframes, groupParts, groupOffsets, pivot)
 	end
 end
 
-RunService.Heartbeat:Connect(function()
+RunService.Heartbeat:Connect(function(dt)
 	local camPos = cameraPosition()
+	local now = workspace:GetServerTimeNow()
 	local parts, cframes = {}, {}
 
 	for cow, state in pairs(cows) do
 		if not cow.Parent then
 			stopCow(cow)
-		elseif (state.Base.Position - camPos).Magnitude < ANIMATION_DISTANCE then
+		elseif (state.Base.Position - camPos).Magnitude >= ANIMATION_DISTANCE then
+			state.Active = false
+		else
 			local beingMilked = cow:GetAttribute("BeingMilked") == true
+			local graze = 0
 
-			-- Während des Melkens steht der Körper still (die Zitzen werden dann vom Melk-Script bewegt)
+			-- Während des Melkens steht die Kuh genau auf ihrem Platz und der Körper still
+			-- (die Zitzen werden dann vom Melk-Script bewegt)
 			local root
 			if beingMilked then
+				state.Offset, state.Heading = Vector3.zero, 0
 				root = state.Base
 				if not state.Rested then
 					state.Rested = true
@@ -324,13 +401,41 @@ RunService.Heartbeat:Connect(function()
 				end
 			else
 				state.Rested = false
+				local targetOffset, targetHeading, walking
+				targetOffset, targetHeading, walking, graze = wanderPose(state, now)
+				if not state.Active then
+					-- gerade erst in Sichtweite gekommen: direkt an die richtige Stelle
+					state.Offset, state.Heading = targetOffset, targetHeading
+				else
+					-- sonst nachlaufen (z.B. nach dem Melken zurück in den Plan), nie springen
+					local diff = targetOffset - state.Offset
+					local step = dt * state.Speed * 2.5
+					state.Offset = diff.Magnitude > step and state.Offset + diff.Unit * step or targetOffset
+					local turn = wrapAngle(targetHeading - state.Heading)
+					local maxTurn = dt * math.rad(240)
+					state.Heading = state.Heading + math.clamp(turn, -maxTurn, maxTurn)
+				end
+				-- beim Laufen leicht wippen und schaukeln
+				local bob, roll = 0, 0
+				if walking then
+					local stepPhase = now * 2 * math.pi * 1.8
+					bob = math.abs(math.sin(stepPhase)) * 0.12
+					roll = math.sin(stepPhase) * math.rad(1.5)
+				end
 				root = state.Base
-					* CFrame.new(0, state.Float.Value, 0)
-					* CFrame.Angles(0, math.rad(state.Turn.Value), 0)
+					* CFrame.new(state.Offset)
+					* CFrame.Angles(0, state.Heading, 0)
+					* CFrame.new(0, state.Float.Value + bob, 0)
+					* CFrame.Angles(0, 0, roll)
 				addGroup(parts, cframes, state.BodyParts, state.BodyOffsets, root)
 			end
+			state.Active = true
 
-			local head = root * state.HeadRel * CFrame.Angles(0, math.rad(state.HeadYaw.Value), 0)
+			-- Kopf: hin und her schauen, beim Grasen nach unten
+			local head = root
+				* state.HeadRel
+				* CFrame.Angles(0, math.rad(state.HeadYaw.Value) * (1 - graze), 0)
+				* CFrame.Angles(math.rad(-28) * graze, 0, 0)
 			addGroup(parts, cframes, state.HeadParts, state.HeadOffsets, head)
 
 			local ear = math.rad(state.Ear.Value)
@@ -484,8 +589,6 @@ end
 -- läuft die Roblox-Halteanimation "toolnone" – rechter Arm nach vorne, wie beim Halten eines Tools.
 -- Animationen des eigenen Charakters sehen alle anderen Spieler automatisch.
 ------------------------------------------------------------------------
-local Players = game:GetService("Players")
-local localPlayer = Players.LocalPlayer
 local TOOLNONE_R15 = "rbxassetid://507768375" -- Standard-Animationen von Roblox (Animate-Script)
 local TOOLNONE_R6 = "rbxassetid://182393478"
 

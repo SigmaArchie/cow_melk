@@ -89,9 +89,9 @@ local function myFirstCowPosition(plot)
 	return nil
 end
 
--- Position über einem Shop-Gebäude (Süd-Platz: Folder "Hub", Nord-Markt: "NorthMarket")
+-- Position über einem Shop-Gebäude (alle Shops stehen am Marktplatz: Folder "Hub")
 local function shopPosition(shopName)
-	for _, folderName in ipairs({ "Hub", "NorthMarket" }) do
+	for _, folderName in ipairs({ "Hub" }) do
 		local folder = layout:FindFirstChild(folderName)
 		local shop = folder and folder:FindFirstChild(shopName)
 		local floor = shop and shop:FindFirstChild("Floor")
@@ -478,16 +478,12 @@ task.spawn(function()
 	end, 3)
 
 	-- Schritt 2: Kuh melken
-	setStep(
-		"Klicke deine Kuh an und wähle „Melken“ (oder lauf auf die blaue Platte). Wechsle ◄ ► ab (Q / E)!",
-		{
-			Kind = "World",
-			Get = function()
-				return myFirstCowPosition(plot or findMyPlot())
-			end,
-		},
-		2
-	)
+	setStep("Klicke deine Kuh an und wähle „Melken“ (oder drück E neben der Kuh). Wechsle ◄ ► ab (Q / E)!", {
+		Kind = "World",
+		Get = function()
+			return myFirstCowPosition(plot or findMyPlot())
+		end,
+	}, 2)
 	if not waitUntil(function()
 		return milkingStarted
 	end) then
@@ -542,7 +538,7 @@ task.spawn(function()
 	-- Schritt 5: Zucht und Kisten kennenlernen
 	if not finished then
 		setStep(
-			"Im Zucht-Stall kreuzt du zwei Kühe zu einem Kalb. Seltene Kühe gibt es in den Kisten am Nord-Markt (Taste M = Karte).",
+			"Im Zucht-Stall kreuzt du zwei Kühe zu einem Kalb. Seltene Kühe gibt es in den Kisten am Marktplatz (Taste M = Karte).",
 			{
 				Kind = "World",
 				Get = function()

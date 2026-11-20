@@ -46,50 +46,74 @@ CowData.Config = {
 }
 
 ------------------------------------------------------------------------
--- Karte (wird von MapBuilder, CowManager und WorldAnimator benutzt)
+-- Karte (wird von MapBuilder, CowManager, OverviewClient und WorldAnimator benutzt)
 --
---            Norden (+Z)
---   [Plot 1] | ▲ ▼ | [Plot 2]      <- Reihe 0
---   [Plot 3] | ▲ ▼ | [Plot 4]      <- Reihe 1
---   ...      |Laufbänder|  ...
---   [Shop]   Platz (Hub)  [Shop]
---            Süden (-Z)
+--                 Farm 1 (Norden, +Z)
+--        Farm 6                    Farm 2
+--              Shop  Baum  Shop
+--                 ( Brunnen )          <- runder Marktplatz in der Mitte
+--              Shop Pavillon Shop
+--        Farm 5                    Farm 3
+--                 Farm 4
+--
+-- Winkel werden im Uhrzeigersinn von +Z aus gemessen: Position = Radius * (sin w, 0, cos w).
+-- Bis 6 Spieler liegen alle Farmen im inneren Ring, ab Spieler 7 kommt ein zweiter Ring
+-- weiter außen (in den Lücken zwischen den inneren Farmen).
 ------------------------------------------------------------------------
 CowData.Map = {
-	GroundTop = 0.4, -- Oberkante von Plots / Laufbändern
+	GroundTop = 0.4, -- Oberkante der Farm-Böden
 
-	-- Farm-Plots links (Westen) und rechts (Osten) der Allee.
-	-- 3 Reihen pro Seite (6 Spieler); ab Spieler 7 kommt eine zweite Spalte weiter außen.
-	PlotWidth = 90, -- entlang der Allee
-	PlotDepth = 110, -- von der Allee weg
-	PlotCenterX = 75,
-	PlotColumnSpacing = 120,
-	PlotRowStartZ = 70,
-	PlotRowSpacing = 95,
-	PlotRowsPerColumn = 3,
+	-- Marktplatz in der Mitte
+	HubRadius = 64, -- runder Pflaster-Platz
+	ShopRadius = 40, -- Abstand der Shop-Mitte vom Brunnen
+	RingRoadRadius = 108, -- Feldweg im Kreis vor den Farm-Toren
 
-	-- Raster auf jeder Farm (Plätze für Kühe), in lokalen Plot-Koordinaten
+	-- Farmen (Bauernhöfe). Lokale Plot-Koordinaten: +Z = Hof-Tor (zeigt zur Kartenmitte),
+	-- dahinter der Hof (Scheune, Silo, Milch-Stand), ganz hinten (-Z) die Weide mit den Kühen.
+	PlotWidth = 108, -- quer (lokal X)
+	PlotDepth = 140, -- von der Mitte weg (lokal Z)
+	PlotsPerRing = 6,
+	PlotRingRadius = 185, -- Abstand der Farm-Mitte vom Brunnen (innerer Ring)
+	PlotRingSpacing = 165, -- jeder weitere Ring liegt so viel weiter außen
+	PastureFrontZ = 32, -- Zaun zwischen Hof (+Z) und Weide (-Z)
+
+	-- Raster auf der Weide (Plätze für Kühe), in lokalen Plot-Koordinaten.
+	-- Große Felder, damit jede Kuh Platz zum Herumlaufen hat (siehe CowWander).
 	GridColumns = 6,
 	GridRows = 6,
-	GridCellX = 13,
-	GridCellZ = 12,
-	GridFirstRowZ = -44,
-
-	-- Nord-Markt am anderen Ende der Förderbänder
-	NorthPlazaZ = 400, -- Mitte
-	NorthPlazaSize = Vector3.new(120, 0.2, 100),
-
-	-- Förderbänder in der Mitte (eins nach Norden, eins nach Süden).
-	-- 6 Kacheln à 50 Studs laufen im Kreis (Zyklus = 300 Studs). Die ersten und letzten
-	-- 50 Studs stecken in "Maschinen-Gehäusen", dort springen die Kacheln unsichtbar zurück.
-	WalkwayStartZ = -10, -- Beginn des vorderen Gehäuses
-	WalkwayTileLength = 50,
-	WalkwayTileCount = 6,
-	WalkwayX = 6, -- Abstand der Bandmitte von der Mittellinie
-	WalkwayWidth = 10,
-	WalkwaySpeed = 36, -- Studs pro Sekunde
+	GridCellX = 16,
+	GridCellZ = 16,
+	GridFirstRowZ = -58,
 }
--- Shop-Gebäude: zwei am Süd-Platz, zwei am Nord-Markt (Förderbänder verbinden beide)
+
+-- Kühe laufen auf ihrem Feld ein wenig herum (nur Darstellung im Client, WorldAnimator).
+-- Der Radius hängt von der Größe ab: Kälber sind klein und toben weiter, große Kühe bleiben näher am Platz.
+CowData.CowWander = {
+	CellRadius = 8, -- halbe Feldgröße: so weit darf eine Kuh (Mitte + Körper) höchstens kommen
+	BodyRadius = 4.5, -- halbe Länge einer ausgewachsenen Kuh (Kopf und Schwanz ragen nur selten so weit)
+	MaxRadius = 4.5,
+	MinRadius = 1.5,
+	Period = 8, -- Sekunden pro "Schritt" (drehen + laufen + grasen)
+	StayChance = 0.3, -- so oft bleibt die Kuh einfach stehen und grast weiter
+	Speed = 1.7, -- Studs pro Sekunde (Kälber etwas schneller)
+	TurnTime = 1.2, -- erst drehen, dann loslaufen
+}
+
+-- Wie weit eine Kuh dieser Größe (Wachstums-Skalierung) von ihrem Platz weglaufen darf
+function CowData.GetWanderRadius(scale)
+	local wander = CowData.CowWander
+	local radius = wander.CellRadius - wander.BodyRadius * (scale or 1) - 0.2
+	return math.clamp(radius, wander.MinRadius, wander.MaxRadius)
+end
+
+-- Position eines Shops am Marktplatz (Tür zeigt zum Brunnen)
+local function shopPosition(angle)
+	local radians = math.rad(angle)
+	local radius = CowData.Map.ShopRadius
+	return Vector3.new(radius * math.sin(radians), 0, radius * math.cos(radians))
+end
+
+-- Shop-Gebäude rund um den Brunnen. Angle = Winkel auf dem Platz (zwischen den Wegen zu den Farmen).
 -- Page = welches Fenster sich öffnet; Label = Name in der Übersicht
 CowData.Map.Shops = {
 	{
@@ -98,12 +122,12 @@ CowData.Map.Shops = {
 		Title = "KUH-SHOP",
 		Label = "Kuh-Shop",
 		Icon = "🐄",
-		Area = "Süd-Platz",
+		Area = "Marktplatz",
 		Color = Color3.fromRGB(70, 140, 220),
 		RoofColor = Color3.fromRGB(45, 90, 160),
 		WallColor = Color3.fromRGB(240, 232, 215),
-		Position = Vector3.new(-40, 0, -40),
-		FacesEast = true,
+		Angle = 330,
+		Position = shopPosition(330),
 	},
 	{
 		Name = "BreedingBarn",
@@ -111,12 +135,12 @@ CowData.Map.Shops = {
 		Title = "ZUCHT-STALL",
 		Label = "Zucht-Stall",
 		Icon = "💕",
-		Area = "Süd-Platz",
+		Area = "Marktplatz",
 		Color = Color3.fromRGB(225, 85, 140),
 		RoofColor = Color3.fromRGB(160, 45, 45),
 		WallColor = Color3.fromRGB(190, 60, 55),
-		Position = Vector3.new(40, 0, -40),
-		FacesEast = false,
+		Angle = 30,
+		Position = shopPosition(30),
 	},
 	{
 		Name = "CrateShop",
@@ -124,12 +148,12 @@ CowData.Map.Shops = {
 		Title = "KISTEN",
 		Label = "Kisten",
 		Icon = "✨",
-		Area = "Nord-Markt",
+		Area = "Marktplatz",
 		Color = Color3.fromRGB(230, 150, 45),
 		RoofColor = Color3.fromRGB(170, 95, 30),
 		WallColor = Color3.fromRGB(245, 230, 200),
-		Position = Vector3.new(-40, 0, 405),
-		FacesEast = true,
+		Angle = 150,
+		Position = shopPosition(150),
 	},
 	{
 		Name = "AutoMilkerShop",
@@ -137,19 +161,14 @@ CowData.Map.Shops = {
 		Title = "AUTO-MELKER",
 		Label = "Auto-Melker",
 		Icon = "🥛",
-		Area = "Nord-Markt",
+		Area = "Marktplatz",
 		Color = Color3.fromRGB(60, 185, 160),
 		RoofColor = Color3.fromRGB(40, 110, 100),
 		WallColor = Color3.fromRGB(215, 222, 228),
-		Position = Vector3.new(40, 0, 405),
-		FacesEast = false,
+		Angle = 210,
+		Position = shopPosition(210),
 	},
 }
-
--- abgeleitete Werte
-CowData.Map.WalkwayCycle = CowData.Map.WalkwayTileLength * CowData.Map.WalkwayTileCount -- 300
-CowData.Map.WalkwayVisibleStart = CowData.Map.WalkwayStartZ + CowData.Map.WalkwayTileLength -- 40
-CowData.Map.WalkwayVisibleEnd = CowData.Map.WalkwayStartZ + CowData.Map.WalkwayCycle -- 290
 
 ------------------------------------------------------------------------
 -- Kuh-Arten
@@ -838,19 +857,30 @@ CowData.Names = {
 -- Hilfsfunktionen
 ------------------------------------------------------------------------
 
--- Lage eines Farm-Plots (Server baut ihn, Client zeichnet ihn in der Übersicht).
--- Ungerade Slots links (Westen), gerade rechts (Osten). Lokales +Z (Tor) zeigt zur Allee.
-function CowData.GetPlotOrigin(slot)
+-- Winkel (Grad) und Ring einer Farm. Innerer Ring: 0°, 60°, 120° ... (Farm 1 im Norden),
+-- zweiter Ring um eine halbe Teilung versetzt (in den Lücken zwischen den inneren Farmen).
+function CowData.GetPlotAngle(slot)
 	local map = CowData.Map
 	local index = slot - 1
-	local side = index % 2 == 0 and -1 or 1
-	local pair = math.floor(index / 2)
-	local row = pair % map.PlotRowsPerColumn
-	local column = math.floor(pair / map.PlotRowsPerColumn)
-	local x = side * (map.PlotCenterX + column * map.PlotColumnSpacing)
-	local z = map.PlotRowStartZ + row * map.PlotRowSpacing
-	local yaw = side == -1 and math.rad(90) or math.rad(-90)
-	return CFrame.new(x, 0, z) * CFrame.Angles(0, yaw, 0)
+	local ring = math.floor(index / map.PlotsPerRing)
+	local step = 360 / map.PlotsPerRing
+	return (index % map.PlotsPerRing) * step + (ring % 2) * step / 2, ring
+end
+
+-- Lage eines Farm-Plots (Server baut ihn, Client zeichnet ihn in der Übersicht).
+-- Lokales +Z (Hof-Tor) zeigt zum Brunnen in der Kartenmitte.
+function CowData.GetPlotOrigin(slot)
+	local map = CowData.Map
+	local angle, ring = CowData.GetPlotAngle(slot)
+	local radius = map.PlotRingRadius + ring * map.PlotRingSpacing
+	local radians = math.rad(angle)
+	return CFrame.new(radius * math.sin(radians), 0, radius * math.cos(radians))
+		* CFrame.Angles(0, radians + math.pi, 0)
+end
+
+-- Boden-Mitte eines Shop-Gebäudes; Vorderseite (Tür, lokal -Z) zeigt zum Brunnen
+function CowData.GetShopCFrame(shop)
+	return CFrame.new(shop.Position) * CFrame.Angles(0, math.rad(shop.Angle), 0)
 end
 
 -- Mitte eines Rasterfelds (1 .. GridColumns*GridRows) in lokalen Plot-Koordinaten
@@ -1036,6 +1066,19 @@ local function stockRoll(cycle, index, salt)
 	local h = mix32(bit32.bxor(cycle % 4294967296, mul32(index, 0x9E3779B1)))
 	h = mix32(bit32.bxor(h, mul32(salt, 0x85EBCA77)))
 	return h / 4294967296
+end
+
+-- Dieselbe feste "Zufallszahl" für andere Zwecke, die auf allen Clients gleich aussehen sollen
+-- (z.B. wohin eine Kuh gerade läuft): HashRoll(seed, index, salt) -> 0..1
+CowData.HashRoll = stockRoll
+
+-- Text (z.B. Kuh-ID) -> 32-Bit-Zahl (FNV-1a), als seed für HashRoll
+function CowData.HashString(text)
+	local h = 2166136261
+	for i = 1, #text do
+		h = mul32(bit32.bxor(h, string.byte(text, i)), 16777619)
+	end
+	return h
 end
 
 -- Lager eines Zeitabschnitts: { [Kuh-Art] = Menge } (nur Arten, die da sind)

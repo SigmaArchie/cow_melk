@@ -29,11 +29,13 @@ src/server/  -> ServerScriptService.Server
   DataService.lua           DataStore laden/speichern + API für alle Server-Scripts
   PlayerDataManager.server  Laden/Speichern/Autosave, Starter-Kuh, TutorialDone
   CowManager.server         Plots + Raster, Kühe, Melken (+ Milch-Sorte würfeln), Inventar-Aktionen, Teleport, Verkaufen, Shop-Kauf, Kisten, Zucht, Auto-Melker, Robux
+  FarmBuilder.lua           baut den Bauernhof eines Spielers (Boden, Zäune, Tor mit Schild, Scheune, Silo, Bauernhaus, Deko)
+  FarmProps.lua             Deko-Bausteine (Bäume, Zäune, Scheune, Silo, Haus, Traktor, Brunnen, Heu, Felder, Windmühle, Teich ...)
   ShopService.lua           Lager des Kuh-Shops (Abschnitt, Lager, was der Spieler schon gekauft hat)
   ShopManager.server        GetShopStock, neues Lager ansagen (ShopRestocked + Meldung)
   WeatherManager.server     Wetter-Events für den ganzen Server (workspace-Attribute Weather / WeatherEndsAt)
   LoginStreak.server        Tagesbonus, 7 Tage am Stück -> Rainbow Cow
-  MapBuilder.server         Süd-Platz, Allee, 2 Förderbänder, Nord-Markt, 4 Shop-Gebäude mit NPC
+  MapBuilder.server         runder Marktplatz mit Brunnen + 4 Shop-Gebäuden (NPC), Feldwege, Landschaft zwischen den Farmen, Wald, Hügel
 src/client/  -> StarterPlayerScripts.Client
   Theme.lua                 EIN UI-Stil für alles (Farben, Schrift, Abstände, Knöpfe, Fenster, Balken, Abzeichen, Kuh-Karten, Meldungen, Symbole, Skalierung)
   UIBus.lua                 Signale zwischen Client-Scripts (Fenster öffnen sich gegenseitig)
@@ -43,7 +45,7 @@ src/client/  -> StarterPlayerScripts.Client
   MenuUI.client             Fenster Kuh-Shop, Kisten, Zucht-Stall, Tagesbonus, Auto-Melker (ScreenGui "MenuUI", Fenster "Window")
   MilkingClient.client      Melk-Minispiel
   TutorialClient.client     Einführung für neue Spieler
-  WorldAnimator.client      Welt-Animationen (Förderbänder, Kühe, Shops) + Sounds
+  WorldAnimator.client      Welt-Animationen (Kühe laufen herum, Windmühlen, Shops), Melken-Prompt nur beim Besitzer + Sounds
   WeatherClient.client      Wetter-Effekte nur auf dem Client (Regen, Blitze, Schnee, Sternennacht, Farbton)
 ```
 
@@ -177,24 +179,27 @@ Wachstumszeit nach Stufe der Art (`TimeByTier`): 5 / 8 / 12 / 18 / 25 / 30 / 40 
 
 ## Karte
 
-- **Süd-Platz** (z −100..0): Milch-Brunnen, Spawn, "COW FARM"-Bogen, Steinwege (Eingang → Brunnen, Türen → Brunnen), Blumenbeete, Bänke, Laternen, Bäume, **Kuh-Shop** und **Zucht-Stall**.
-- **2 Förderbänder** in der Allee (Nord / Süd, 36 Studs/s): unsichtbares Band mit `AssemblyLinearVelocity`; 6 Kacheln à 10×0.5×50 bewegt der Client per Heartbeat; Gehäuse an den Enden. Unverändert.
-- **Nord-Markt** (z ≈ 350..450): **Kisten** und **Auto-Melker**, gleiche Deko wie der Süd-Platz.
-- **Shop-Gebäude** (Daten in `CowData.Map.Shops`, Bau in `MapBuilder`, je ein Stil): Kuh-Shop = Scheune (Gambrel-Dach, Scheunentore), Kisten = offener Marktstand mit gestreiftem Dach und Kistenstapeln, Zucht-Stall = gemütlicher Stall (Blumenkästen, Heu, Trog), Auto-Melker = Werkstatt aus Metall mit Silo und Schornstein. Alle: Grundfläche ca. 20×16, Tür vorne (−Z), kleines Holzschild an der Wand (Symbol + Name), winkender NPC mit Strohhut, kleiner Hinweis "Klicken zum Öffnen" (Palette, atmet ruhig), Klick → `OpenShop`, Teleport-Punkt 9 Studs vor der Tür.
-- **Hügel** (`CowFarmLayout.Hills`) nur am Kartenrand (|x| > ~450 bzw. z < −170 / z > 600), nie unter Farmen, Wegen, Bändern oder Spawn.
-- **Farmen** links/rechts der Allee (3 Reihen pro Seite, ab Spieler 7 weiter außen): Wiese, Steinkante, weißer Zaun, Torbogen mit Holz-Namensschild (Part `Sign`, vom Tutorial gebraucht) und Laternen, Weg, Deko VOR der Kuhfläche (Blumenbeete, Heuballen, Fässer, Trog; lokal z > 28), Heu in der hinteren Ecke, **Milch-Verkaufsstation** (Podest, Theke, Preistafel, Kasse, Kannen, Schild; ProximityPrompt F), **Raster mit 36 Feldern** (Kühe stehen lokal in z −50..22, dort steht nichts). Jede Kuh hat Schemel, Eimer und blaue Melk-Platte.
+Alles dreht sich um die Kartenmitte (0, 0, 0). Winkel im Uhrzeigersinn von Norden (+Z): Position = Radius · (sin w, 0, cos w). Vorschau-Bilder (gerendert ohne Studio): `assets_src/previews/umbau/`.
+
+- **Marktplatz** (rund, Radius 64, Folder `Hub`): Milch-Brunnen in der Mitte, Ring-Weg darum, Gassen zu den Feldwegen (0°, 60°, ...) und zu den Shop-Türen, **Dorfbaum** mit Rundbank (90°), **Pavillon** (270°), Spawn, Wegweiser zu den Shops, Bänke, runde Blumenbeete, Laternen.
+- **Shop-Gebäude** rund um den Brunnen (Radius 40, Tür zum Brunnen): Kuh-Shop 330°, Zucht-Stall 30°, Kisten 150°, Auto-Melker 210° (`CowData.Map.Shops`, Lage über `CowData.GetShopCFrame`). Stile: Kuh-Shop = Scheune (Gambrel-Dach, Scheunentore), Kisten = offener Marktstand mit gestreiftem Dach und Kistenstapeln, Zucht-Stall = gemütlicher Stall (Blumenkästen, Heu, Trog), Auto-Melker = Werkstatt aus Metall mit Silo und Schornstein. Alle: Grundfläche ca. 20×16, Tür vorne (−Z), Holzschild (Symbol + Name), winkender NPC mit Strohhut, Hinweis "Klicken zum Öffnen", Klick → `OpenShop`, Teleport-Punkt 9 Studs vor der Tür.
+- **Landschaft** (Folder `Countryside`): Feldwege vom Platz zu jedem Farm-Tor, Ringweg (Radius 108) vor den Toren, Wiese mit Bäumen/Büschen/Blumen. In den Lücken zwischen den Farmen (30°, 90°, ...) je ein Thema links/rechts eines Pfads: Windmühle (Flügel drehen sich, Tag `Spinner`) + Weizenfeld, Teich mit Enten und Steg, Apfel-Obstgarten, Kürbisbeet mit Vogelscheuche, Blumenfeld mit Bienenstöcken und Sonnenblumen, Traktor + Heu; dazu Hecken aus Bäumen entlang der Farm-Zäune. Waldrand hinter den Farmen, **Hügel** (`Hills`) ganz außen (Radius > 600).
+- **Farmen** (Bauernhöfe, `FarmBuilder.lua`) im Kreis: bis 6 Spieler im inneren Ring (Mitte bei Radius 185, 0°, 60°, ...; Tor bei Radius 115 zeigt zum Platz), ab Spieler 7 ein zweiter Ring (Radius 350, in den Lücken). Lokale Koordinaten: x −54..54, z −70..70, Tor bei +Z.
+  - **Hof** (z 32..70): Steinpfeiler-Tor mit Namensschild (Part `Sign` direkt in `Decor`, vom Tutorial gebraucht) und Laternen, Weg, Hofplatz aus Erde, rote **Scheune** mit Mansarddach und **Silo** (links), Traktor, Schubkarre, Heuballen, Kisten, Baum + Bank, **Milch-Verkaufsstation** (ProximityPrompt F), Brunnen, Milchkannen, **Bauernhaus**, Hühnerstall mit Hühnern, Karren, Blumenbeete, Briefkasten; am Weide-Zaun Wassertrog und Heuraufe.
+  - **Weide** (z −70..32): Holzzaun mit offenem Gatter, Wiese mit Flecken, Wildblumen, Steine. **Raster mit 36 Feldern** à 16×16 (`CowData.GetGridCellLocal`, Kühe lokal z −58..22); die Felder sind unsichtbar und nur im Platzier-Modus eingefärbt.
+  - **Kühe laufen herum** (nur Darstellung, `WorldAnimator`): jede Kuh läuft auf ihrem Feld umher (Radius je nach Größe 3,3–4,5 Studs, `CowData.CowWander` / `GetWanderRadius`), dreht sich, grast (Kopf runter). Wohin, berechnet jeder Client gleich aus Serverzeit + Kuh-ID (`CowData.HashRoll`), deshalb sehen alle Spieler dasselbe. Auf dem Server steht die Kuh immer auf ihrem Platz. Schemel und Eimer sind nur beim Melken sichtbar; dann steht die Kuh genau auf ihrem Platz.
 
 ## Kuhmodell & Animation
 
 - `CowModelBuilder.BuildCow` nimmt `ReplicatedStorage.Assets.CowModel` (Blender-Kuh), wenn vorhanden: erkennt Teile an den Blender-Namen (Koerper, Kopf, Zitze_…, Fleck_…), dreht, skaliert auf 6.4 Studs, färbt pro Seltenheit. Sonst Ersatz-Kuh aus Parts (rund, niedlich).
-- Gruppen `HeadGroup`, `EarLeft`, `EarRight`, `TailGroup`; Tag "Cow". WorldAnimator: schweben, Kopf ±15°, Schwanz wedelt, Ohren flattern, ab und zu umdrehen; nur in < 160 Studs; Regenbogen-Kuh wechselt jede Sekunde die Farbe.
+- Gruppen `HeadGroup`, `EarLeft`, `EarRight`, `TailGroup`; Tag "Cow". WorldAnimator: herumlaufen + grasen (siehe Karte), schweben, Kopf ±15°, Schwanz wedelt, Ohren flattern; nur in < 160 Studs; Regenbogen-Kuh wechselt jede Sekunde die Farbe.
 - Effekte je Seltenheit (bewusst zurückhaltend, wegen vieler Kühe): Common keine · Uncommon wenige grünliche Funken · Rare kleines blaues Licht · Epic lila Licht + wenige Partikel · Legendary warmes Gold-Licht + wenige Funken · Golden Gold-Licht, wenige Münz-Partikel, dünner Strahl · Rainbow sanftes Licht, zarte Farbpartikel, Farbwechsel alle 3 s · Ghost grünlicher Dunst, durchsichtig. Neue Kuh fällt vom Himmel mit dezentem Konfetti.
-- Beschriftungen an der Kuh (Server, `Palette`): Namensschild (Name, Seltenheit in Seltenheitsfarbe, Status "Bereit" / "Pause m:ss" / "Zucht m:ss" / "Wird gemolken"), Pop-ups "+X Milch" (Creme) und "+X Coins" (Gold), Melk-Platte "Melken".
+- Beschriftungen an der Kuh (Server, `Palette`): Namensschild (Name, Seltenheit in Seltenheitsfarbe, Status "Bereit" / "Pause m:ss" / "Zucht m:ss" / "Wird gemolken"), Pop-ups "+X Milch" (Creme) und "+X Coins" (Gold), Prompt "Melken" (Taste E, nur beim Besitzer).
 - `assets/CowModel.rbxm` (Modell `CowModel`, MeshParts `Koerper`, `Kopf`, `Zitze_*`, `Ohr_*`, `Schwanz*`, `Schnauze`, `Euter`, `Fleck*`, `Huf*`, `Bein*`, `Auge_*`, `Horn*`; verweist auf eine Mesh-ID aus Roblox): wird benutzt, wenn `Koerper` und `Kopf` gefunden werden; bei Fehlern oder fehlendem Modell baut `CowModelBuilder` die Ersatz-Kuh aus Parts. Ob die Mesh-ID im Spiel lädt, ist ungeprüft.
 
 ## Melk-Minispiel
 
-Kuh anklicken → Menü "Melken" (oder auf die blaue Platte laufen). Server teleportiert auf den Schemel. Panel mit Kuhgesicht, Fortschrittsbalken, Eimer füllt sich, ◄ ► bzw. Q/E (Controller L1/R1, Aufstehen = B) abwechselnd; falsche Seite = 1 Zug weniger. Nach 10 Zügen: Eimer kippt, "+X MILCH!", Kuh bekommt Pause (Timer über der Kuh). Server prüft alles.
+Kuh anklicken → Menü "Melken" (oder neben der Kuh E drücken / "Melken" antippen). Server teleportiert auf den Schemel. Panel mit Kuhgesicht, Fortschrittsbalken, Eimer füllt sich, ◄ ► bzw. Q/E (Controller L1/R1, Aufstehen = B) abwechselnd; falsche Seite = 1 Zug weniger. Nach 10 Zügen: Eimer kippt, "+X MILCH!", Kuh bekommt Pause (Timer über der Kuh). Server prüft alles.
 
 ## Benutzeroberfläche (Theme.lua)
 
@@ -220,7 +225,7 @@ Funktioniert vermutlich: Coins `4590662766`, Muhen `535690488`. **Aus** (IDs war
 
 0. Pass 3 in Studio spielen: Kuh-Shop (Lager, Timer, Ausverkauft), Milch-Eimer (Hotbar-Anzeige, Details, Verkaufen einzeln/alle, Reiter EIMER, großer Text mit Mutationen, Eimer-Lager voll), Wetter (Effekte, Anzeige, Meldungen), neue Kuh-Arten auf der Farm (Farben, Effekte, Blender-Kuh).
 
-1. In Studio prüfen (nie getestet, siehe Pass 1): neues HUD, alle Fenster, Melk-Minispiel (PC, Handy-Emulator, Controller), Hotbar, Kuh aufheben/platzieren, Karte + Reisen, Förderbänder, Nord-Markt, `CowModel.rbxm`.
+1. In Studio prüfen (nie getestet, siehe Pass 1): neues HUD, alle Fenster, Melk-Minispiel (PC, Handy-Emulator, Controller), Hotbar, Kuh aufheben/platzieren, Karte + Reisen, neuer Marktplatz + Bauernhöfe (herumlaufende Kühe, Melken-Prompt, Windmühle), `CowModel.rbxm`.
 2. Funktionierende Sound-IDs eintragen.
 3. Balancing (erster Kauf nach ca. 2–3 Minuten), Upgrades (größerer Eimer, schnellere Pause), evtl. Bestenliste.
 4. Gamepass-/Produkt-IDs eintragen (Platzhalter siehe oben), Spiel veröffentlichen, "Enable Studio Access to API Services" für den DataStore.

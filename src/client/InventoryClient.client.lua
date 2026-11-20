@@ -488,8 +488,9 @@ local function paintCells()
 	local used = occupiedCells()
 	for cell, tile in pairs(myCells) do
 		if not placingCowId then
+			-- außerhalb des Platzier-Modus unsichtbar (die Weide soll wie eine Wiese aussehen)
 			tile.Color = Color3.new(1, 1, 1)
-			tile.Transparency = 0.82
+			tile.Transparency = 1
 		elseif used[cell] then
 			tile.Color = TAKEN_COLOR
 			tile.Transparency = 0.6
