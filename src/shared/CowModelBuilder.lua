@@ -22,6 +22,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local CowData = require(script.Parent:WaitForChild("CowData"))
 local Palette = require(script.Parent:WaitForChild("Palette"))
+local PropMeshData = require(script.Parent:WaitForChild("PropMeshData"))
 
 local Builder = {}
 
@@ -1011,6 +1012,113 @@ function Builder.HasBlenderCow()
 end
 
 ------------------------------------------------------------------------
+-- 3D-Teile aus Blender für Schemel und Eimer (ReplicatedStorage.Assets.PropParts)
+-- Erzeugt von tools/make_props.py; Maße stehen in PropMeshData.lua.
+-- Fehlt das Modell oder passt ein Teil nicht, bauen die Funktionen wie früher aus Parts.
+------------------------------------------------------------------------
+local propsTemplate = nil -- nil = noch nicht geprüft, false = nicht benutzbar
+
+local function getProps()
+	if propsTemplate ~= nil then
+		return propsTemplate or nil
+	end
+	propsTemplate = false
+	if not CowData.Config.UseImportedProps then
+		return nil
+	end
+	local assets = ReplicatedStorage:FindFirstChild("Assets")
+	local template = assets and assets:FindFirstChild("PropParts")
+	if not template then
+		return nil
+	end
+	for name, data in pairs(PropMeshData.Parts) do
+		local part = template:FindFirstChild(name, true)
+		if not (part and part:IsA("MeshPart")) then
+			warn("[CowModelBuilder] PropParts: Teil fehlt oder ist kein MeshPart: " .. name .. " – nehme Parts")
+			return nil
+		end
+		-- Seitenverhältnis prüfen (falls der Importer das Teil gedreht hat)
+		local a = part.Size / part.Size.Magnitude
+		local b = data.Size / data.Size.Magnitude
+		if (a - b).Magnitude > 0.05 then
+			warn(
+				"[CowModelBuilder] PropParts: "
+					.. name
+					.. " hat falsche Maße/Drehung ("
+					.. tostring(part.Size)
+					.. ") – nehme Parts"
+			)
+			return nil
+		end
+	end
+	propsTemplate = template
+	return template
+end
+
+-- Klont ein Teil und setzt es an seinen Platz.
+-- placeCFrame = Ursprung des Teils (Eimer-Achse unten bzw. Schemel-Mitte am Boden), schon in Weltkoordinaten
+-- scale = Vector3, mit dem Größe und Mittelpunkt gestreckt werden
+local function propPart(props, parent, name, placeCFrame, scale, color, material)
+	local data = PropMeshData.Parts[name]
+	local part = props:FindFirstChild(name, true):Clone()
+	part.Size = data.Size * scale
+	part.CFrame = placeCFrame * CFrame.new(data.Center * scale)
+	part.Color = color
+	part.Material = material
+	part.TextureID = ""
+	part.Anchored = true
+	part.CanCollide = false
+	part.CastShadow = true
+	part.Parent = parent
+	return part
+end
+
+-- Außenradius der Dauben in der Höhe y (Eimer-Einheiten, 0..Height)
+local function propRadiusAt(y)
+	local d = PropMeshData
+	return d.BottomRadius + (d.TopRadius - d.BottomRadius) * y / d.Height
+end
+
+-- Dauben, Boden, Reifen und Henkel eines Eimers.
+-- s = Streckung (Vector3), staveStyle(i) -> color, material, reflectance; bands = Liste { Y (0..1), Color, Material }
+local function buildPropBucket(props, model, base, s, staveStyle, bands)
+	local d = PropMeshData
+	for i = 0, d.Staves - 1 do
+		local color, material, reflectance = staveStyle(i)
+		local stave = propPart(
+			props,
+			model,
+			"Daube",
+			base * CFrame.Angles(0, (i / d.Staves) * math.pi * 2, 0),
+			s,
+			color,
+			material
+		)
+		stave.Reflectance = reflectance or 0
+	end
+	local bottomColor, bottomMaterial = staveStyle(0)
+	local bottom = propPart(props, model, "Boden", base, s, bottomColor, bottomMaterial)
+
+	local band = d.Parts.Reifen
+	for _, info in ipairs(bands) do
+		local y = info.Y * d.Height
+		local grow = (propRadiusAt(y) + d.BandThickness) / (propRadiusAt(d.BandRefY) + d.BandThickness)
+		local part = props:FindFirstChild("Reifen", true):Clone()
+		part.Size = Vector3.new(band.Size.X * grow * s.X, band.Size.Y * s.X, band.Size.Z * grow * s.Z)
+		part.CFrame = base * CFrame.new(0, y * s.Y, 0)
+		part.Color = info.Color
+		part.Material = info.Material
+		part.TextureID = ""
+		part.Anchored = true
+		part.CanCollide = false
+		part.Parent = model
+	end
+
+	propPart(props, model, "Henkel", base, s, METAL, Enum.Material.Metal)
+	return bottom
+end
+
+------------------------------------------------------------------------
 -- Melkschemel
 ------------------------------------------------------------------------
 -- base: Boden-Position, LookVector = Blickrichtung des sitzenden Spielers
@@ -1031,6 +1139,17 @@ function Builder.BuildStool(base)
 	seat.TopSurface = Enum.SurfaceType.Smooth
 	seat.BottomSurface = Enum.SurfaceType.Smooth
 	seat.Parent = model
+
+	-- 3D-Schemel aus Blender: der Seat bleibt (unsichtbar) für das Sitzen
+	local props = getProps()
+	if props then
+		seat.Transparency = 1
+		local one = Vector3.one
+		propPart(props, model, "Sitz", base, one, WOOD, Enum.Material.Wood)
+		propPart(props, model, "Beine", base, one, DARK_WOOD, Enum.Material.Wood)
+		model.PrimaryPart = seat
+		return model, seat
+	end
 
 	-- 3 schräge Beine
 	for i = 0, 2 do
@@ -1064,6 +1183,51 @@ function Builder.BuildBucket(base)
 
 	local height = 0.8
 	local radius = 0.5
+
+	-- 3D-Melkeimer aus Blender (nach oben breiter, darum wird die Milch mit der Höhe breiter)
+	local props = getProps()
+	if props then
+		local k = radius / PropMeshData.TopRadius
+		local s = Vector3.new(k, height / PropMeshData.Height, k)
+		local bottomPart = buildPropBucket(props, model, base, s, function()
+			return WOOD, Enum.Material.Wood
+		end, {
+			{ Y = 0.22, Color = METAL, Material = Enum.Material.Metal },
+			{ Y = 0.78, Color = METAL, Material = Enum.Material.Metal },
+		})
+
+		local milkPart = Instance.new("Part")
+		milkPart.Name = "Milk"
+		milkPart.Shape = Enum.PartType.Cylinder
+		milkPart.Color = MILK
+		milkPart.Material = Enum.Material.SmoothPlastic
+		milkPart.Anchored = true
+		milkPart.CanCollide = false
+		milkPart.Transparency = 1
+		milkPart.Size = Vector3.new(0.05, 0.5, 0.5)
+		milkPart.CFrame = base * upright(CFrame.new(0, 0.1, 0))
+		milkPart.Parent = model
+
+		local floorY = PropMeshData.Parts.Boden.Size.Y * s.Y
+		local maxFill = height - 0.12
+		local function setMeshFill(ratio)
+			ratio = math.clamp(ratio, 0, 1)
+			if ratio <= 0 then
+				milkPart.Transparency = 1
+				return
+			end
+			-- Nur eine dünne Scheibe als Milch-Oberfläche: der Eimer ist unten schmaler,
+			-- ein voller Zylinder würde dort durch die Dauben stechen.
+			local topY = floorY + (maxFill - floorY) * ratio
+			local inner = (propRadiusAt(topY / s.Y) - PropMeshData.Wall) * k - 0.01
+			milkPart.Transparency = 0
+			milkPart.Size = Vector3.new(0.05, inner * 2, inner * 2)
+			milkPart.CFrame = base * upright(CFrame.new(0, topY - 0.025, 0))
+		end
+
+		model.PrimaryPart = bottomPart
+		return model, setMeshFill
+	end
 
 	local bottom = newPart(
 		model,
@@ -1281,6 +1445,109 @@ function Builder.BuildMilkBucket(liters, mutations, base)
 	model.Name = "MilkBucket"
 	model:SetAttribute("Liters", liters)
 	model:SetAttribute("Mutations", table.concat(mutations, ","))
+
+	-- 3D-Eimer aus Blender (gleiche Regeln für Farben, Reifen und Extras wie unten)
+	local props = getProps()
+	if props then
+		local s = Vector3.one * scale
+		local bands = {}
+		local bandCount = math.clamp(#mutations, 2, 3)
+		for i = 1, bandCount do
+			local info = mutations[i] and CowData.MilkTypes[mutations[i]]
+			table.insert(bands, {
+				Y = bandCount == 2 and (i == 1 and 0.22 or 0.74) or (0.18 + (i - 1) * 0.28),
+				Color = info and info.Color or METAL,
+				Material = info and Enum.Material.SmoothPlastic or Enum.Material.Metal,
+			})
+		end
+		buildPropBucket(props, model, base, s, function(i)
+			if not theme then
+				return WOOD, Enum.Material.Wood, 0
+			end
+			local color = theme.Rainbow and RAINBOW_COLORS[i % #RAINBOW_COLORS + 1] or theme.Color
+			return color, theme.Material, theme.Reflectance
+		end, bands)
+
+		-- Milch-Oberfläche knapp unter dem Rand
+		local milkMaterial = Enum.Material.SmoothPlastic
+		if topInfo.Multiplier >= 20 then
+			milkMaterial = Enum.Material.Neon
+		elseif mutations[1] == "Frozen" then
+			milkMaterial = Enum.Material.Ice
+		end
+		local surfaceUnit = PropMeshData.Height - 0.08
+		local inner = (propRadiusAt(surfaceUnit) - PropMeshData.Wall) * scale - 0.01
+		local surfaceY = surfaceUnit * scale
+		local milk = newPart(
+			model,
+			base,
+			"Milk",
+			Enum.PartType.Cylinder,
+			Vector3.new(0.06 * scale, inner * 2, inner * 2),
+			upright(CFrame.new(0, surfaceY - 0.03 * scale, 0)),
+			mutations[1] and topInfo.Color or MILK,
+			milkMaterial
+		)
+
+		-- Extras obendrauf
+		local r = PropMeshData.TopRadius * scale
+		if has.Creamy then
+			propPart(
+				props,
+				model,
+				"Sahne",
+				base * CFrame.new(r * 0.3, surfaceY, r * 0.25),
+				s,
+				Color3.fromRGB(255, 250, 238),
+				Enum.Material.SmoothPlastic
+			)
+		end
+		if has.Berry then
+			local berryCFrame = base * CFrame.new(-r * 0.35, surfaceY - 0.02 * scale, -r * 0.2)
+			propPart(props, model, "Erdbeere", berryCFrame, s, Color3.fromRGB(220, 50, 70), Enum.Material.SmoothPlastic)
+			propPart(
+				props,
+				model,
+				"Erdbeer_Blatt",
+				berryCFrame,
+				s,
+				Color3.fromRGB(80, 170, 80),
+				Enum.Material.SmoothPlastic
+			)
+		end
+		if has.Choco then
+			propPart(
+				props,
+				model,
+				"Schoko",
+				base
+					* CFrame.new(r * 0.15, surfaceY - 0.01 * scale, -r * 0.4)
+					* CFrame.Angles(math.rad(12), math.rad(30), 0),
+				s,
+				Color3.fromRGB(92, 56, 36),
+				Enum.Material.SmoothPlastic
+			)
+		end
+
+		addBucketEffects(milk, has, scale)
+
+		-- Griff (unsichtbar) am Holzgriff oben im Henkel
+		local handle = PropMeshData.Parts.Henkel
+		local grip = newPart(
+			model,
+			base,
+			"Grip",
+			Enum.PartType.Block,
+			Vector3.new(0.2, 0.2, 0.2),
+			CFrame.new(0, (handle.Center.Y + handle.Size.Y / 2 - 0.045) * scale, 0),
+			METAL,
+			Enum.Material.SmoothPlastic
+		)
+		grip.Transparency = 1
+		grip.CastShadow = false
+		model.PrimaryPart = grip
+		return model
+	end
 
 	local radius = 0.55 * scale
 	local height = 1.0 * scale
