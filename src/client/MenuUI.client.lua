@@ -1018,6 +1018,18 @@ do
 			end
 		end
 
+		-- Symbole der Kuh-Mutationen hinter dem Namen (sie werden beim Züchten vererbt)
+		local function mutationIcons(mutations)
+			local icons = ""
+			for _, id in ipairs(mutations or {}) do
+				local mutation = CowData.CowMutations[id]
+				if mutation then
+					icons ..= mutation.Icon
+				end
+			end
+			return icons ~= "" and ("  " .. icons) or ""
+		end
+
 		for order, cow in ipairs(inventory.Cows) do
 			local info = CowData.Rarities[cow.Rarity]
 			local row = Instance.new("TextButton")
@@ -1043,7 +1055,7 @@ do
 				TextWrapped = false,
 				TextTruncate = Enum.TextTruncate.AtEnd,
 				TextColor3 = grown and Colors.Text or Colors.SubText,
-				Text = grown and cow.Name or ("%s  · %s %s"):format(
+				Text = grown and (cow.Name .. mutationIcons(cow.Mutations)) or ("%s  · %s %s"):format(
 					cow.Name,
 					stage.Short,
 					formatTime(CowData.GetTimeToGrown(cow, serverNow()))

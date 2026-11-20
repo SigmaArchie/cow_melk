@@ -43,12 +43,14 @@ local function createDefaultData()
 		Version = 1,
 		Coins = CowData.Config.StartCoins,
 		Milk = 0, -- Liter in allen Eimern zusammen (wird aus Buckets berechnet)
-		-- Milch-Eimer: ["b1"] = { Id, Liters, Mutations = { "Gold", "Choco" }, CowName, CowType, Obtained,
+		-- Milch-Eimer: ["b1"] = { Id, Liters, Mutations = { "Gold", "Choco" }, CowMutations, CowName, CowType, Obtained,
 		--                        Hotbar = Platz 1-9 (nil = Eimer-Lager), Auto = true beim Auto-Melker-Eimer }
 		Buckets = {},
 		NextBucketId = 1,
 		TotalMilk = 0,
-		Cows = {}, -- ["c1"] = { Id = "c1", Rarity = "Common", Name = "Berta", Obtained = os.time() }
+		-- ["c1"] = { Id = "c1", Rarity = "Common", Name = "Berta", Obtained = os.time(),
+		--           BornAt, GrowTime (Wachstum), Mutations = { "Wet", ... } (Kuh-Mutationen) }
+		Cows = {},
 		NextCowId = 1,
 		-- Breeding = { ParentA = "c1", ParentB = "c2", StartedAt = ..., ReadyAt = ... } (nil = keine Zucht)
 		LoginStreak = { Streak = 0, LastDay = 0, Best = 0 },
@@ -115,6 +117,7 @@ local function migrateMilk(data)
 		else
 			bucket.Id = id
 			bucket.Mutations = CowData.CleanMutations(bucket.Mutations)
+			bucket.CowMutations = CowData.CleanCowMutations(bucket.CowMutations)
 		end
 	end
 end
@@ -309,7 +312,7 @@ function DataService.Sync(player)
 	local liters, value = 0, 0
 	for _, bucket in pairs(data.Buckets) do
 		liters += bucket.Liters
-		value += CowData.GetBucketValue(bucket.Liters, bucket.Mutations)
+		value += CowData.GetBucketValue(bucket.Liters, bucket.Mutations, bucket.CowMutations)
 	end
 	data.Milk = liters
 	player:SetAttribute("Milk", liters)
@@ -411,6 +414,7 @@ function DataService.AddBucket(player, liters, mutations, cow)
 		Liters = liters,
 		Mutations = CowData.CleanMutations(mutations),
 		CowName = cow and cow.Name or nil,
+		CowMutations = CowData.CleanCowMutations(cow and cow.Mutations), -- machen die Milch mehr wert
 		CowType = cow and cow.Rarity or nil,
 		Obtained = os.time(),
 		Hotbar = firstFreeHotbar(data),
@@ -453,7 +457,7 @@ function DataService.GetMilkValue(player)
 	local value = 0
 	if data then
 		for _, bucket in pairs(data.Buckets) do
-			value += CowData.GetBucketValue(bucket.Liters, bucket.Mutations)
+			value += CowData.GetBucketValue(bucket.Liters, bucket.Mutations, bucket.CowMutations)
 		end
 	end
 	return value
@@ -468,7 +472,7 @@ function DataService.TakeAllMilk(player)
 	local liters, value, list = 0, 0, {}
 	for _, bucket in pairs(data.Buckets) do
 		liters += bucket.Liters
-		value += CowData.GetBucketValue(bucket.Liters, bucket.Mutations)
+		value += CowData.GetBucketValue(bucket.Liters, bucket.Mutations, bucket.CowMutations)
 		table.insert(list, bucket)
 	end
 	data.Buckets = {}
@@ -487,7 +491,7 @@ function DataService.TakeBucket(player, bucketId)
 	data.Buckets[bucketId] = nil
 	DataService.Sync(player)
 	DataService.FireInventoryChanged(player)
-	return bucket, CowData.GetBucketValue(bucket.Liters, bucket.Mutations)
+	return bucket, CowData.GetBucketValue(bucket.Liters, bucket.Mutations, bucket.CowMutations)
 end
 
 ------------------------------------------------------------------------
@@ -495,6 +499,7 @@ end
 ------------------------------------------------------------------------
 -- Fügt eine Kuh hinzu (prüft KEIN Limit, das macht der Aufrufer).
 -- Neue Kühe kommen als Kalb und wachsen (CowData.Growth); options.Adult = true -> gleich ausgewachsen.
+-- options.Mutations = Kuh-Mutationen von Anfang an (z.B. von den Eltern geerbt)
 function DataService.AddCow(player, rarity, options)
 	local data = profiles[player]
 	if not data or not CowData.IsValidRarity(rarity) then
@@ -510,6 +515,10 @@ function DataService.AddCow(player, rarity, options)
 		Name = CowData.RandomName(rng),
 		Obtained = os.time(),
 	}
+	local mutations = CowData.CleanCowMutations(options and options.Mutations)
+	if #mutations > 0 then
+		cow.Mutations = mutations
+	end
 	if not (options and options.Adult) then
 		cow.BornAt = os.time()
 		cow.GrowTime = CowData.GetGrowTime(rarity)

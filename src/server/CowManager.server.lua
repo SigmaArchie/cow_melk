@@ -1,12 +1,16 @@
 -- CowManager.server.lua
 -- Alles rund um die Kühe:
---   * eingezäunter Farm-Plot pro Spieler links/rechts der Allee (Workspace.CowFarmLayout.Plots)
---   * prozedurale Kuh-Modelle mit Schemel + Eimer daneben
---   * Melk-Minispiel: Kuh anklicken ODER auf die leuchtende Melk-Platte neben der Kuh laufen
+--   * Bauernhof pro Spieler im Kreis um den Marktplatz (Workspace.CowFarmLayout.Plots);
+--     die Deko baut FarmBuilder.lua, hier kommen Raster, Milch-Stand und Kühe dazu
+--   * Kuh-Modelle; Schemel + Eimer erscheinen nur beim Melken (sonst laufen die Kühe frei herum,
+--     das Herumlaufen rechnet WorldAnimator.client.lua auf jedem Client gleich aus)
+--   * Melk-Minispiel: Kuh anklicken ODER "Melken" (Taste E) neben der Kuh
 --     -> Teleport auf den Schemel -> abwechselnd L/R ziehen
 --   * Melk-Cooldown pro Kuh
 --   * Wachstum: Kälber sind klein und geben weniger Milch; bei jeder neuen Stufe wird die Kuh größer
 --     neu aufgebaut (CowData.Growth). Züchten geht nur mit ausgewachsenen Kühen.
+--   * Kuh-Mutationen: Kühe auf der Farm bekommen je nach Wetter dauerhafte Mutationen, die sich stapeln
+--     und verbinden (CowData.CowMutations); sie machen die Milch dieser Kuh mehr wert und werden vererbt.
 --   * Milch-Eimer: jedes Melken gibt einen Eimer (Hotbar/Eimer-Lager) mit Litern und Mutationen
 --     (CowData.MilkTypes, Wetter zählt mit); Remotes.BucketAction: verkaufen, in Hotbar, ins Lager
 --   * Milch verkaufen (nach Wert), Shop mit Lager (ShopService), Kisten (Coins/Robux), Breeding,
@@ -21,12 +25,14 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local MarketplaceService = game:GetService("MarketplaceService")
 local TweenService = game:GetService("TweenService")
 local Debris = game:GetService("Debris")
+local RunService = game:GetService("RunService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local CowData = require(Shared:WaitForChild("CowData"))
 local CowModelBuilder = require(Shared:WaitForChild("CowModelBuilder"))
 local DataService = require(script.Parent:WaitForChild("DataService"))
 local ShopService = require(script.Parent:WaitForChild("ShopService"))
+local FarmBuilder = require(script.Parent:WaitForChild("FarmBuilder"))
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 
 local Config = CowData.Config
@@ -90,24 +96,13 @@ local function makePart(props)
 end
 
 ------------------------------------------------------------------------
--- Farm-Plots
--- Lokale Plot-Koordinaten: Tor bei +Z (zeigt zur Allee), Kühe Richtung -Z.
+-- Farm-Plots (Bauernhöfe)
+-- Lokale Plot-Koordinaten: Hof-Tor bei +Z (zeigt zum Marktplatz), Weide mit den Kühen Richtung -Z.
+-- Aufbau siehe FarmBuilder.lua
 ------------------------------------------------------------------------
-local GROUND = Map.GroundTop
-local PLOT_WIDTH = Map.PlotWidth -- lokal X (entlang der Allee)
-local PLOT_DEPTH = Map.PlotDepth -- lokal Z (von der Allee weg)
-local GATE_WIDTH = 10
-
 local GRID_CELLS = CowData.GetGridCellCount() -- Felder pro Farm (6 x 6 = 36)
 local HOTBAR_SIZE = Config.HotbarSize
-local COW_OFFSET_X = 1.8 -- Kuh steht im Feld etwas rechts, links ist Platz für Schemel + Melk-Platte
-
-local GRASS_LIGHT = World.GrassLight
-local GRASS_DARK = World.GrassDark
-local CURB = World.Stone
-local FENCE_WHITE = World.Fence
-local PATH = World.StonePath
-local HAY = World.Hay
+local COW_OFFSET_X = 1 -- Kuh steht im Feld etwas rechts, links ist Platz für den Schemel
 
 local layoutFolder = workspace:FindFirstChild("CowFarmLayout")
 if not layoutFolder then
@@ -140,107 +135,6 @@ end
 
 -- Lage der Plots steht in CowData (der Client braucht sie auch für die Übersichtskarte)
 local getPlotOrigin = CowData.GetPlotOrigin
-
--- Zaun: Pfosten alle ~6 Studs + 2 durchgehende Latten (ohne Pfostenkappen, spart Teile)
-local function buildFenceLine(parent, origin, from, to)
-	local delta = to - from
-	local length = delta.Magnitude
-	if length < 0.5 then
-		return
-	end
-	local direction = delta.Unit
-	local posts = math.max(1, math.floor(length / 6 + 0.5))
-	for i = 0, posts do
-		local position = from + direction * (length * i / posts)
-		makePart({
-			Name = "Post",
-			Size = Vector3.new(0.6, 3.4, 0.6),
-			CFrame = origin * CFrame.new(position + Vector3.new(0, GROUND + 1.7, 0)),
-			Color = FENCE_WHITE,
-			Material = Enum.Material.Wood,
-			Parent = parent,
-		})
-	end
-	local middle = from + delta / 2
-	local lookAt = CFrame.lookAt(middle, middle + direction)
-	for _, height in ipairs({ 1.3, 2.7 }) do
-		makePart({
-			Name = "Rail",
-			Size = Vector3.new(0.22, 0.4, length),
-			CFrame = origin * (lookAt + Vector3.new(0, GROUND + height, 0)),
-			Color = FENCE_WHITE,
-			Material = Enum.Material.Wood,
-			Parent = parent,
-		})
-	end
-end
-
--- kleine Deko-Teile: nie im Weg (CanCollide = false)
-local function decorPart(parent, name, size, cframe, color, material, extra)
-	local part = makePart({
-		Name = name,
-		Size = size,
-		CFrame = cframe,
-		Color = color,
-		Material = material or Enum.Material.SmoothPlastic,
-		CanCollide = false,
-		CanQuery = false,
-		Parent = parent,
-	})
-	if extra then
-		for key, value in pairs(extra) do
-			part[key] = value
-		end
-	end
-	return part
-end
-
--- Blumenbeet am Eingang: Steinrand, Erde, Grün und wenige bunte Blüten
-local function buildFarmFlowers(parent, origin, localCenter, sizeX, sizeZ, seed)
-	local flowerRng = Random.new(seed)
-	local at = function(x, y, z)
-		return origin * CFrame.new(localCenter + Vector3.new(x, y, z))
-	end
-	decorPart(
-		parent,
-		"BedBorder",
-		Vector3.new(sizeX + 0.8, 0.5, sizeZ + 0.8),
-		at(0, GROUND + 0.25, 0),
-		World.StoneDark,
-		Enum.Material.Cobblestone
-	)
-	decorPart(
-		parent,
-		"BedSoil",
-		Vector3.new(sizeX, 0.7, sizeZ),
-		at(0, GROUND + 0.35, 0),
-		World.Soil,
-		Enum.Material.Ground
-	)
-	decorPart(
-		parent,
-		"BedGreen",
-		Vector3.new(sizeX - 0.6, 0.7, sizeZ - 0.6),
-		at(0, GROUND + 0.7, 0),
-		World.Leaf,
-		Enum.Material.Grass
-	)
-	for _ = 1, 6 do
-		decorPart(
-			parent,
-			"Flower",
-			Vector3.new(0.7, 0.7, 0.7),
-			at(
-				flowerRng:NextNumber(-sizeX / 2 + 0.6, sizeX / 2 - 0.6),
-				GROUND + 1.2,
-				flowerRng:NextNumber(-sizeZ / 2 + 0.6, sizeZ / 2 - 0.6)
-			),
-			World.Flowers[flowerRng:NextInteger(1, #World.Flowers)],
-			Enum.Material.SmoothPlastic,
-			{ Shape = Enum.PartType.Ball, CastShadow = false }
-		)
-	end
-end
 
 -- Milch-Verkaufsstation: Holzpodest, Theke mit Preistafel, Kasse, Kannen, grün-cremefarbenes Dach
 -- und ein großes Schild. ProximityPrompt (F) am Tresen.
@@ -419,212 +313,31 @@ local function getFarm(player)
 
 	local slot = getFreeSlot()
 	local origin = getPlotOrigin(slot)
-	local halfW, halfD = PLOT_WIDTH / 2, PLOT_DEPTH / 2
 
 	local model = Instance.new("Model")
 	model.Name = "Plot_" .. player.Name
 	model:SetAttribute("OwnerUserId", player.UserId)
 	model:SetAttribute("Slot", slot)
 
-	local decor = Instance.new("Folder")
-	decor.Name = "Decor"
-	decor.Parent = model
+	-- Bauernhof: Boden, Zäune, Tor mit Schild, Scheune, Silo, Bauernhaus, Deko ...
+	local decor, places = FarmBuilder.Build(model, origin, slot, player.DisplayName)
 
 	local cowsFolder = Instance.new("Folder")
 	cowsFolder.Name = "Cows"
 	cowsFolder.Parent = model
 
-	-- Wiese in gemähten Streifen (abwechselnd hell/dunkel)
-	local stripes = 6
-	local stripeWidth = PLOT_WIDTH / stripes
-	for i = 0, stripes - 1 do
-		makePart({
-			Name = "Ground",
-			Size = Vector3.new(stripeWidth, GROUND, PLOT_DEPTH),
-			CFrame = origin * CFrame.new(-halfW + stripeWidth * (i + 0.5), GROUND / 2, 0),
-			Color = i % 2 == 0 and GRASS_LIGHT or GRASS_DARK,
-			Material = Enum.Material.Grass,
-			Parent = decor,
-		})
-	end
-
-	-- Steinkante rundherum (vorne mit Lücke fürs Tor)
-	local curbHeight = GROUND + 0.2
-	local function curb(size, position)
-		makePart({
-			Name = "Curb",
-			Size = size,
-			CFrame = origin * CFrame.new(position),
-			Color = CURB,
-			Material = Enum.Material.Concrete,
-			Parent = decor,
-		})
-	end
-	curb(Vector3.new(PLOT_WIDTH + 2, curbHeight, 1), Vector3.new(0, curbHeight / 2, -halfD - 0.5))
-	curb(Vector3.new(1, curbHeight, PLOT_DEPTH + 2), Vector3.new(-halfW - 0.5, curbHeight / 2, 0))
-	curb(Vector3.new(1, curbHeight, PLOT_DEPTH + 2), Vector3.new(halfW + 0.5, curbHeight / 2, 0))
-	local frontPiece = (PLOT_WIDTH - GATE_WIDTH) / 2 + 1
-	curb(Vector3.new(frontPiece, curbHeight, 1), Vector3.new(-halfW - 1 + frontPiece / 2, curbHeight / 2, halfD + 0.5))
-	curb(Vector3.new(frontPiece, curbHeight, 1), Vector3.new(halfW + 1 - frontPiece / 2, curbHeight / 2, halfD + 0.5))
-
-	-- Weißer Zaun, 1 Stud nach innen versetzt, mit Tor vorne (+Z)
-	local fx, fz = halfW - 1, halfD - 1
-	buildFenceLine(decor, origin, Vector3.new(-fx, 0, -fz), Vector3.new(fx, 0, -fz))
-	buildFenceLine(decor, origin, Vector3.new(-fx, 0, -fz), Vector3.new(-fx, 0, fz))
-	buildFenceLine(decor, origin, Vector3.new(fx, 0, -fz), Vector3.new(fx, 0, fz))
-	buildFenceLine(decor, origin, Vector3.new(-fx, 0, fz), Vector3.new(-GATE_WIDTH / 2, 0, fz))
-	buildFenceLine(decor, origin, Vector3.new(GATE_WIDTH / 2, 0, fz), Vector3.new(fx, 0, fz))
-
-	-- Torbogen mit Namensschild (Creme auf dunklem Holz), Laternen auf den Pfosten
-	for _, x in ipairs({ -GATE_WIDTH / 2, GATE_WIDTH / 2 }) do
-		makePart({
-			Name = "GatePost",
-			Size = Vector3.new(1.2, 8.4, 1.2),
-			CFrame = origin * CFrame.new(x, GROUND + 4.2, fz),
-			Color = World.WoodDark,
-			Material = Enum.Material.Wood,
-			Parent = decor,
-		})
-		decorPart(
-			decor,
-			"GateCap",
-			Vector3.new(1.7, 0.3, 1.7),
-			origin * CFrame.new(x, GROUND + 8.55, fz),
-			Color3.fromRGB(52, 54, 62),
-			Enum.Material.Metal
-		)
-		decorPart(
-			decor,
-			"GateLamp",
-			Vector3.new(1.1, 1.3, 1.1),
-			origin * CFrame.new(x, GROUND + 9.2, fz),
-			World.Lantern
-		)
-	end
-	makePart({
-		Name = "GateBeam",
-		Size = Vector3.new(GATE_WIDTH + 2.4, 0.9, 1),
-		CFrame = origin * CFrame.new(0, GROUND + 8.1, fz),
-		Color = World.Wood,
-		Material = Enum.Material.Wood,
-		Parent = decor,
-	})
-	for _, x in ipairs({ -3, 3 }) do
-		decorPart(
-			decor,
-			"GateStrut",
-			Vector3.new(0.5, 0.4, 0.5),
-			origin * CFrame.new(x, GROUND + 8.7, fz),
-			World.WoodDark,
-			Enum.Material.Wood
-		)
-	end
-	local sign = makePart({
-		Name = "Sign",
-		Size = Vector3.new(GATE_WIDTH - 2, 2.4, 0.4),
-		CFrame = origin * CFrame.new(0, GROUND + 10, fz),
-		Color = World.WoodDark,
-		Material = Enum.Material.Wood,
-		Parent = decor,
-	})
-	for _, face in ipairs({ Enum.NormalId.Front, Enum.NormalId.Back }) do
-		local surface = Instance.new("SurfaceGui")
-		surface.Face = face
-		surface.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
-		surface.PixelsPerStud = 50
-		surface.LightInfluence = 0.2
-		surface.Parent = sign
-		local text = Instance.new("TextLabel")
-		text.Size = UDim2.fromScale(1, 0.86)
-		text.BackgroundTransparency = 1
-		text.Font = Palette.Fonts.Heading
-		text.TextScaled = true
-		text.TextColor3 = Palette.Colors.Cream
-		text.Text = "🐄 Farm von " .. player.DisplayName
-		text.Parent = surface
-		local limit = Instance.new("UITextSizeConstraint")
-		limit.MaxTextSize = 80
-		limit.Parent = text
-		local padding = Instance.new("UIPadding")
-		padding.PaddingLeft = UDim.new(0.05, 0)
-		padding.PaddingRight = UDim.new(0.05, 0)
-		padding.PaddingTop = UDim.new(0.1, 0)
-		padding.Parent = text
-		-- grüner Streifen unten
-		local stripe = Instance.new("Frame")
-		stripe.AnchorPoint = Vector2.new(0.5, 1)
-		stripe.Position = UDim2.fromScale(0.5, 0.94)
-		stripe.Size = UDim2.fromScale(0.8, 0.06)
-		stripe.BackgroundColor3 = Palette.Colors.Green
-		stripe.BorderSizePixel = 0
-		stripe.Parent = surface
-	end
-
-	-- Weg vom Tor bis zur ersten Kuhreihe
-	makePart({
-		Name = "Path",
-		Size = Vector3.new(GATE_WIDTH - 2, 0.06, 26),
-		CFrame = origin * CFrame.new(0, GROUND + 0.03, halfD - 13),
-		Color = PATH,
-		Material = Enum.Material.Cobblestone,
-		CanCollide = false,
-		Parent = decor,
-	})
-
-	-- Deko VOR der Kuhfläche (Kühe stehen lokal in z = -50 .. 22; z > 28 ist frei)
-	buildFarmFlowers(decor, origin, Vector3.new(-9, 0, halfD - 7), 6, 3, slot * 11)
-	buildFarmFlowers(decor, origin, Vector3.new(9, 0, halfD - 7), 6, 3, slot * 11 + 1)
-	for _, bale in ipairs({ Vector3.new(-26, 0.9, 46), Vector3.new(-29.6, 0.9, 46), Vector3.new(-27.8, 2.7, 46) }) do
-		makePart({
-			Name = "HayBale",
-			Size = Vector3.new(3.4, 1.8, 3),
-			CFrame = origin * CFrame.new(bale.X, GROUND + bale.Y, bale.Z),
-			Color = HAY,
-			Material = Enum.Material.Fabric,
-			Parent = decor,
-		})
-	end
-	for _, barrel in ipairs({ Vector3.new(-19, 40), Vector3.new(-21.4, 41.2), Vector3.new(-19.8, 43.2) }) do
-		makePart({
-			Name = "Barrel",
-			Shape = Enum.PartType.Cylinder,
-			Size = Vector3.new(2.2, 1.9, 1.9),
-			CFrame = origin * CFrame.new(barrel.X, GROUND + 1.1, barrel.Y) * CFrame.Angles(0, 0, math.rad(90)),
-			Color = World.Wood,
-			Material = Enum.Material.Wood,
-			Parent = decor,
-		})
-	end
-	makePart({
-		Name = "Trough",
-		Size = Vector3.new(4.5, 1.2, 1.6),
-		CFrame = origin * CFrame.new(27, GROUND + 0.6, 46),
-		Color = World.Wood,
-		Material = Enum.Material.Wood,
-		Parent = decor,
-	})
-	decorPart(
-		decor,
-		"TroughWater",
-		Vector3.new(4, 0.1, 1.1),
-		origin * CFrame.new(27, GROUND + 1.2, 46),
-		Palette.Colors.Blue,
-		Enum.Material.Glass,
-		{ Transparency = 0.3 }
-	)
-
-	-- Raster: ein helles Feld pro Kuh-Platz (Client hebt freie Felder beim Platzieren hervor)
+	-- Raster auf der Weide: unsichtbar, nur im Platzier-Modus eingefärbt (InventoryClient)
 	local grid = Instance.new("Folder")
 	grid.Name = "Grid"
 	grid.Parent = model
 	for cell = 1, GRID_CELLS do
 		local tile = makePart({
 			Name = "Cell" .. cell,
-			Size = Vector3.new(Map.GridCellX - 0.8, 0.05, Map.GridCellZ - 0.8),
-			CFrame = origin * CowData.GetGridCellLocal(cell) * CFrame.new(0, 0.03, 0),
+			Size = Vector3.new(Map.GridCellX - 1, 0.05, Map.GridCellZ - 1),
+			CFrame = origin * CowData.GetGridCellLocal(cell) * CFrame.new(0, 0.05, 0),
 			Color = Color3.fromRGB(255, 255, 255),
 			Material = Enum.Material.SmoothPlastic,
-			Transparency = 0.82,
+			Transparency = 1,
 			CanCollide = false,
 			CanTouch = false,
 			CastShadow = false,
@@ -635,24 +348,7 @@ local function getFarm(player)
 		CollectionService:AddTag(tile, "FarmCell")
 	end
 
-	-- Heuballen in der hinteren linken Ecke (außerhalb des Rasters)
-	for _, position in ipairs({
-		Vector3.new(-halfW + 4, GROUND + 0.9, -halfD + 3.2),
-		Vector3.new(-halfW + 7.6, GROUND + 0.9, -halfD + 3.2),
-		Vector3.new(-halfW + 5.8, GROUND + 2.7, -halfD + 3.2),
-	}) do
-		makePart({
-			Name = "HayBale",
-			Size = Vector3.new(3.4, 1.8, 3),
-			CFrame = origin * CFrame.new(position),
-			Color = HAY,
-			Material = Enum.Material.Fabric,
-			Parent = decor,
-		})
-	end
-
-	-- Milch-Stand rechts vom Weg, Kundenseite zeigt zum Weg (-X)
-	buildSellStand(player, decor, origin * CFrame.new(12, GROUND, halfD - 14) * CFrame.Angles(0, math.rad(90), 0))
+	buildSellStand(player, decor, places.StandCFrame)
 
 	model.Parent = plotsFolder
 
@@ -661,7 +357,7 @@ local function getFarm(player)
 		Model = model,
 		CowsFolder = cowsFolder,
 		Origin = origin,
-		SpawnCFrame = origin * CFrame.new(0, GROUND + 4, halfD - 6), -- Blick Richtung Kühe (-Z)
+		SpawnCFrame = places.SpawnCFrame, -- auf dem Hof, Blick Richtung Weide (-Z)
 		Spots = {},
 	}
 	farms[player] = farm
@@ -702,9 +398,12 @@ local function createInfoBillboard(cow, torso, stage)
 	local grown = not stage or stage.Scale >= 1
 
 	-- kleines Namensschild über dem Kopf (Marineblau, dünner Rahmen in der Seltenheitsfarbe)
+	local mutations = cow.Mutations or {}
+	local hasMutations = #mutations > 0
+
 	local billboard = Instance.new("BillboardGui")
 	billboard.Name = "Info"
-	billboard.Size = UDim2.fromOffset(136, 52)
+	billboard.Size = UDim2.fromOffset(hasMutations and 150 or 136, hasMutations and 68 or 52)
 	billboard.StudsOffsetWorldSpace = Vector3.new(0, 4.6 * scale + (1 - scale) * 0.8, 0)
 	billboard.MaxDistance = 55
 	billboard.LightInfluence = 0
@@ -738,13 +437,27 @@ local function createInfoBillboard(cow, torso, stage)
 		l.Parent = background
 		return l
 	end
-	label("NameLabel", cow.Name, 0.05, 0.38, Palette.Fonts.Heading, Palette.Colors.Cream)
 	local typeText = (info.IsSpecial and "★ " or "") .. info.DisplayName
 	if not grown then
 		typeText = stage.Name .. " · " .. typeText
 	end
-	label("RarityLabel", typeText, 0.44, 0.22, Palette.Fonts.Body, accent)
-	return label("Status", "", 0.7, 0.24, Palette.Fonts.Body, Palette.Colors.SubText)
+	if not hasMutations then
+		label("NameLabel", cow.Name, 0.05, 0.38, Palette.Fonts.Heading, Palette.Colors.Cream)
+		label("RarityLabel", typeText, 0.44, 0.22, Palette.Fonts.Body, accent)
+		return label("Status", "", 0.7, 0.24, Palette.Fonts.Body, Palette.Colors.SubText)
+	end
+
+	-- mit Kuh-Mutationen: eigene Zeile, jede in ihrer Farbe ("Nass · Gefroren")
+	label("NameLabel", cow.Name, 0.04, 0.3, Palette.Fonts.Heading, Palette.Colors.Cream)
+	local parts = {}
+	for _, id in ipairs(mutations) do
+		local mutation = CowData.CowMutations[id]
+		table.insert(parts, ('<font color="#%s">%s</font>'):format(mutation.Color:ToHex(), mutation.DisplayName))
+	end
+	local mutationLabel = label("MutationLabel", table.concat(parts, " · "), 0.35, 0.18, Palette.Fonts.Body, accent)
+	mutationLabel.RichText = true
+	label("RarityLabel", typeText, 0.55, 0.17, Palette.Fonts.Body, accent)
+	return label("Status", "", 0.75, 0.19, Palette.Fonts.Body, Palette.Colors.SubText)
 end
 
 local function showPopup(part, message, color)
@@ -807,6 +520,24 @@ end
 --                      LastSide, StartedAt, Seated, Connections }
 local sessions = {}
 local refreshCowLabels -- weiter unten definiert
+
+-- Schemel und Eimer gibt es nur beim Melken: sonst sind sie unsichtbar und man läuft hindurch
+local function setMilkingGear(spot, visible)
+	for _, model in ipairs({ spot.Stool, spot.Bucket }) do
+		for _, item in ipairs(model:GetDescendants()) do
+			if item:IsA("BasePart") then
+				if item:GetAttribute("GearTransparency") == nil then
+					item:SetAttribute("GearTransparency", item.Transparency)
+					item:SetAttribute("GearCollide", item.CanCollide)
+				end
+				item.Transparency = visible and item:GetAttribute("GearTransparency") or 1
+				item.CanCollide = visible and item:GetAttribute("GearCollide") or false
+			elseif item:IsA("Decal") or item:IsA("Texture") then
+				item.Transparency = visible and 0 or 1
+			end
+		end
+	end
+end
 
 local MAX_DISTANCE_FROM_STOOL = 10 -- wer weiter weg ist, hat aufgehört
 
@@ -904,9 +635,12 @@ local function endMilking(player, completed)
 		)
 	end
 
-	-- Eimer nach kurzer Zeit wieder leeren
+	-- Eimer nach kurzer Zeit wieder leeren, dann Schemel und Eimer wegräumen (die Kuh läuft wieder herum)
 	task.delay(1.5, function()
-		spot.SetFill(0)
+		if spot.Cow:GetAttribute("BeingMilked") ~= true then
+			spot.SetFill(0)
+			setMilkingGear(spot, false)
+		end
 	end)
 
 	if player.Parent then
@@ -915,7 +649,7 @@ local function endMilking(player, completed)
 	refreshCowLabels(player)
 end
 
--- silent = true: von der Melk-Platte ausgelöst -> keine Meldung, wenn die Kuh Pause hat
+-- silent = true: keine Meldung, wenn die Kuh Pause hat (z.B. beim Auto-Start)
 local function startMilking(player, cowId, silent)
 	if sessions[player] then
 		return
@@ -1008,6 +742,7 @@ local function startMilking(player, cowId, silent)
 	)
 
 	spot.Cow:SetAttribute("BeingMilked", true)
+	setMilkingGear(spot, true)
 
 	-- Teleport direkt neben die Kuh und hinsetzen
 	seat.Disabled = false
@@ -1111,7 +846,7 @@ local function freeHotbarForCow(data)
 	local cheapest, cheapestValue = nil, math.huge
 	for _, bucket in pairs(data.Buckets) do
 		if bucket.Hotbar then
-			local value = CowData.GetBucketValue(bucket.Liters, bucket.Mutations)
+			local value = CowData.GetBucketValue(bucket.Liters, bucket.Mutations, bucket.CowMutations)
 			if value < cheapestValue then
 				cheapest, cheapestValue = bucket, value
 			end
@@ -1155,6 +890,12 @@ local function normalizeCows(data)
 	local cells, hotbar = {}, {}
 	local list = sortedCows(data)
 	for _, cow in ipairs(list) do
+		if cow.Mutations ~= nil then
+			cow.Mutations = CowData.CleanCowMutations(cow.Mutations)
+			if #cow.Mutations == 0 then
+				cow.Mutations = nil
+			end
+		end
 		if
 			cow.Slot ~= nil and (type(cow.Slot) ~= "number" or cow.Slot < 1 or cow.Slot > GRID_CELLS or cells[cow.Slot])
 		then
@@ -1204,17 +945,15 @@ end
 ------------------------------------------------------------------------
 -- Kühe auf der Farm aufstellen (nur Kühe mit cow.Slot)
 ------------------------------------------------------------------------
--- Baut Kuh + Schemel + Eimer + Melk-Platte für eine Kuh mit cow.Slot.
+-- Baut Kuh + Schemel + Eimer (beide nur beim Melken sichtbar) + "Melken"-Prompt für eine Kuh mit cow.Slot.
 -- Achtung: CowModelBuilder.BuildCow kann beim ersten Mal warten (Prüfung der Blender-Meshes).
 -- Deshalb merkt sich farm.Spawning, welche Kuh gerade gebaut wird – sonst bauen zwei Aufrufer
 -- (z.B. Gratis-Kuh beim Beitreten + Laden der Farm) dieselbe Kuh doppelt an denselben Platz.
 local function buildSpot(player, farm, cow)
 	local slot = cow.Slot
-	local yaw = math.rad(rng:NextNumber(-8, 8))
-	local base = farm.Origin
-		* CowData.GetGridCellLocal(cow.Slot)
-		* CFrame.new(COW_OFFSET_X, 0, 0)
-		* CFrame.Angles(0, yaw, 0)
+	-- Heimat-Platz der Kuh (Blick zur Weide-Rückseite, -Z). Von hier aus läuft sie im Client
+	-- ein wenig herum; zum Melken kommt sie genau hierher zurück (Schemel steht links daneben).
+	local base = farm.Origin * CowData.GetGridCellLocal(cow.Slot) * CFrame.new(COW_OFFSET_X, 0, 0)
 
 	local spotModel = Instance.new("Model")
 	spotModel.Name = cow.Id
@@ -1230,6 +969,7 @@ local function buildSpot(player, farm, cow)
 	end
 	cowModel:SetAttribute("CowId", cow.Id)
 	cowModel:SetAttribute("OwnerUserId", player.UserId)
+	cowModel:SetAttribute("WanderRadius", CowData.GetWanderRadius(stage.Scale)) -- für WorldAnimator
 	cowModel.Parent = spotModel
 
 	-- Maße kommen vom Modell (Blender-Kuh und Ersatz-Kuh sind unterschiedlich breit)
@@ -1247,43 +987,21 @@ local function buildSpot(player, farm, cow)
 	local bucketModel, setFill = CowModelBuilder.BuildBucket(base * CFrame.new(0, 0, udderZ))
 	bucketModel.Parent = spotModel
 
-	-- Melk-Platte: einfach drauflaufen (funktioniert auch prima am Handy)
-	local pad = makePart({
-		Name = "MilkPad",
-		Size = Vector3.new(3, 0.2, 3.4),
-		CFrame = base * CFrame.new(stoolX - 2.5, 0.1, udderZ),
-		Color = Palette.Colors.Blue,
-		Material = Enum.Material.SmoothPlastic,
-		Transparency = 0.3,
-		CanCollide = false,
-		Parent = spotModel,
-	})
-	local padLabel = Instance.new("BillboardGui")
-	padLabel.Size = UDim2.fromOffset(84, 26)
-	padLabel.StudsOffsetWorldSpace = Vector3.new(0, 1.6, 0)
-	padLabel.MaxDistance = 30
-	padLabel.LightInfluence = 0
-	padLabel.Parent = pad
-	local padText = Instance.new("TextLabel")
-	padText.Size = UDim2.fromScale(1, 1)
-	padText.BackgroundColor3 = Palette.Colors.Deep
-	padText.BackgroundTransparency = 0.2
-	padText.Font = Palette.Fonts.Body
-	padText.TextScaled = true
-	padText.TextColor3 = Palette.Colors.Cream
-	padText.Text = "Melken"
-	padText.Parent = padLabel
-	local padCorner = Instance.new("UICorner")
-	padCorner.CornerRadius = UDim.new(0, 8)
-	padCorner.Parent = padText
-	local padPadding = Instance.new("UIPadding")
-	padPadding.PaddingTop = UDim.new(0.15, 0)
-	padPadding.PaddingBottom = UDim.new(0.15, 0)
-	padPadding.Parent = padText
-	pad.Touched:Connect(function(hit)
-		local character = hit.Parent
-		if character and Players:GetPlayerFromCharacter(character) == player then
-			startMilking(player, cow.Id, true)
+	-- "Melken" (Taste E / antippen), wenn man neben der Kuh steht. Der Prompt hängt am Körper und
+	-- läuft mit der Kuh mit. Er startet ausgeschaltet: WorldAnimator schaltet ihn nur beim Besitzer ein
+	-- (und nicht, während gerade gemolken wird).
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = "MilkPrompt"
+	prompt.ActionText = "Melken"
+	prompt.ObjectText = cow.Name
+	prompt.HoldDuration = 0
+	prompt.MaxActivationDistance = 10 -- Kuh läuft bis 4,5 Studs vom Platz weg, der Server prüft am Platz
+	prompt.RequiresLineOfSight = false
+	prompt.Enabled = false
+	prompt.Parent = refs.Torso
+	prompt.Triggered:Connect(function(who)
+		if who == player then
+			startMilking(player, cow.Id, false)
 		end
 	end)
 
@@ -1306,11 +1024,13 @@ local function buildSpot(player, farm, cow)
 				MilkReadyAt = current.MilkReadyAt or 0,
 				BornAt = current.BornAt,
 				GrowTime = current.GrowTime,
+				Mutations = current.Mutations or {},
 				ServerTime = os.time(),
 			})
 		end
 	end)
 
+	CowModelBuilder.ApplyCowMutations(cowModel, refs.Torso, cow.Mutations)
 	local status = createInfoBillboard(cow, refs.Torso, stage)
 
 	spotModel.Parent = farm.CowsFolder
@@ -1325,7 +1045,9 @@ local function buildSpot(player, farm, cow)
 		SetFill = setFill,
 		Status = status,
 		Stage = stageIndex, -- Wachstums-Stufe, in der das Modell gebaut wurde
+		MutationKey = table.concat(cow.Mutations or {}, ","), -- Kuh-Mutationen, mit denen es gebaut wurde
 	}
+	setMilkingGear(spot, false)
 	farm.Spots[cow.Id] = spot
 	return spot
 end
@@ -1956,13 +1678,30 @@ local function finishBreeding(player, data)
 	local rarity =
 		CowData.RollBreeding(parentA and parentA.Rarity or "Common", parentB and parentB.Rarity or "Common", rng)
 
+	-- jede Mutation der Eltern wird mit InheritChance vererbt (Verbindungen macht AddCow)
+	local inherited = {}
+	for _, parent in ipairs({ parentA, parentB }) do
+		for _, id in ipairs(parent and parent.Mutations or {}) do
+			if not table.find(inherited, id) and rng:NextNumber() < CowData.CowMutationSettings.InheritChance then
+				table.insert(inherited, id)
+			end
+		end
+	end
+
 	data.Breeding = nil
-	local calf = DataService.AddCow(player, rarity)
+	local calf = DataService.AddCow(player, rarity, { Mutations = inherited })
 	refreshCowLabels(player)
 
 	if calf then
 		local names = (parentA and parentA.Name or "?") .. " & " .. (parentB and parentB.Name or "?")
 		announceNewCow(player, calf, "🍼 Kalb von " .. names)
+		if calf.Mutations and #calf.Mutations > 0 then
+			DataService.Notify(
+				player,
+				("🧬 %s hat geerbt: %s"):format(calf.Name, CowData.FormatCowMutations(calf.Mutations)),
+				"rare"
+			)
+		end
 	end
 end
 
@@ -2039,6 +1778,7 @@ local function buildInventory(player)
 			MilkReadyAt = cow.MilkReadyAt or 0,
 			BornAt = cow.BornAt,
 			GrowTime = cow.GrowTime,
+			Mutations = cow.Mutations or {},
 			Slot = cow.Slot,
 			Hotbar = cow.Hotbar,
 			Stored = cow.Stored == true,
@@ -2059,7 +1799,8 @@ local function buildInventory(player)
 			CowType = bucket.CowType,
 			Hotbar = bucket.Hotbar,
 			Auto = bucket.Auto == true,
-			Value = CowData.GetBucketValue(bucket.Liters, bucket.Mutations),
+			CowMutations = bucket.CowMutations or {},
+			Value = CowData.GetBucketValue(bucket.Liters, bucket.Mutations, bucket.CowMutations),
 		})
 	end
 	table.sort(buckets, function(a, b)
@@ -2291,32 +2032,50 @@ local function growBurst(torso)
 	Debris:AddItem(emitter, 2)
 end
 
--- Erst die neue (größere) Kuh bauen, DANN die alte entfernen. Klappt das Bauen nicht,
--- bleibt die alte Kuh auf ihrem Feld stehen (die Kuh verschwindet nie von der Farm).
-local function regrowCow(player, cow, stageIndex)
+-- Kuh neu aufbauen (neue Größe oder neue Mutationen): erst die neue bauen, DANN die alte entfernen.
+-- Klappt das Bauen nicht, bleibt die alte Kuh auf ihrem Feld stehen (die Kuh verschwindet nie von der Farm).
+-- Gibt den neuen Spot zurück oder nil.
+local function rebuildSpot(player, cow, reason)
 	local farm = farms[player]
 	local oldSpot = farm and farm.Spots[cow.Id]
 	if not oldSpot or oldSpot.Regrowing then
-		return
+		return nil
 	end
 	oldSpot.Regrowing = true
 	farm.Spots[cow.Id] = nil -- sonst gibt spawnCow die alte Kuh zurück
 	local newSpot = spawnCow(player, cow)
 	if farms[player] ~= farm then
-		return -- Spieler ist weg
+		return nil -- Spieler ist weg
 	end
 	if not newSpot then
 		if not farm.Spots[cow.Id] and cow.Slot then
 			farm.Spots[cow.Id] = oldSpot
 		end
-		oldSpot.Stage = stageIndex -- nicht jede Sekunde neu versuchen
+		-- nicht jede Sekunde neu versuchen
+		local _, stageIndex = CowData.GetGrowth(cow, os.time())
+		oldSpot.Stage = stageIndex
+		oldSpot.MutationKey = table.concat(cow.Mutations or {}, ",")
 		oldSpot.Regrowing = nil
-		warn(("[CowManager] %s (%s) konnte nicht wachsen – bleibt in der alten Größe."):format(cow.Name, cow.Id))
+		warn(
+			("[CowManager] %s (%s) konnte nicht neu gebaut werden (%s) – bleibt wie sie ist."):format(
+				cow.Name,
+				cow.Id,
+				reason
+			)
+		)
 		refreshCowLabels(player)
-		return
+		return nil
 	end
 	oldSpot.Model:Destroy()
 	refreshCowLabels(player)
+	return newSpot
+end
+
+local function regrowCow(player, cow, stageIndex)
+	local newSpot = rebuildSpot(player, cow, "Wachstum")
+	if not newSpot then
+		return
+	end
 	growBurst(newSpot.Torso)
 	local stages = CowData.Growth.Stages
 	if stageIndex >= #stages then
@@ -2328,6 +2087,19 @@ local function regrowCow(player, cow, stageIndex)
 	playSound(newSpot.Torso, Config.NewCowSoundId, 0.6, 1.3)
 end
 
+-- neue Kuh-Mutation: Kuh mit neuem Aussehen bauen + kleiner Effekt
+local function remutateCow(player, cow)
+	local newSpot = rebuildSpot(player, cow, "Mutation")
+	if not newSpot then
+		return
+	end
+	growBurst(newSpot.Torso)
+	local newest = cow.Mutations and CowData.CowMutations[cow.Mutations[#cow.Mutations]]
+	if newest then
+		showPopup(newSpot.Torso, newest.Icon .. " " .. newest.DisplayName .. "!", newest.Color)
+	end
+end
+
 local function checkGrowth(player, data)
 	local farm = farms[player]
 	if not farm then
@@ -2335,20 +2107,114 @@ local function checkGrowth(player, data)
 	end
 	local now = os.time()
 	local session = sessions[player]
-	local grown = {} -- erst sammeln, dann umbauen (nicht farm.Spots ändern, während wir durchgehen)
+	local grown, mutated = {}, {} -- erst sammeln, dann umbauen (nicht farm.Spots ändern, während wir durchgehen)
 	for cowId, spot in pairs(farm.Spots) do
 		local cow = data.Cows[cowId]
-		if cow and spot.Stage and not (session and session.CowId == cowId) then
+		if cow and spot.Stage and not spot.Regrowing and not (session and session.CowId == cowId) then
 			local _, stageIndex = CowData.GetGrowth(cow, now)
 			if stageIndex ~= spot.Stage then
 				table.insert(grown, { Cow = cow, Stage = stageIndex })
+			elseif table.concat(cow.Mutations or {}, ",") ~= spot.MutationKey then
+				table.insert(mutated, cow)
 			end
 		end
 	end
 	for _, entry in ipairs(grown) do
 		task.spawn(regrowCow, player, entry.Cow, entry.Stage)
 	end
+	for _, cow in ipairs(mutated) do
+		task.spawn(remutateCow, player, cow)
+	end
 end
+
+------------------------------------------------------------------------
+-- Kuh-Mutationen würfeln: alle TickInterval Sekunden für jede Kuh auf der Farm (CowData.CowMutations).
+-- Höchstens eine neue Mutation pro Kuh und Wurf; danach werden Verbindungen angewendet.
+-- Das neue Aussehen baut checkGrowth (1-Sekunden-Schleife) – auch erst nach dem Melken.
+------------------------------------------------------------------------
+local mutationBoost = RunService:IsStudio() and CowData.CowMutationSettings.StudioBoost or 1
+
+local function rollCowMutations(player, data)
+	local farm = farms[player]
+	if not farm then
+		return
+	end
+	local weather = workspace:GetAttribute("Weather") or "Clear"
+	local changed = false
+	for cowId in pairs(farm.Spots) do
+		local cow = data.Cows[cowId]
+		if cow and cow.Slot then
+			local current = cow.Mutations or {}
+			for _, id in ipairs(CowData.CowMutationOrder) do
+				local chance = CowData.GetCowMutationChance(id, weather) * mutationBoost
+				if chance > 0 and CowData.CanGainCowMutation(current, id) and rng:NextNumber() < chance then
+					local list = table.clone(current)
+					table.insert(list, id)
+					local newList, made = CowData.ApplyCowMutationCombos(list)
+					cow.Mutations = newList
+					changed = true
+
+					local info = CowData.CowMutations[id]
+					DataService.Notify(
+						player,
+						("%s %s ist jetzt %s! (Milch %s wert)"):format(
+							info.Icon,
+							cow.Name,
+							info.DisplayName,
+							CowData.FormatMultiplier(info.Multiplier)
+						),
+						info.Multiplier >= 10 and "rare" or "success"
+					)
+					for _, combo in ipairs(made) do
+						local result = CowData.CowMutations[combo.Result]
+						local names = {}
+						for _, need in ipairs(combo.Needs) do
+							table.insert(names, CowData.CowMutations[need].DisplayName)
+						end
+						DataService.Notify(
+							player,
+							("%s Verbindung! %s = %s (%s, Milch %s wert)"):format(
+								result.Icon,
+								table.concat(names, " + "),
+								result.DisplayName,
+								cow.Name,
+								CowData.FormatMultiplier(result.Multiplier)
+							),
+							"rare"
+						)
+						if result.Multiplier >= 30 then
+							DataService.NotifyAll(
+								("%s %s hat eine Kuh mit %s!"):format(
+									result.Icon,
+									player.DisplayName,
+									result.DisplayName
+								),
+								"rare",
+								player
+							)
+						end
+					end
+					break -- eine neue Mutation pro Wurf reicht
+				end
+			end
+		end
+	end
+	if changed then
+		DataService.FireInventoryChanged(player)
+	end
+end
+
+task.spawn(function()
+	while true do
+		task.wait(CowData.CowMutationSettings.TickInterval)
+		for player in pairs(farms) do
+			local data = DataService.Get(player)
+			if data then
+				rollCowMutations(player, data)
+			end
+		end
+	end
+end)
 
 ------------------------------------------------------------------------
 -- Schleifen: Zucht-Timer, Wachstum, Statusanzeigen, Melk-Abstand

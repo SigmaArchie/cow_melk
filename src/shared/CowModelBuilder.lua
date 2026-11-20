@@ -804,6 +804,144 @@ local function buildTemplateCow(template, rarity, base)
 	return model, refs
 end
 
+------------------------------------------------------------------------
+-- Kuh-Mutationen sichtbar machen (CowData.CowMutations): wenige Partikel je Mutation,
+-- bei Eis-Mutationen wird das Fell eisig, ein kleines Licht nur, wenn die Kuh noch keins hat.
+------------------------------------------------------------------------
+local ICE = Color3.fromRGB(190, 230, 255)
+
+local function tintFur(model, color, amount, material)
+	for _, part in ipairs(model:GetDescendants()) do
+		if part:IsA("BasePart") and part:GetAttribute("Tint") then
+			part.Color = part.Color:Lerp(color, amount)
+			if material then
+				part.Material = material
+			end
+		end
+	end
+end
+
+function Builder.ApplyCowMutations(model, torso, mutations)
+	if not mutations or #mutations == 0 then
+		return
+	end
+	local has = {}
+	for _, id in ipairs(mutations) do
+		has[id] = true
+	end
+	local function colorOf(id)
+		return CowData.CowMutations[id].Color
+	end
+
+	if has.Wet then
+		-- Tropfen, die herunterfallen; Fell glänzt nass
+		particles(torso, {
+			Color = ColorSequence.new(colorOf("Wet")),
+			Rate = 4,
+			Size = 0.15,
+			Lifetime = NumberRange.new(0.5, 0.9),
+			Speed = NumberRange.new(0.5, 1.5),
+			Acceleration = Vector3.new(0, -14, 0),
+		})
+		for _, part in ipairs(model:GetDescendants()) do
+			if part:IsA("BasePart") and part:GetAttribute("Tint") then
+				part.Reflectance = math.max(part.Reflectance, 0.12)
+			end
+		end
+	end
+	if has.Chilled then
+		particles(torso, {
+			Color = ColorSequence.new(Color3.fromRGB(240, 250, 255)),
+			Rate = 2,
+			Size = 0.2,
+			Lifetime = NumberRange.new(1.5, 2.5),
+			Speed = NumberRange.new(0.2, 0.5),
+			Acceleration = Vector3.new(0, -0.8, 0),
+		})
+		tintFur(model, ICE, 0.25)
+	end
+	if has.Frozen or has.Starfrost or has.Aurora then
+		tintFur(model, ICE, 0.45, Enum.Material.Ice)
+		particles(torso, {
+			Color = ColorSequence.new(colorOf("Frozen")),
+			LightEmission = 0.5,
+			Rate = 2,
+			Size = 0.25,
+			Lifetime = NumberRange.new(1.5, 2.5),
+			Speed = NumberRange.new(0.1, 0.4),
+		})
+	end
+	if has.Sunkissed then
+		particles(torso, {
+			Color = ColorSequence.new(colorOf("Sunkissed")),
+			LightEmission = 0.8,
+			Rate = 2,
+			Size = 0.22,
+			Speed = NumberRange.new(0.4, 1),
+			Acceleration = Vector3.new(0, 1, 0),
+		})
+	end
+	if has.Moonlit or has.Starfrost then
+		particles(torso, {
+			Color = ColorSequence.new(colorOf("Moonlit"), Color3.fromRGB(255, 250, 230)),
+			LightEmission = 1,
+			Rate = 3,
+			Size = 0.28,
+			Lifetime = NumberRange.new(1.5, 2.5),
+			Speed = NumberRange.new(0.2, 0.6),
+			Acceleration = Vector3.new(0, 0.8, 0),
+		})
+	end
+	if has.Shocked or has.Aurora then
+		particles(torso, {
+			Color = ColorSequence.new(colorOf("Shocked")),
+			LightEmission = 1,
+			Rate = 8,
+			Size = 0.16,
+			Lifetime = NumberRange.new(0.15, 0.35),
+			Speed = NumberRange.new(4, 8),
+		})
+	end
+	if has.Rainbowshine then
+		particles(torso, {
+			Color = RAINBOW_SEQUENCE,
+			LightEmission = 0.6,
+			Rate = 4,
+			Size = 0.25,
+			Lifetime = NumberRange.new(1.2, 2),
+			Speed = NumberRange.new(0.3, 0.8),
+			Acceleration = Vector3.new(0, 1, 0),
+		})
+	end
+	if has.Aurora then
+		particles(torso, {
+			Color = ColorSequence.new(colorOf("Aurora"), Color3.fromRGB(170, 120, 255)),
+			LightEmission = 1,
+			Rate = 3,
+			Size = 0.5,
+			Transparency = 0.5,
+			Lifetime = NumberRange.new(2, 3),
+			Speed = NumberRange.new(0.3, 0.6),
+			Acceleration = Vector3.new(0, 1.2, 0),
+		})
+	end
+
+	-- kleines Licht in der Farbe der stärksten Mutation (nur, wenn die Kuh noch keins hat)
+	if not torso:FindFirstChildOfClass("PointLight") then
+		local strongest, best = nil, 0
+		for _, id in ipairs(mutations) do
+			local info = CowData.CowMutations[id]
+			if info and info.Multiplier > best then
+				strongest, best = info, info.Multiplier
+			end
+		end
+		if strongest and best >= 3 then
+			light(torso, strongest.Color, 0.8, 9)
+		end
+	end
+	model:SetAttribute("HasEffects", true)
+end
+
 -- Ganze Kuh um den Boden-Punkt base verkleinern (Kälber). Skaliert Teile, Gruppen-Drehpunkte,
 -- Attachments, Lichter, Strahlen, Datei-Meshes und die Maße für Schemel/Eimer (BodyHalfWidth, UdderZ).
 local function scaleCow(model, base, scale)

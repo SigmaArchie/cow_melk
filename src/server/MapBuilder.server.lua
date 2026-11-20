@@ -1,15 +1,13 @@
 -- MapBuilder.server.lua
 -- Baut einmalig die gemeinsame Karte (alles unter Workspace.CowFarmLayout):
---   * Süd-Platz mit Brunnen, Kuh-Shop und Zucht-Stall
---   * Nord-Markt am anderen Ende der Förderbänder mit Kisten und Auto-Melker
---   (Shop-Daten stehen in CowData.Map.Shops; jedes Gebäude bekommt einen Teleport-Punkt)
---   * Allee nach Norden mit ZWEI Laufbändern (eins nach Norden, eins nach Süden)
---   * Begrüßungsbogen und Laternen
--- Die Farm-Plots selbst baut CowManager.server.lua links und rechts der Allee.
+--   * runder Marktplatz in der Mitte: Brunnen, Dorfbaum, Pavillon, Wegweiser, Bänke, Beete
+--   * vier Shops rund um den Brunnen, Türen zur Mitte (Daten in CowData.Map.Shops;
+--     jedes Gebäude bekommt einen Teleport-Punkt)
+--   * Landschaft (Folder "Countryside"): Feldwege zu den Farm-Toren, Ringweg, Wiesen mit Bäumen,
+--     zwischen den Farmen Windmühle, Teich, Obstgarten, Kürbisse, Blumenfeld, Heu; Waldrand, Hügel
+-- Die Bauernhöfe selbst baut CowManager.server.lua (mit FarmBuilder.lua) im Kreis um den Platz.
+-- Deko-Bausteine (Bäume, Zäune, Gebäude ...) kommen aus FarmProps.lua.
 --
--- Förderbänder: Das unsichtbare Band ("Belt") schiebt Spieler über AssemblyLinearVelocity.
--- Darauf liegen 6 sichtbare Kacheln (10 x 0.5 x 50, schwarz mit gelben Pfeilen), die der
--- Client mit RunService.Heartbeat bewegt (WorldAnimator) und am Ende sofort zurücksetzt.
 -- Shops: ClickDetector -> Remotes.OpenShop:FireClient(player, page) -> MenuUI öffnet das Fenster.
 
 local CollectionService = game:GetService("CollectionService")
@@ -18,6 +16,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CowData = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CowData"))
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local Palette = require(ReplicatedStorage.Shared:WaitForChild("Palette"))
+local FarmProps = require(script.Parent:WaitForChild("FarmProps"))
 local Map = CowData.Map
 local Pal = Palette.Colors
 local World = Palette.World
@@ -30,7 +29,7 @@ if not layoutFolder then
 end
 
 -- alte Version (z.B. nach Neustart im Studio) entfernen
-for _, name in ipairs({ "Hub", "Walkways", "Avenue", "NorthMarket" }) do
+for _, name in ipairs({ "Hub", "Walkways", "Avenue", "NorthMarket", "Countryside", "Hills" }) do
 	local old = layoutFolder:FindFirstChild(name)
 	if old then
 		old:Destroy()
@@ -85,335 +84,88 @@ local function addSurfaceText(part, face, text, textColor, backgroundColor)
 	return surface
 end
 
-local GROUND = Map.GroundTop
-local WALK_START = Map.WalkwayStartZ -- Beginn vorderes Gehäuse
-local WALK_END = Map.WalkwayStartZ + Map.WalkwayCycle + Map.WalkwayTileLength -- Ende hinteres Gehäuse
-local VISIBLE_START = Map.WalkwayVisibleStart
-local VISIBLE_END = Map.WalkwayVisibleEnd
-local VISIBLE_CENTER_Z = (VISIBLE_START + VISIBLE_END) / 2
-local AVENUE_START = 0 -- Allee beginnt an der Platzkante
-local AVENUE_END = WALK_END + 10
-local AVENUE_CENTER_Z = (AVENUE_START + AVENUE_END) / 2
-local AVENUE_LENGTH = AVENUE_END - AVENUE_START
-
+local HUB_RADIUS = Map.HubRadius
 local STONE = Color3.fromRGB(205, 200, 190)
 local STONE_DARK = Color3.fromRGB(150, 145, 138)
-local AVENUE_HALF = 18
+local Colors = FarmProps.Colors
 
-------------------------------------------------------------------------
--- Allee (Gehweg rechts und links der Laufbänder)
-------------------------------------------------------------------------
-local avenue = Instance.new("Folder")
-avenue.Name = "Avenue"
-avenue.Parent = layoutFolder
-
--- beginnt genau an der Platzkante (z = 0), damit sich nichts überlappt
-makePart({
-	Name = "Sidewalk",
-	Size = Vector3.new(AVENUE_HALF * 2, 0.2, AVENUE_LENGTH),
-	CFrame = CFrame.new(0, 0.1, AVENUE_CENTER_Z),
-	Color = STONE,
-	Material = Enum.Material.Pavement,
-	Parent = avenue,
-})
--- Bordsteine
-for _, side in ipairs({ -1, 1 }) do
-	makePart({
-		Name = "Curb",
-		Size = Vector3.new(0.8, 0.5, AVENUE_LENGTH),
-		CFrame = CFrame.new(side * (AVENUE_HALF + 0.4), 0.25, AVENUE_CENTER_Z),
-		Color = STONE_DARK,
-		Material = Enum.Material.Concrete,
-		Parent = avenue,
-	})
+-- Punkt auf einem Kreis um den Brunnen (Winkel im Uhrzeigersinn von +Z aus, wie in CowData)
+local function polar(angle, radius, y)
+	local radians = math.rad(angle)
+	return Vector3.new(radius * math.sin(radians), y or 0, radius * math.cos(radians))
 end
 
--- Laternen entlang der Allee
-for z = AVENUE_START + 30, AVENUE_END - 10, 40 do
-	for _, side in ipairs({ -1, 1 }) do
-		local x = side * (AVENUE_HALF - 2)
-		makePart({
-			Name = "LampPost",
-			Size = Vector3.new(0.5, 9, 0.5),
-			CFrame = CFrame.new(x, 4.5, z),
-			Color = Color3.fromRGB(45, 48, 55),
-			Material = Enum.Material.Metal,
-			Parent = avenue,
-		})
-		local lamp = makePart({
-			Name = "Lamp",
-			Shape = Enum.PartType.Ball,
-			Size = Vector3.new(1.4, 1.4, 1.4),
-			CFrame = CFrame.new(x, 9.4, z),
-			Color = Color3.fromRGB(255, 240, 200),
-			Material = Enum.Material.Neon,
-			CanCollide = false,
-			Parent = avenue,
-		})
-		local light = Instance.new("PointLight")
-		light.Range = 18
-		light.Brightness = 1.2
-		light.Color = Color3.fromRGB(255, 230, 180)
-		light.Parent = lamp
-	end
+-- CFrame auf dem Kreis: lokales +Z zeigt nach außen, -Z zur Mitte
+local function onRing(angle, radius, y)
+	return CFrame.new(polar(angle, radius, y)) * CFrame.Angles(0, math.rad(angle), 0)
 end
 
 ------------------------------------------------------------------------
--- Förderbänder
-------------------------------------------------------------------------
-local walkways = Instance.new("Folder")
-walkways.Name = "Walkways"
-walkways.Parent = layoutFolder
-
-local YELLOW = Color3.fromRGB(255, 205, 30)
-local BLACK = Color3.fromRGB(28, 28, 32)
-local BELT_TOP = GROUND + 0.2 -- etwas höher als der Gehweg
-
--- Gelb-schwarz gestreifte Leiste (wie Warnband) entlang einer Strecke
-local function hazardStrip(parent, center, length, height)
-	local stripe = 4
-	local count = math.floor(length / stripe)
-	for i = 0, count - 1 do
-		makePart({
-			Name = "Hazard",
-			Size = Vector3.new(0.6, height, stripe),
-			CFrame = CFrame.new(center + Vector3.new(0, 0, -length / 2 + (i + 0.5) * stripe)),
-			Color = i % 2 == 0 and YELLOW or BLACK,
-			Material = Enum.Material.SmoothPlastic,
-			Parent = parent,
-		})
-	end
-end
-
--- Eine Kachel: schwarze Platte mit 8 gelben Pfeilen (Spitze zeigt in Laufrichtung)
-local function buildTile(parent, index, x, direction)
-	local width = Map.WalkwayWidth
-	local length = Map.WalkwayTileLength
-	local tile = Instance.new("Model")
-	tile.Name = "Tile" .. index
-
-	local facing = direction == 1 and CFrame.identity or CFrame.Angles(0, math.pi, 0)
-	-- Startposition wie im Client bei Zeit 0 (WorldAnimator rechnet ab hier weiter)
-	local u = (index * length) % Map.WalkwayCycle
-	local origin = CFrame.new(x, BELT_TOP - 0.23, Map.WalkwayStartZ + u + length / 2) * facing
-
-	local base = makePart({
-		Name = "Plate",
-		Size = Vector3.new(width, 0.5, length - 0.3),
-		CFrame = origin,
-		Color = BLACK,
-		Material = Enum.Material.SmoothPlastic,
-		CanCollide = false,
-		CanQuery = false,
-		CanTouch = false,
-		Parent = tile,
-	})
-	-- Pfeile "^"
-	for i = 0, 7 do
-		local z = -length / 2 + (i + 0.5) * (length / 8)
-		for _, side in ipairs({ -1, 1 }) do
-			makePart({
-				Name = "Arrow",
-				Size = Vector3.new(0.9, 0.06, 3.6),
-				CFrame = origin * CFrame.new(side * 1.2, 0.27, z) * CFrame.Angles(0, math.rad(-40 * side), 0),
-				Color = YELLOW,
-				Material = Enum.Material.Neon,
-				CanCollide = false,
-				CanQuery = false,
-				CanTouch = false,
-				CastShadow = false,
-				Parent = tile,
-			})
-		end
-	end
-
-	tile.PrimaryPart = base
-	tile:SetAttribute("Index", index)
-	tile:SetAttribute("Direction", direction)
-	tile:SetAttribute("X", x)
-	tile:SetAttribute("Y", BELT_TOP - 0.23)
-	tile:SetAttribute("StartZ", Map.WalkwayStartZ)
-	tile:SetAttribute("Cycle", Map.WalkwayCycle)
-	tile:SetAttribute("Length", length)
-	tile:SetAttribute("Speed", Map.WalkwaySpeed)
-	tile.Parent = parent
-	CollectionService:AddTag(tile, "ConveyorTile")
-	return tile
-end
-
--- Maschinen-Gehäuse an den Enden (verdecken das Zurückspringen der Kacheln)
-local function buildHousing(parent, x, zStart, label)
-	local length = Map.WalkwayTileLength
-	local width = Map.WalkwayWidth + 1.6
-	local center = Vector3.new(x, 0, zStart + length / 2)
-	makePart({
-		Name = "Housing",
-		Size = Vector3.new(width, 3.2, length),
-		CFrame = CFrame.new(center + Vector3.new(0, 1.6, 0)),
-		Color = Color3.fromRGB(70, 75, 88),
-		Material = Enum.Material.DiamondPlate,
-		Parent = parent,
-	})
-	makePart({
-		Name = "HousingTop",
-		Size = Vector3.new(width + 0.4, 0.4, length + 0.4),
-		CFrame = CFrame.new(center + Vector3.new(0, 3.4, 0)),
-		Color = YELLOW,
-		Material = Enum.Material.SmoothPlastic,
-		Parent = parent,
-	})
-	-- gelb-schwarze Streifen an der Öffnung zum Band
-	local mouthZ = zStart + (zStart < VISIBLE_START and length or 0)
-	for i = 0, 4 do
-		makePart({
-			Name = "MouthStripe",
-			Size = Vector3.new(width / 5, 3.2, 0.3),
-			CFrame = CFrame.new(x - width / 2 + (i + 0.5) * width / 5, 1.6, mouthZ),
-			Color = i % 2 == 0 and YELLOW or BLACK,
-			Material = Enum.Material.SmoothPlastic,
-			Parent = parent,
-		})
-	end
-	if label then
-		-- Schild an der Außenseite (vorderes Gehäuse: zum Platz hin, hinteres: nach Norden)
-		local isFront = zStart < VISIBLE_START
-		local sign = makePart({
-			Name = "HousingSign",
-			Size = Vector3.new(width - 1, 1.6, 0.2),
-			CFrame = CFrame.new(x, 4.6, isFront and zStart - 0.1 or zStart + length + 0.1)
-				* (isFront and CFrame.identity or CFrame.Angles(0, math.pi, 0)),
-			Color = BLACK,
-			Parent = parent,
-		})
-		addSurfaceText(sign, Enum.NormalId.Front, label, YELLOW, BLACK)
-	end
-end
-
-local function buildConveyor(name, x, direction)
-	local model = Instance.new("Model")
-	model.Name = name
-	model:SetAttribute("Direction", direction)
-	local width = Map.WalkwayWidth
-	local visibleLength = VISIBLE_END - VISIBLE_START
-
-	-- unsichtbares Band: schiebt alles, was darauf steht
-	local belt = makePart({
-		Name = "Belt",
-		Size = Vector3.new(width, BELT_TOP, visibleLength),
-		CFrame = CFrame.new(x, BELT_TOP / 2, VISIBLE_CENTER_Z),
-		Transparency = 1,
-		Parent = model,
-	})
-
-	-- dunkle Wanne unter den Kacheln (falls zwischen zwei Kacheln eine Fuge ist)
-	makePart({
-		Name = "Tray",
-		Size = Vector3.new(width, BELT_TOP - 0.5, visibleLength),
-		CFrame = CFrame.new(x, (BELT_TOP - 0.5) / 2, VISIBLE_CENTER_Z),
-		Color = BLACK,
-		CanCollide = false,
-		Parent = model,
-	})
-
-	-- gelb-schwarze Seitenleisten
-	for _, side in ipairs({ -1, 1 }) do
-		hazardStrip(
-			model,
-			Vector3.new(x + side * (width / 2 + 0.3), (BELT_TOP + 0.3) / 2, VISIBLE_CENTER_Z),
-			visibleLength,
-			BELT_TOP + 0.3
-		)
-	end
-
-	-- Kacheln
-	local tiles = Instance.new("Folder")
-	tiles.Name = "Tiles"
-	tiles.Parent = model
-	for i = 0, Map.WalkwayTileCount - 1 do
-		buildTile(tiles, i, x, direction)
-	end
-
-	-- Gehäuse vorne und hinten
-	local arrow = direction == 1 and "⬆ NORDEN ⬆" or "⬇ PLATZ ⬇"
-	buildHousing(model, x, Map.WalkwayStartZ, direction == 1 and arrow or nil)
-	buildHousing(model, x, VISIBLE_END, direction == -1 and arrow or nil)
-
-	model.PrimaryPart = belt
-	model.Parent = walkways
-	-- Verankertes Teil mit Geschwindigkeit = Förderband
-	belt.AssemblyLinearVelocity = Vector3.new(0, 0, direction * Map.WalkwaySpeed)
-	return model
-end
-
-buildConveyor("ConveyorNorth", -Map.WalkwayX, 1)
-buildConveyor("ConveyorSouth", Map.WalkwayX, -1)
-
-------------------------------------------------------------------------
--- Hub-Platz mit Brunnen
+-- Marktplatz (Hub) in der Mitte: runder Platz, Brunnen, Shops rundherum
 ------------------------------------------------------------------------
 local hub = Instance.new("Folder")
 hub.Name = "Hub"
 hub.Parent = layoutFolder
 
-local PLAZA_SIZE = Vector3.new(120, 0.2, 100)
-local PLAZA_CENTER = Vector3.new(0, 0.1, -50)
-
+makePart({
+	Name = "PlazaRim",
+	Shape = Enum.PartType.Cylinder,
+	Size = Vector3.new(0.16, HUB_RADIUS * 2 + 3, HUB_RADIUS * 2 + 3),
+	CFrame = CFrame.new(0, 0.08, 0) * CFrame.Angles(0, 0, math.rad(90)),
+	Color = STONE_DARK,
+	Material = Enum.Material.Cobblestone,
+	Parent = hub,
+})
 makePart({
 	Name = "Plaza",
-	Size = PLAZA_SIZE,
-	CFrame = CFrame.new(PLAZA_CENTER),
+	Shape = Enum.PartType.Cylinder,
+	Size = Vector3.new(0.2, HUB_RADIUS * 2, HUB_RADIUS * 2),
+	CFrame = CFrame.new(0, 0.1, 0) * CFrame.Angles(0, 0, math.rad(90)),
 	Color = STONE,
 	Material = Enum.Material.Pavement,
 	Parent = hub,
 })
 
--- Brunnen
+-- Brunnen in der Mitte (zwei Becken, Milchkanne als Brunnenfigur, Milch-Fontäne)
 do
-	local center = Vector3.new(0, 0, -50)
-	makePart({
-		Name = "FountainBase",
-		Shape = Enum.PartType.Cylinder,
-		Size = Vector3.new(1.4, 16, 16),
-		CFrame = CFrame.new(center + Vector3.new(0, 0.7, 0)) * CFrame.Angles(0, 0, math.rad(90)),
-		Color = STONE_DARK,
-		Material = Enum.Material.Cobblestone,
-		Parent = hub,
-	})
-	makePart({
-		Name = "FountainWater",
-		Shape = Enum.PartType.Cylinder,
-		Size = Vector3.new(0.3, 14.5, 14.5),
-		CFrame = CFrame.new(center + Vector3.new(0, 1.35, 0)) * CFrame.Angles(0, 0, math.rad(90)),
-		Color = Color3.fromRGB(80, 170, 235),
-		Material = Enum.Material.Glass,
+	local center = Vector3.zero
+	local function disc(name, height, diameter, y, color, material, extra)
+		local p = makePart({
+			Name = name,
+			Shape = Enum.PartType.Cylinder,
+			Size = Vector3.new(height, diameter, diameter),
+			CFrame = CFrame.new(center + Vector3.new(0, y, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+			Color = color,
+			Material = material,
+			Parent = hub,
+		})
+		if extra then
+			for key, value in pairs(extra) do
+				p[key] = value
+			end
+		end
+		return p
+	end
+	disc("FountainBase", 1.4, 18, 0.7, STONE_DARK, Enum.Material.Cobblestone)
+	disc("FountainWater", 0.3, 16.4, 1.35, Color3.fromRGB(80, 170, 235), Enum.Material.Glass, {
 		Transparency = 0.25,
 		CanCollide = false,
-		Parent = hub,
 	})
-	makePart({
-		Name = "FountainPillar",
-		Shape = Enum.PartType.Cylinder,
-		Size = Vector3.new(5, 1.6, 1.6),
-		CFrame = CFrame.new(center + Vector3.new(0, 3.5, 0)) * CFrame.Angles(0, 0, math.rad(90)),
-		Color = STONE,
-		Material = Enum.Material.Marble,
-		Parent = hub,
+	disc("FountainPillar", 3.2, 2.2, 2.6, STONE, Enum.Material.Marble)
+	disc("FountainBowl", 0.9, 7, 4.4, STONE_DARK, Enum.Material.Cobblestone)
+	disc("FountainBowlWater", 0.2, 6.2, 4.85, Color3.fromRGB(80, 170, 235), Enum.Material.Glass, {
+		Transparency = 0.25,
+		CanCollide = false,
 	})
+	disc("FountainNeck", 1.6, 1.4, 5.6, STONE, Enum.Material.Marble)
 	-- Milchkanne als Brunnenfigur
-	makePart({
-		Name = "FountainCan",
-		Shape = Enum.PartType.Cylinder,
-		Size = Vector3.new(3, 2.6, 2.6),
-		CFrame = CFrame.new(center + Vector3.new(0, 7.5, 0)) * CFrame.Angles(0, 0, math.rad(90)),
-		Color = Color3.fromRGB(205, 210, 218),
-		Material = Enum.Material.Metal,
-		Parent = hub,
-	})
+	disc("FountainCan", 3, 2.6, 7.8, Color3.fromRGB(205, 210, 218), Enum.Material.Metal)
+	disc("FountainCanLid", 0.3, 1.8, 9.45, Pal.Cream, Enum.Material.SmoothPlastic)
 	local spout = makePart({
 		Name = "FountainSpout",
 		Shape = Enum.PartType.Ball,
 		Size = Vector3.new(1.2, 1.2, 1.2),
-		CFrame = CFrame.new(center + Vector3.new(0, 9.4, 0)),
+		CFrame = CFrame.new(center + Vector3.new(0, 9.9, 0)),
 		Color = Color3.fromRGB(252, 252, 248),
 		Material = Enum.Material.SmoothPlastic,
 		CanCollide = false,
@@ -437,36 +189,12 @@ do
 	spawn.Name = "HubSpawn"
 	spawn.Anchored = true
 	spawn.Size = Vector3.new(8, 0.4, 8)
-	spawn.CFrame = CFrame.new(0, 0.3, -20)
+	spawn.CFrame = CFrame.new(polar(270, 21, 0.3)) * CFrame.Angles(0, math.rad(-90), 0)
 	spawn.Color = Color3.fromRGB(95, 170, 255)
 	spawn.Material = Enum.Material.SmoothPlastic
 	spawn.Neutral = true
 	spawn.Duration = 0
 	spawn.Parent = hub
-end
-
--- Begrüßungsbogen am Anfang der Allee
-do
-	for _, side in ipairs({ -1, 1 }) do
-		makePart({
-			Name = "ArchPillar",
-			Size = Vector3.new(2, 16, 2),
-			CFrame = CFrame.new(side * (AVENUE_HALF + 1), 8, WALK_START - 4),
-			Color = World.WoodDark,
-			Material = Enum.Material.Wood,
-			Parent = hub,
-		})
-	end
-	local beam = makePart({
-		Name = "ArchSign",
-		Size = Vector3.new(AVENUE_HALF * 2 + 6, 4, 1),
-		CFrame = CFrame.new(0, 17, WALK_START - 4),
-		Color = World.WoodDark,
-		Material = Enum.Material.Wood,
-		Parent = hub,
-	})
-	addSurfaceText(beam, Enum.NormalId.Front, "COW FARM")
-	addSurfaceText(beam, Enum.NormalId.Back, "Shops & Platz")
 end
 
 ------------------------------------------------------------------------
@@ -491,28 +219,6 @@ local function prop(parent, name, size, cframe, color, material, extra)
 		end
 	end
 	return p
-end
-
-local function buildTree(parent, position, scale)
-	prop(
-		parent,
-		"Trunk",
-		Vector3.new(1.2, 6, 1.2) * scale,
-		CFrame.new(position + Vector3.new(0, 3 * scale, 0)),
-		World.WoodDark,
-		Enum.Material.Wood
-	)
-	for _, offset in ipairs({ Vector3.new(0, 7, 0), Vector3.new(1.5, 6, 0.8), Vector3.new(-1.3, 6.2, -0.9) }) do
-		prop(
-			parent,
-			"Leaves",
-			Vector3.new(5, 5, 5) * scale,
-			CFrame.new(position + offset * scale),
-			World.Leaf,
-			Enum.Material.Grass,
-			{ Shape = Enum.PartType.Ball, CanCollide = false }
-		)
-	end
 end
 
 -- Laterne mit warmem Licht (withLight = false spart die Lichtquelle)
@@ -584,68 +290,6 @@ local function buildBench(parent, cframe)
 	end
 end
 
--- Blumenbeet: Steinrand, Erde, Grünpolster und ein paar bunte Blüten (wenige Teile)
-local function buildFlowerBed(parent, center, sizeX, sizeZ)
-	prop(
-		parent,
-		"BedBorder",
-		Vector3.new(sizeX + 0.9, 0.5, sizeZ + 0.9),
-		CFrame.new(center + Vector3.new(0, 0.45, 0)),
-		World.StoneDark,
-		Enum.Material.Cobblestone,
-		SOFT
-	)
-	prop(
-		parent,
-		"BedSoil",
-		Vector3.new(sizeX, 0.6, sizeZ),
-		CFrame.new(center + Vector3.new(0, 0.5, 0)),
-		World.Soil,
-		Enum.Material.Ground,
-		SOFT
-	)
-	prop(
-		parent,
-		"BedGreen",
-		Vector3.new(sizeX - 0.6, 0.8, sizeZ - 0.6),
-		CFrame.new(center + Vector3.new(0, 0.85, 0)),
-		World.Leaf,
-		Enum.Material.Grass,
-		SOFT
-	)
-	local count = math.clamp(math.floor(sizeX * sizeZ / 5), 4, 12)
-	for _ = 1, count do
-		local color = World.Flowers[rng:NextInteger(1, #World.Flowers)]
-		local offset = Vector3.new(
-			rng:NextNumber(-sizeX / 2 + 0.6, sizeX / 2 - 0.6),
-			1.45,
-			rng:NextNumber(-sizeZ / 2 + 0.6, sizeZ / 2 - 0.6)
-		)
-		prop(
-			parent,
-			"Flower",
-			Vector3.new(0.7, 0.7, 0.7),
-			CFrame.new(center + offset),
-			color,
-			Enum.Material.SmoothPlastic,
-			{ Shape = Enum.PartType.Ball, CanCollide = false, CanQuery = false, CastShadow = false }
-		)
-	end
-end
-
--- Steinweg: flacher Streifen knapp über dem Platz (stört beim Laufen nicht)
-local function buildPath(parent, center, sizeX, sizeZ)
-	prop(
-		parent,
-		"PathStone",
-		Vector3.new(sizeX, 0.06, sizeZ),
-		CFrame.new(center.X, 0.23, center.Z),
-		World.StonePath,
-		Enum.Material.Cobblestone,
-		SOFT
-	)
-end
-
 local function buildPathRing(parent, center, diameter)
 	prop(
 		parent,
@@ -659,41 +303,184 @@ local function buildPathRing(parent, center, diameter)
 end
 
 ------------------------------------------------------------------------
--- Hub-Dekoration (Süd-Platz): Wege, Beete, Bänke, Laternen, Bäume
+-- Platz-Dekoration: Wege, Dorfbaum, Pavillon, Wegweiser, Beete, Bänke, Laternen
 ------------------------------------------------------------------------
-do
-	-- Wege: Allee-Eingang -> Brunnen, Türen der Shops -> Brunnen, Ring um den Brunnen
-	buildPathRing(hub, Vector3.new(0, 0, -50), 26)
-	buildPath(hub, Vector3.new(0, 0, -19), 8, 38)
-	buildPath(hub, Vector3.new(-22, 0, -40), 24, 6)
-	buildPath(hub, Vector3.new(22, 0, -40), 24, 6)
 
-	-- Beete neben dem Eingang und an den Platzecken (nie auf Wegen oder Gebäuden)
-	for _, side in ipairs({ -1, 1 }) do
-		buildFlowerBed(hub, Vector3.new(side * 16, 0, -10), 10, 4)
-		buildFlowerBed(hub, Vector3.new(side * 34, 0, -78), 12, 4)
-		buildFlowerBed(hub, Vector3.new(side * 8, 0, -86), 8, 3)
-		-- Bänke am Brunnen, Blick zur Mitte
-		buildBench(hub, CFrame.new(side * 12, 0, -72) * CFrame.Angles(0, math.pi, 0))
-		buildBench(hub, CFrame.new(side * 21, 0, -58) * CFrame.Angles(0, side * math.rad(-90) + math.pi, 0))
-		-- Laternen
-		buildLantern(hub, Vector3.new(side * 8, 0, -4), true)
-		buildLantern(hub, Vector3.new(side * 24, 0, -50), false)
-		buildLantern(hub, Vector3.new(side * 50, 0, -60), true)
+-- rundes Blumenbeet (passt besser zum runden Platz als eckige)
+local function buildRoundBed(parent, center, diameter)
+	local function disc(name, height, d, y, color, material)
+		prop(
+			parent,
+			name,
+			Vector3.new(height, d, d),
+			CFrame.new(center + Vector3.new(0, y, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+			color,
+			material,
+			{ Shape = Enum.PartType.Cylinder, CanCollide = false, CanQuery = false }
+		)
+	end
+	disc("BedBorder", 0.5, diameter + 0.9, 0.45, World.StoneDark, Enum.Material.Cobblestone)
+	disc("BedSoil", 0.6, diameter, 0.5, World.Soil, Enum.Material.Ground)
+	disc("BedGreen", 0.8, diameter - 0.6, 0.85, World.Leaf, Enum.Material.Grass)
+	for i = 1, math.clamp(math.floor(diameter * 1.6), 5, 12) do
+		local angle = i * 2.4
+		local distance = (diameter / 2 - 0.7) * math.sqrt(rng:NextNumber(0.1, 1))
+		prop(
+			parent,
+			"Flower",
+			Vector3.new(0.7, 0.7, 0.7),
+			CFrame.new(center + Vector3.new(math.cos(angle) * distance, 1.45, math.sin(angle) * distance)),
+			World.Flowers[rng:NextInteger(1, #World.Flowers)],
+			Enum.Material.SmoothPlastic,
+			{ Shape = Enum.PartType.Ball, CanCollide = false, CanQuery = false, CastShadow = false }
+		)
+	end
+end
+
+-- gerader Weg von radius r0 bis r1 unter dem Winkel angle
+local function radialPath(parent, angle, r0, r1, width, color, material, height, name)
+	FarmProps.Strip(
+		parent,
+		name or "PathStone",
+		onRing(angle, (r0 + r1) / 2, 0.2 + (height or 0.06) / 2),
+		width,
+		r1 - r0,
+		color or World.StonePath,
+		material or Enum.Material.Cobblestone,
+		height or 0.06
+	)
+end
+
+do
+	-- Ring um den Brunnen, Gassen zu den Feldwegen (bei den Farmen) und zu den Shop-Türen
+	buildPathRing(hub, Vector3.zero, 32)
+	for k = 0, Map.PlotsPerRing - 1 do
+		radialPath(hub, k * 360 / Map.PlotsPerRing, 15, HUB_RADIUS + 1, 9)
+	end
+	for _, shop in ipairs(Map.Shops) do
+		radialPath(hub, shop.Angle, 15, Map.ShopRadius - 8, 7)
 	end
 
-	-- Bäume am Platzrand
-	for _, position in ipairs({
-		Vector3.new(-55, 0, -5),
-		Vector3.new(55, 0, -5),
-		Vector3.new(-55, 0, -95),
-		Vector3.new(55, 0, -95),
-		Vector3.new(-20, 0, -95),
-		Vector3.new(20, 0, -95),
-		Vector3.new(-56, 0, -72),
-		Vector3.new(56, 0, -72),
-	}) do
-		buildTree(hub, position, 1)
+	-- Dorfbaum mit runder Bank (Osten, zwischen Zucht-Stall und Kisten)
+	local treeBase = onRing(90, 40)
+	prop(
+		hub,
+		"TreeBench",
+		Vector3.new(1.3, 8.4, 8.4),
+		treeBase * CFrame.new(0, 0.85, 0) * CFrame.Angles(0, 0, math.rad(90)),
+		World.Wood,
+		Enum.Material.WoodPlanks,
+		{ Shape = Enum.PartType.Cylinder }
+	)
+	prop(
+		hub,
+		"TreeBenchSeat",
+		Vector3.new(0.3, 9, 9),
+		treeBase * CFrame.new(0, 1.6, 0) * CFrame.Angles(0, 0, math.rad(90)),
+		World.WoodLight,
+		Enum.Material.WoodPlanks,
+		{ Shape = Enum.PartType.Cylinder }
+	)
+	FarmProps.Tree(hub, treeBase * CFrame.new(0, 0.2, 0), { Scale = 2.1, Shade = 0.6, Rng = rng })
+	FarmProps.Wildflowers(hub, treeBase * CFrame.new(0, 0.2, 0), 8, 14, rng)
+
+	-- Pavillon (Westen, zwischen Auto-Melker und Kuh-Shop), Eingang zum Brunnen
+	local pavilion = onRing(270, 40)
+	local function pavilionDisc(name, height, diameter, y, color, material)
+		prop(
+			hub,
+			name,
+			Vector3.new(height, diameter, diameter),
+			pavilion * CFrame.new(0, y, 0) * CFrame.Angles(0, 0, math.rad(90)),
+			color,
+			material,
+			{ Shape = Enum.PartType.Cylinder }
+		)
+	end
+	pavilionDisc("PavilionFloor", 0.8, 14, 0.6, World.WoodLight, Enum.Material.WoodPlanks)
+	pavilionDisc("PavilionRoof", 0.8, 16, 8.6, Pal.Red, Enum.Material.Fabric)
+	pavilionDisc("PavilionRoof", 0.8, 11.5, 9.4, Pal.Cream, Enum.Material.Fabric)
+	pavilionDisc("PavilionRoof", 0.8, 6.5, 10.2, Pal.Red, Enum.Material.Fabric)
+	prop(
+		hub,
+		"PavilionTop",
+		Vector3.new(1.4, 1.4, 1.4),
+		pavilion * CFrame.new(0, 11.2, 0),
+		Pal.Gold,
+		Enum.Material.Metal,
+		{
+			Shape = Enum.PartType.Ball,
+		}
+	)
+	local posts = {}
+	for i = 0, 5 do
+		local a = math.rad(30 + i * 60)
+		local position = Vector3.new(6.2 * math.sin(a), 0, 6.2 * math.cos(a))
+		posts[i] = position
+		prop(
+			hub,
+			"PavilionPost",
+			Vector3.new(0.6, 7.4, 0.6),
+			pavilion * CFrame.new(position + Vector3.new(0, 4.7, 0)),
+			Pal.Cream,
+			Enum.Material.Wood
+		)
+	end
+	for i = 0, 5 do
+		local a, b = posts[i], posts[(i + 1) % 6]
+		-- zwischen den Pfosten bei 150° und 210° ist der Eingang (zeigt zum Brunnen, -Z)
+		if i ~= 2 then
+			local middle = (a + b) / 2
+			prop(
+				hub,
+				"PavilionRail",
+				Vector3.new(0.3, 0.35, (b - a).Magnitude),
+				pavilion * CFrame.lookAt(middle + Vector3.new(0, 2.4, 0), b + Vector3.new(0, 2.4, 0)),
+				World.Wood,
+				Enum.Material.Wood
+			)
+		end
+	end
+	buildBench(hub, pavilion * CFrame.new(0, 1, 3.6))
+
+	-- Wegweiser zu den Shops (vor dem Pavillon)
+	local postPosition = polar(250, 27)
+	prop(
+		hub,
+		"SignPost",
+		Vector3.new(0.5, 9, 0.5),
+		CFrame.new(postPosition + Vector3.new(0, 4.5, 0)),
+		World.WoodDark,
+		Enum.Material.Wood
+	)
+	for i, shop in ipairs(Map.Shops) do
+		local y = 8.4 - i * 1.25
+		local from = postPosition + Vector3.new(0, y, 0)
+		local target = Vector3.new(shop.Position.X, y, shop.Position.Z)
+		local board = prop(
+			hub,
+			"SignBoard",
+			Vector3.new(0.25, 1, 4.6),
+			CFrame.lookAt(from, target) * CFrame.new(0, 0, -2.4),
+			World.WoodLight,
+			Enum.Material.WoodPlanks
+		)
+		addSurfaceText(board, Enum.NormalId.Right, shop.Icon .. " " .. shop.Label, Pal.Cream, World.WoodDark)
+		addSurfaceText(board, Enum.NormalId.Left, shop.Icon .. " " .. shop.Label, Pal.Cream, World.WoodDark)
+	end
+
+	-- Bänke am Brunnen, Blick zur Mitte
+	for _, angle in ipairs({ 80, 100, 245, 295 }) do
+		buildBench(hub, onRing(angle, 20))
+	end
+
+	-- Laternen an jeder Gasse, runde Beete daneben
+	for k = 0, Map.PlotsPerRing - 1 do
+		local angle = k * 360 / Map.PlotsPerRing
+		buildLantern(hub, polar(angle - 10, 59), true)
+		buildLantern(hub, polar(angle + 10, 59), false)
+		buildRoundBed(hub, polar(angle - 17, 54), 5)
+		buildRoundBed(hub, polar(angle + 17, 54), 5)
 	end
 end
 
@@ -1450,118 +1237,252 @@ local function buildShop(opts, base)
 end
 
 ------------------------------------------------------------------------
--- Nord-Markt (am Ende der Förderbänder)
-------------------------------------------------------------------------
-local north = Instance.new("Folder")
-north.Name = "NorthMarket"
-north.Parent = layoutFolder
-
-local NORTH_CENTER = Vector3.new(0, 0, Map.NorthPlazaZ)
-makePart({
-	Name = "Plaza",
-	Size = Map.NorthPlazaSize,
-	CFrame = CFrame.new(NORTH_CENTER + Vector3.new(0, Map.NorthPlazaSize.Y / 2, 0)),
-	Color = STONE,
-	Material = Enum.Material.Pavement,
-	Parent = north,
-})
-
--- Torbogen am Eingang des Markts
-do
-	local archZ = Map.NorthPlazaZ - Map.NorthPlazaSize.Z / 2 + 4
-	for _, side in ipairs({ -1, 1 }) do
-		makePart({
-			Name = "ArchPillar",
-			Size = Vector3.new(2, 16, 2),
-			CFrame = CFrame.new(side * (AVENUE_HALF + 1), 8, archZ),
-			Color = World.WoodDark,
-			Material = Enum.Material.Wood,
-			Parent = north,
-		})
-	end
-	local beam = makePart({
-		Name = "ArchSign",
-		Size = Vector3.new(AVENUE_HALF * 2 + 6, 4, 1),
-		CFrame = CFrame.new(0, 17, archZ),
-		Color = World.WoodDark,
-		Material = Enum.Material.Wood,
-		Parent = north,
-	})
-	-- Vorderseite (-Z) sieht man, wenn man vom Förderband kommt
-	addSurfaceText(beam, Enum.NormalId.Front, "NORD-MARKT")
-	addSurfaceText(beam, Enum.NormalId.Back, "Farmen & Süd-Platz")
-end
-
--- Markt-Dekoration: Wege, Beete, Bänke, Laternen, Heu, Bäume
-do
-	buildPath(north, Vector3.new(0, 0, Map.NorthPlazaZ - 30), 8, 40)
-	buildPath(north, Vector3.new(-22, 0, Map.NorthPlazaZ + 5), 24, 6)
-	buildPath(north, Vector3.new(22, 0, Map.NorthPlazaZ + 5), 24, 6)
-	for _, side in ipairs({ -1, 1 }) do
-		buildFlowerBed(north, Vector3.new(side * 16, 0, Map.NorthPlazaZ - 36), 10, 4)
-		buildFlowerBed(north, Vector3.new(side * 30, 0, Map.NorthPlazaZ + 32), 12, 4)
-		buildBench(north, CFrame.new(side * 12, 0, Map.NorthPlazaZ + 24) * CFrame.Angles(0, math.pi, 0))
-		buildLantern(north, Vector3.new(side * 14, 0, Map.NorthPlazaZ - 20), true)
-		buildLantern(north, Vector3.new(side * 50, 0, Map.NorthPlazaZ + 20), true)
-		buildTree(north, Vector3.new(side * 55, 0, Map.NorthPlazaZ - 40), 1)
-		buildTree(north, Vector3.new(side * 55, 0, Map.NorthPlazaZ + 42), 1)
-		prop(
-			north,
-			"HayBale",
-			Vector3.new(4, 2.4, 3.2),
-			CFrame.new(side * 50, 1.3, Map.NorthPlazaZ + 40),
-			World.Hay,
-			Enum.Material.Fabric
-		)
-	end
-	prop(
-		north,
-		"HayBale",
-		Vector3.new(4, 2.4, 3.2),
-		CFrame.new(0, 1.3, Map.NorthPlazaZ + 42),
-		World.Hay,
-		Enum.Material.Fabric
-	)
-end
-
-------------------------------------------------------------------------
--- Alle Shops bauen (Daten aus CowData.Map.Shops)
+-- Alle Shops bauen (Daten aus CowData.Map.Shops): rund um den Brunnen, Tür zeigt zur Mitte
 ------------------------------------------------------------------------
 for _, shop in ipairs(Map.Shops) do
 	local opts = table.clone(shop)
-	opts.Parent = shop.Area == "Nord-Markt" and north or hub
-	-- Tür zeigt zur Platzmitte: -Z des Gebäudes muss nach +X (Westseite) bzw. -X (Ostseite) zeigen
-	local yaw = shop.FacesEast and math.rad(-90) or math.rad(90)
-	buildShop(opts, CFrame.new(shop.Position) * CFrame.Angles(0, yaw, 0))
+	opts.Parent = hub
+	buildShop(opts, CowData.GetShopCFrame(shop))
 end
 
 ------------------------------------------------------------------------
--- Hügel nur ganz am Kartenrand (weit weg von Farmen, Wegen, Förderbändern und Spawn)
--- Farm-Plots reichen bis |x| ~ 370 (bei 18 Spielern), die Plätze bis z = -100 bzw. 450.
+-- Landschaft rund um den Platz:
+--   * Feldwege vom Platz zu jedem Farm-Tor und ein Ringweg vor den Toren
+--   * zwischen den Farmen: Windmühle + Weizen, Teich, Obstgarten, Kürbisse, Blumenfeld + Bienen,
+--     Traktor + Heu (jeweils links und rechts eines Pfads nach außen)
+--   * Waldrand hinter den Farmen, Hügel ganz außen
+-- Farmen: innerer Ring bei 0°, 60°, ... (Tor bei Radius 115), Lücken dazwischen bei 30°, 90°, ...
+------------------------------------------------------------------------
+local country = Instance.new("Folder")
+country.Name = "Countryside"
+country.Parent = layoutFolder
+
+local countryRng = Random.new(77)
+local DIRT = Colors.Dirt
+local GATE_RADIUS = Map.PlotRingRadius - Map.PlotDepth / 2 -- 115: Tor der inneren Farmen
+local PLOT_STEP = 360 / Map.PlotsPerRing
+
+-- Feldwege: vom Platz zu jedem Tor, Ringweg vor den Toren, Pfade in die Lücken nach außen
+do
+	for k = 0, Map.PlotsPerRing - 1 do
+		local angle = k * PLOT_STEP
+		local r0, r1 = HUB_RADIUS - 2, GATE_RADIUS + 1
+		FarmProps.Strip(
+			country,
+			"Road",
+			onRing(angle, (r0 + r1) / 2, 0.05),
+			9,
+			r1 - r0,
+			DIRT,
+			Enum.Material.Ground,
+			0.1
+		)
+		local g0, g1 = Map.RingRoadRadius + 3, 250
+		FarmProps.Strip(
+			country,
+			"Footpath",
+			onRing(angle + PLOT_STEP / 2, (g0 + g1) / 2, 0.04),
+			5,
+			g1 - g0,
+			DIRT:Lerp(Colors.MeadowLight, 0.25),
+			Enum.Material.Ground,
+			0.08
+		)
+		-- Laternen am Weg (abwechselnd links/rechts, Ausleger über dem Weg)
+		for i, r in ipairs({ 80, 100 }) do
+			local side = i % 2 == 0 and 1 or -1
+			FarmProps.Lantern(
+				country,
+				onRing(angle, r) * CFrame.new(side * 6, 0, 0) * CFrame.Angles(0, math.rad(side * 90), 0),
+				r == 100
+			)
+		end
+	end
+	-- Ringweg aus 36 kurzen Stücken
+	local radius, segments = Map.RingRoadRadius, 36
+	local half = math.pi / segments
+	for i = 0, segments - 1 do
+		local angle = (i + 0.5) * 360 / segments
+		-- Breite (X) = Stück entlang des Rings, Länge (Z) = Wegbreite quer dazu
+		FarmProps.Strip(
+			country,
+			"RingRoad",
+			onRing(angle, radius * math.cos(half), 0.03),
+			2 * radius * math.sin(half) + 0.8,
+			8,
+			DIRT,
+			Enum.Material.Ground,
+			0.06
+		)
+	end
+end
+
+-- Wiese zwischen Platz und Ringweg: Bäume, Büsche, Blumen, Steine
+do
+	for k = 0, Map.PlotsPerRing - 1 do
+		local c = k * PLOT_STEP + PLOT_STEP / 2
+		local function at(angle, radius, yaw)
+			return CFrame.new(polar(angle, radius))
+				* CFrame.Angles(0, math.rad(yaw or countryRng:NextNumber(0, 360)), 0)
+		end
+		FarmProps.Tree(country, at(c - 14, 86), { Scale = countryRng:NextNumber(1, 1.3), Rng = countryRng })
+		FarmProps.Tree(country, at(c + 12, 78), { Scale = countryRng:NextNumber(0.9, 1.2), Rng = countryRng })
+		FarmProps.Bush(country, at(c, 70), 1.1)
+		FarmProps.Bush(country, at(c + 21, 95), 0.9)
+		FarmProps.Bush(country, at(c - 22, 71), 1)
+		FarmProps.Rock(country, at(c - 4, 99), countryRng:NextNumber(0.8, 1.2))
+		FarmProps.Wildflowers(country, at(c + 3, 90), 5, 10, countryRng)
+		FarmProps.Wildflowers(country, at(c - 18, 100), 3, 6, countryRng)
+	end
+end
+
+-- Themen zwischen den Farmen. frame: Ursprung = Kartenmitte, +Z zeigt in die Lücke hinaus.
+-- place(v, u, yaw): v = seitlich (Pfad bei v = 0), u = Abstand von der Mitte
+do
+	local themes = {}
+
+	-- 30°: Windmühle und Weizenfeld
+	themes[1] = function(place)
+		FarmProps.Windmill(country, place(-24, 205, 180))
+		FarmProps.WheatField(country, place(26, 210, 0), 20, 26)
+		FarmProps.Scarecrow(country, place(26, 206, 180))
+		FarmProps.HayBale(country, place(11, 182, 20))
+		FarmProps.HayBale(country, place(11.5, 182.3, 15) * CFrame.new(0, 1.8, 0))
+		FarmProps.Cart(country, place(-10, 172, 160))
+	end
+	-- 90°: Teich mit Enten, Bank, Bäume
+	themes[2] = function(place)
+		FarmProps.Pond(country, place(-22, 206, 0), 11, countryRng)
+		FarmProps.Bench(country, place(-6, 196, -90))
+		FarmProps.Tree(country, place(20, 190), { Scale = 1.3, Rng = countryRng })
+		FarmProps.Tree(country, place(30, 224), { Scale = 1.5, Rng = countryRng })
+		FarmProps.Tree(country, place(14, 242), { Scale = 1.1, Rng = countryRng })
+		FarmProps.Bush(country, place(-30, 186), 1.2)
+		FarmProps.Rock(country, place(10, 176), 1.3)
+	end
+	-- 150°: Obstgarten mit Apfelbäumen und Apfelkisten
+	themes[3] = function(place)
+		for _, u in ipairs({ 178, 202, 226 }) do
+			for _, v in ipairs({ -24, -12, 12, 24 }) do
+				FarmProps.Tree(country, place(v, u), { Scale = 0.95, Fruit = true, Shade = 0.4, Rng = countryRng })
+			end
+		end
+		for i, v in ipairs({ 6, 7.4 }) do
+			local crate = place(v, 188 + i * 2.2, countryRng:NextNumber(-20, 20))
+			FarmProps.Crate(country, crate, 1.6)
+			for j = 1, 3 do
+				FarmProps.Ball(
+					country,
+					"Apple",
+					0.6,
+					crate * CFrame.new((j - 2) * 0.45, 1.75, 0),
+					Colors.Apple,
+					Enum.Material.SmoothPlastic,
+					{ CanCollide = false, CanQuery = false }
+				)
+			end
+		end
+	end
+	-- 210°: Kürbisbeet mit Vogelscheuche, Heuballen, Karren
+	themes[4] = function(place)
+		FarmProps.PumpkinPatch(country, place(-24, 202, 0), 18, 22, countryRng)
+		FarmProps.Scarecrow(country, place(-24, 202, 180))
+		FarmProps.RoundBale(country, place(16, 185, 70))
+		FarmProps.RoundBale(country, place(20.5, 189, 85))
+		FarmProps.RoundBale(country, place(28, 214, 10))
+		FarmProps.Cart(country, place(14, 228, 200))
+	end
+	-- 270°: Blumenfeld, Bienenstöcke, Sonnenblumen
+	themes[5] = function(place)
+		FarmProps.FlowerField(country, place(24, 206, 0), 22, 26)
+		for i, offset in ipairs({ -3, 0, 3 }) do
+			FarmProps.Beehive(country, place(-13 + offset, 186 + i * 0.6, 180 + offset * 4))
+		end
+		FarmProps.Sunflowers(country, place(-26, 214, 180), 6, countryRng)
+		FarmProps.Sunflowers(country, place(-26, 220, 180), 5, countryRng)
+	end
+	-- 330°: Traktor, Heu-Stapel, zweites Weizenfeld
+	themes[6] = function(place)
+		FarmProps.Tractor(country, place(-16, 190, 150))
+		for i = 0, 2 do
+			FarmProps.HayBale(country, place(-24, 208 + i * 2.6, 90))
+		end
+		FarmProps.HayBale(country, place(-24, 210.6, 90) * CFrame.new(0, 1.8, 0))
+		FarmProps.RoundBale(country, place(16, 180, 0))
+		FarmProps.RoundBale(country, place(20, 184, 30))
+		FarmProps.WheatField(country, place(28, 220, 0), 18, 24)
+	end
+
+	for k = 0, Map.PlotsPerRing - 1 do
+		local angle = k * PLOT_STEP + PLOT_STEP / 2
+		local frame = CFrame.Angles(0, math.rad(angle), 0) -- +Z zeigt unter "angle" nach außen
+		local function place(v, u, yaw)
+			-- yaw 0: Vorderseite (-Z) zeigt zum Platz
+			return frame * CFrame.new(v, 0, u) * CFrame.Angles(0, math.rad(yaw or countryRng:NextNumber(0, 360)), 0)
+		end
+		themes[k % #themes + 1](place)
+
+		-- Hecke aus Bäumen und Büschen entlang der Farm-Zäune (trennt die Farmen, rahmt das Thema ein)
+		local half = math.rad(PLOT_STEP / 2)
+		for i, u in ipairs({ 150, 172, 194, 216, 238, 260 }) do
+			-- so viel Platz ist seitlich bis zum Zaun der Nachbar-Farm
+			local limit = (u * math.sin(half) - (Map.PlotWidth / 2 + 2)) / math.cos(half)
+			for _, side in ipairs({ -1, 1 }) do
+				local cf = place(side * (limit - 4), u)
+				if (i + (side == 1 and 1 or 0)) % 2 == 0 then
+					FarmProps.Tree(country, cf, { Scale = countryRng:NextNumber(1, 1.35), Rng = countryRng })
+				else
+					FarmProps.Bush(country, cf, countryRng:NextNumber(1.1, 1.5))
+				end
+			end
+		end
+		-- Rastplatz am Ende des Pfads, Büsche am Anfang
+		FarmProps.Bench(country, place(4.5, 246, 90))
+		FarmProps.Lantern(country, place(-4, 248, -90), false)
+		FarmProps.Bush(country, place(-5, 122), 0.9)
+		FarmProps.Bush(country, place(5.5, 128), 0.8)
+		FarmProps.Wildflowers(country, place(-9, 160), 4, 8, countryRng)
+		FarmProps.Wildflowers(country, place(10, 236), 4, 8, countryRng)
+	end
+end
+
+-- Waldrand hinter den inneren Farmen (nicht dort, wo ab Spieler 7 der zweite Ring entsteht)
+do
+	for k = 0, Map.PlotsPerRing - 1 do
+		local center = k * PLOT_STEP
+		for i = 1, 10 do
+			local angle = center + countryRng:NextNumber(-17, 17)
+			local radius = 270 + (i % 4) * 17 + countryRng:NextNumber(-4, 4)
+			local cf = CFrame.new(polar(angle, radius)) * CFrame.Angles(0, countryRng:NextNumber(0, math.pi * 2), 0)
+			if i % 3 == 0 then
+				FarmProps.Tree(country, cf, { Scale = countryRng:NextNumber(1.3, 1.8), Rng = countryRng })
+			else
+				FarmProps.Pine(country, cf, countryRng:NextNumber(1.4, 2.1))
+			end
+		end
+	end
+end
+
+------------------------------------------------------------------------
+-- Hügel ganz außen (weit hinter allen Farmen, auch hinter dem zweiten Ring)
 ------------------------------------------------------------------------
 do
 	local hills = Instance.new("Folder")
 	hills.Name = "Hills"
 	hills.Parent = layoutFolder
-	local function hill(x, z, diameter, shade)
-		-- große Kugel, zu etwa zwei Dritteln im Boden -> sanfter Hügel
+	for i = 0, 11 do
+		local diameter = 240 + (i * 37) % 90
+		local radius = (i % 2 == 0 and 610 or 690) + diameter * 0.15
+		local position = polar(i * 30 + 15, radius)
 		makePart({
 			Name = "Hill",
 			Shape = Enum.PartType.Ball,
 			Size = Vector3.new(diameter, diameter, diameter),
-			CFrame = CFrame.new(x, -diameter * 0.35, z),
-			Color = World.GrassDark:Lerp(World.GrassLight, shade),
+			-- große Kugel, zu etwa zwei Dritteln im Boden -> sanfter Hügel
+			CFrame = CFrame.new(position.X, -diameter * 0.35, position.Z),
+			Color = World.GrassDark:Lerp(World.GrassLight, (i % 3) / 3),
 			Material = Enum.Material.Grass,
 			Parent = hills,
 		})
-	end
-	for _, side in ipairs({ -1, 1 }) do
-		for i, z in ipairs({ -120, 60, 240, 420, 600 }) do
-			hill(side * (560 + (i % 2) * 70), z, 220 + (i * 37) % 80, (i % 3) / 3)
-		end
-	end
-	for i, x in ipairs({ -260, -60, 140, 330 }) do
-		hill(x, -300 - (i % 2) * 60, 240, (i % 3) / 3)
-		hill(x + 40, 760 + (i % 2) * 60, 240, ((i + 1) % 3) / 3)
 	end
 end
