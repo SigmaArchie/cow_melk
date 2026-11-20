@@ -127,9 +127,11 @@ local card = Theme.panel(panel, {
 	Size = UDim2.fromScale(1, 1),
 	BackgroundColor3 = Colors.Panel,
 	Radius = Theme.Radius.XL + 6,
-	Outline = Theme.Stroke.Normal + 0.5, -- Farbe = Seltenheit der Kuh
+	Outline = Theme.Stroke.Normal,
+	OutlineColor = Colors.Outline,
 })
-local panelStroke = card:FindFirstChildOfClass("UIStroke")
+Theme.woodPlanks(card, PANEL_SIZE.Y, 40)
+Theme.grassStrip(card, PANEL_SIZE.X, 34, 11, Theme.Radius.XL + 6)
 
 ------------------------------------------------------------------------
 -- Cartoon-Kuhgesicht (ragt oben aus dem Panel heraus)
@@ -181,17 +183,20 @@ task.spawn(function()
 	end
 end)
 
-local title = text(card, {
-	Name = "Title",
-	Position = UDim2.fromOffset(0, 70),
-	Size = UDim2.new(1, 0, 0, 30),
-	TextSize = 26,
-	Text = "Melken",
+local titleSign = Theme.titleSign(card, {
+	Title = "Melken",
+	Color = Colors.Gold, -- wird beim Start auf die Seltenheit der Kuh gesetzt
+	Position = UDim2.new(0.5, 0, 0, 86),
+	Height = 38,
+	TextSize = 23,
+	MinWidth = 180,
+	MaxWidth = PANEL_SIZE.X - 70,
+	ZIndex = 4,
 })
 
 local hint = text(card, {
 	Name = "Hint",
-	Position = UDim2.fromOffset(16, 100),
+	Position = UDim2.fromOffset(16, 110),
 	Size = UDim2.new(1, -32, 0, 20),
 	Font = Theme.BodyFont,
 	TextSize = Theme.TextSize.Body - 1,
@@ -203,7 +208,7 @@ local hint = text(card, {
 -- Fortschritt (richtige Züge)
 local progress = Theme.progressBar(card, {
 	AnchorPoint = Vector2.new(0.5, 0),
-	Position = UDim2.new(0.5, 0, 0, 126),
+	Position = UDim2.new(0.5, 0, 0, 135),
 	Size = UDim2.new(0.62, 0, 0, 8),
 	Color = Colors.Green,
 })
@@ -214,7 +219,7 @@ local progress = Theme.progressBar(card, {
 local bucketHolder = frame(card, {
 	Name = "BucketHolder",
 	AnchorPoint = Vector2.new(0.5, 0),
-	Position = UDim2.new(0.5, 0, 0, 146),
+	Position = UDim2.new(0.5, 0, 0, 152),
 	Size = UDim2.fromOffset(120, 140),
 	BackgroundTransparency = 1,
 	ZIndex = 3,
@@ -285,9 +290,35 @@ local function makeRoundButton(name, symbol, xScale, color)
 	button.ZIndex = 3
 	button.Parent = card
 	Theme.corner(button, UDim.new(1, 0))
-	Theme.textOutline(button, 1.5)
+	Theme.textOutline(button, 2.5)
 
-	local stroke = Theme.border(button, 3, Theme.darken(color, 0.45))
+	-- dunkle Unterkante (wie bei Theme.button), liegt hinter dem Knopf
+	local lip = Instance.new("Frame")
+	lip.Name = name .. "Lip"
+	lip.AnchorPoint = button.AnchorPoint
+	lip.Position = button.Position + UDim2.fromOffset(0, 6)
+	lip.Size = button.Size
+	lip.BackgroundColor3 = Theme.darken(color, 0.55)
+	lip.BorderSizePixel = 0
+	lip.ZIndex = 2
+	lip.Parent = card
+	Theme.corner(lip, UDim.new(1, 0))
+	Theme.border(lip, 3, Colors.Outline)
+
+	local stroke = Theme.border(button, 3.5, Colors.Outline)
+
+	-- helle Oberkante (Glanz)
+	local shine = Instance.new("Frame")
+	shine.Name = "Shine"
+	shine.AnchorPoint = Vector2.new(0.5, 0)
+	shine.Position = UDim2.new(0.5, 0, 0, 9)
+	shine.Size = UDim2.fromScale(0.62, 0.24)
+	shine.BackgroundColor3 = Color3.new(1, 1, 1)
+	shine.BackgroundTransparency = 0.7
+	shine.BorderSizePixel = 0
+	shine.ZIndex = 3
+	shine.Parent = button
+	Theme.corner(shine, UDim.new(1, 0))
 
 	local key = text(button, {
 		AnchorPoint = Vector2.new(0.5, 0.5),
@@ -300,7 +331,8 @@ local function makeRoundButton(name, symbol, xScale, color)
 		Text = "",
 		ZIndex = 4,
 	})
-	Theme.corner(key, 8)
+	Theme.corner(key, 6)
+	Theme.border(key, 2, Colors.Outline)
 
 	local scale = Instance.new("UIScale")
 	scale.Parent = button
@@ -698,8 +730,8 @@ Remotes.MilkingStarted.OnClientEvent:Connect(function(info)
 	}
 
 	local rarityInfo = CowData.Rarities[info.Rarity] or CowData.Rarities.Common
-	title.Text = ("%s melken"):format(info.CowName)
-	panelStroke.Color = rarityInfo.UiColor
+	titleSign.SetTitle(("%s melken"):format(info.CowName))
+	titleSign.SetColor(rarityInfo.UiColor)
 	faceHead.BackgroundColor3 = rarityInfo.Color
 	earLeft.BackgroundColor3 = rarityInfo.Color
 	earRight.BackgroundColor3 = rarityInfo.Color
