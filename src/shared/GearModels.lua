@@ -390,6 +390,11 @@ function GearModels.Build(gearType, cf, options)
 	model.Name = gearType
 	local rng = Random.new(options.Seed or 7)
 	local main = builder(kit(model, cf), options, rng, model, cf)
+	-- Pivot des Modells = cf (Boden-Mitte). Achtung: Hat ein Model einen PrimaryPart, ignoriert Roblox
+	-- WorldPivot und nimmt den Pivot des PrimaryPart. Ohne PivotOffset würde PivotTo (Vorschau im
+	-- Aufstell-Modus) das Modell um die Lage des Hauptteils versetzen: Tröge sanken samt Wirkungsbereich
+	-- in den Boden, Wetterhahn/Heu lagen auf der Seite (Hauptteil ist ein gedrehter Zylinder).
+	main.PivotOffset = main.CFrame:ToObjectSpace(cf)
 	model.PrimaryPart = main
 	model.WorldPivot = cf
 	model:SetAttribute("GearType", gearType)
