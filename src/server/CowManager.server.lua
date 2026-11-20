@@ -970,6 +970,12 @@ local function buildSpot(player, farm, cow)
 	cowModel:SetAttribute("CowId", cow.Id)
 	cowModel:SetAttribute("OwnerUserId", player.UserId)
 	cowModel:SetAttribute("WanderRadius", CowData.GetWanderRadius(stage.Scale)) -- für WorldAnimator
+	-- aufrechter Platz der Kuh (Boden, nur um die Hochachse gedreht): Bezugspunkt fürs Herumlaufen
+	cowModel:SetAttribute("HomeCFrame", base)
+	-- Kuh immer als Ganzes laden (bei StreamingEnabled), sonst fehlen dem Client evtl. Teile
+	pcall(function()
+		cowModel.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
+	end)
 	cowModel.Parent = spotModel
 
 	-- Maße kommen vom Modell (Blender-Kuh und Ersatz-Kuh sind unterschiedlich breit)
