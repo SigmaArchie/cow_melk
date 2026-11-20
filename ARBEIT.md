@@ -35,6 +35,9 @@ geschrieben wird.
 
 ## Später (erst wenn beide Branches gemergt sind – betrifft fast alles)
 
+- **Blender-Werkzeuge einbauen:** Der Werkzeug-Shop baut seine Modelle in `GearModels.lua` aus Parts. Die fertigen
+  Meshes in `Assets.ToolParts` (Futtereimer, Kuhglocke, Bürste, Schuppen über `ToolModelBuilder`) werden noch nicht
+  benutzt. Absprechen, wer sie in `GearModels.lua` / den Shop-Bau übernimmt.
 - `CowManager.server.lua` in Module aufteilen (Melken, Zucht, Kisten, Plots, Inventar).
 - Anfrage-Limit pro Spieler für alle Remotes (neues Modul `RateLimit.lua`).
 - Deko-Modelle und Shop-Gebäude als Meshes in `MapBuilder` einbauen.

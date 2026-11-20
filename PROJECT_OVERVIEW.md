@@ -18,13 +18,21 @@ selene.toml / stylua.toml   Lint (std = "roblox", global_usage = deny) / Formati
 wally.toml                  Pakete (noch keine); Packages/ -> ReplicatedStorage.Packages, ServerPackages/ -> ServerStorage.ServerPackages
 .gitattributes              .lua/.luau immer mit LF
 .github/workflows/ci.yml    bei Push/PR: stylua --check, selene, rojo build (deploy.yml: Veröffentlichen von Hand)
+CLAUDE.md / ARBEIT.md       Regeln für die Claudes + Board "Wer macht gerade was" (vor jeder Aufgabe lesen!)
 tools/export_cow.py         Blender-Script: exportiert nur die Kuh-Teile als FBX
+tools/make_props.py         Blender-Script (blender -b -P ...): Schemel, Melkeimer, Milch-Eimer -> assets_src/props/PropParts.fbx + PropMeshData.lua
+tools/make_tools.py         Blender-Script: Futtereimer, Kuhglocke, Bürste, Werkzeug-Schuppen -> assets_src/tools/ToolParts.fbx + ToolMeshData.lua
 assets_src/CowModell.fbx    exportierte Kuh (33 Teile); die .blend-Datei liegt NICHT im Repo
 assets/CowModel.rbxm        -> ReplicatedStorage.Assets.CowModel (Blender-Kuh, 9,8 KB; Inhalt noch nicht in Studio geprüft)
+assets/PropParts.rbxm       -> Assets.PropParts: 10 MeshParts für Schemel und Eimer (in Studio importiert und geprüft)
+assets/ToolParts.rbxm       -> Assets.ToolParts: 14 MeshParts für Werkzeuge + Schuppen (noch nicht im Spiel benutzt)
 src/shared/  -> ReplicatedStorage.Shared
   CowData.lua               alle Spielwerte, Kuh-Arten, Shop-Lager, Milch-Mutationen, Wetter, Zucht, Kisten, Karte, Shops, Sounds
   Palette.lua               gemeinsame Farben, Schriften, Welt- und Seltenheitsfarben (Client UND Server; Theme.lua liest hier)
-  CowModelBuilder.lua       baut Kuh (Blender-Modell oder Ersatz aus Parts), Schemel, Eimer, Seltenheits-Effekte
+  CowModelBuilder.lua       baut Kuh (Blender-Modell oder Ersatz aus Parts), Schemel, Eimer (aus PropParts, sonst Parts), Seltenheits-Effekte
+  PropMeshData.lua          ERZEUGT von tools/make_props.py: Größe + Mittelpunkt der PropParts-Teile
+  ToolMeshData.lua          ERZEUGT von tools/make_tools.py: Größe + Mittelpunkt der ToolParts-Teile
+  ToolModelBuilder.lua      Build("Futtereimer"|"Kuhglocke"|"Buerste"|"Schuppen", cframe), SetSign(schuppen, text)
   GearModels.lua            3D-Modelle fürs Werkzeug (Heu, Striegel, Futtertrog, Kuhglocke, Goldener Trog, Wetterhahn, Spray)
 src/server/  -> ServerScriptService.Server
   DataService.lua           DataStore laden/speichern + API für alle Server-Scripts
@@ -230,9 +238,9 @@ Kuh anklicken → Menü "Melken" (oder neben der Kuh E drücken / "Melken" antip
 
 ## Benutzeroberfläche (Theme.lua)
 
-- **Stil:** tiefes Marineblau für Flächen, Creme/Off-White für Schrift, Grasgrün für Haupt-Aktionen, Himmelblau als Akzent, Gold **nur** für Coins und seltene Belohnungen. Abgerundete Ecken, dünne einheitliche Umrandung (1,5–2 px), weiche Schatten (`Theme.softShadow`), kurze Tweens (0,12–0,35 s), keine dicken Schrift-Umrisse.
+- **Stil "Holz-Farm"** (seit 20.11.2026): Fenster aus Holz mit Brett-Fugen und dickem dunkelbraunem Rand, Gras-Streifen mit Zacken oben, Titel auf einem Holzschild mit zwei Äpfeln, eckiges rotes X. Weiße Schrift mit dunkelbraunem Umriss (FredokaOne). Knöpfe mit dunklem Rand und Unterkante: Grün = Kaufen/Coins, Gold = Robux/Seltenes, Blau = Info, Orange = Aktion, Rot = Schließen, helles Holz = Nebenaktion. Bausteine `Theme.grassStrip` und `Theme.titleSign` auch für eigene Panels (z. B. Melk-Minispiel).
 - **Design-Werte** in `Theme`: `Colors`, `Font`/`BodyFont`/`TextFont`, `TextSize`, `Spacing`, `Radius`, `Stroke`, `Shadow`, `Time`.
-- **Bausteine:** `screenGui` (Safe-Area), `panel`, `label`, `tag`/`rarityBadge`, `button` (+ `primaryButton` grün, `secondaryButton` stahlblau, `destructiveButton` rot; Zustände Hover/gedrückt/ausgegraut), `progressBar`, `cowCard`, `createNotifier` (Meldungen), `window`, `coinIcon`/`milkIcon`/`cowIcon`, `autoScale`, `tween`.
+- **Bausteine:** `screenGui` (Safe-Area), `panel`, `label`, `tag`/`rarityBadge`, `button` (+ `primaryButton` grün, `secondaryButton` helles Holz, `destructiveButton` rot; Zustände Hover/gedrückt/ausgegraut), `progressBar`, `cowCard`, `createNotifier` (Meldungen), `window`, `grassStrip`, `titleSign`, `woodGradient`, `woodPlanks`, `coinIcon`/`milkIcon`/`cowIcon`, `autoScale`, `tween`.
 - **Fenster** (`Theme.window`): Kopfzeile mit Titel, Akzentlinie und Schließen-Knopf; immer nur eins offen, Hintergrund abgedunkelt, Klick daneben schließt, Controller: B schließt. `win.Root` ist der Halter (Name = `props.Name`, `.Visible` wird vom Tutorial geprüft), `win.Panel` die Fläche, `win.Body` der Inhalt.
 - **Eingabegeräte:** Maus/Touch über `Activated`, Controller über Auswahlrahmen (`SelectionImageObject`) und B; Tastenkürzel-Hinweise (M, I, Q/E) nur mit Tastatur bzw. L1/R1 mit Controller. Safe-Area: alle ScreenGuis laufen mit dem Roblox-Standard `CoreUISafe`, Fenster passen sich über `gui.AbsoluteSize` an.
 - Feste Zonen: **oben links** Coins/Milch · **links Mitte** KARTE (M) / KÜHE (I) / BONUS (Streak-Abzeichen) · **oben Mitte** Meldungen (max. 3, 2,5 s) · **unten Mitte** Hotbar (1–6) · **darüber** Hinweis-Leiste · **unten rechts** VERKAUFEN (pulsiert bei Milch).

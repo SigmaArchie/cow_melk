@@ -107,7 +107,7 @@ local function buildModel(player, plot, entry)
 	billboard.Adornee = model.PrimaryPart
 	billboard.Parent = model
 	local nameLabel = Instance.new("TextLabel")
-	nameLabel.Size = UDim2.new(1, 0, 0.55, 0)
+	nameLabel.Size = UDim2.fromScale(1, 0.55)
 	nameLabel.BackgroundTransparency = 1
 	nameLabel.Font = Palette.Fonts.Heading
 	nameLabel.TextScaled = true
@@ -118,7 +118,7 @@ local function buildModel(player, plot, entry)
 	local timer = Instance.new("TextLabel")
 	timer.Name = "Timer"
 	timer.Position = UDim2.fromScale(0, 0.55)
-	timer.Size = UDim2.new(1, 0, 0.45, 0)
+	timer.Size = UDim2.fromScale(1, 0.45)
 	timer.BackgroundTransparency = 1
 	timer.Font = Palette.Fonts.Body
 	timer.TextScaled = true
