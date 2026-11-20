@@ -9,7 +9,6 @@ geschrieben wird.
 | Wer | Aufgabe | Branch | Belegte Dateien | Stand |
 |---|---|---|---|---|
 | Maxi | **Werkzeug-Shop** als 5. Shop am Marktplatz (beim Pavillon / Dorfbaum): Futtereimer (Kuh wächst schneller), Kuhglocke (mehr Mutations-Chance für Kühe in der Nähe), Bürste (eine Kuh kurz mehr Milch). Kaufen, auf die Weide stellen, wirkt eine Zeit lang. | noch nicht gepusht | *vermutet, Maxis Claude bitte korrigieren:* `CowData.lua`, `MapBuilder.server.lua`, `MenuUI.client.lua`, `CowManager.server.lua`, `DataService.lua`, `InventoryClient.client.lua`, `WorldAnimator.client.lua`, neue `Tool*`-Module | in Arbeit |
-| Archie | 3D-Modelle für die Werkzeuge: Futtereimer, Kuhglocke, Bürste, Werkzeug-Schuppen ([PR #4](https://github.com/SigmaArchie/cow_melk/pull/4)) | `feature/werkzeug-modelle` | neue Dateien `tools/make_tools.py`, `assets_src/tools/`, `assets/ToolParts.rbxm`, `src/shared/ToolMeshData.lua`, `src/shared/ToolModelBuilder.lua`; dazu `src/shared/PropMeshData.lua`, `tools/make_props.py` | fertig, wartet auf Merge |
 
 ## Als Nächstes – Archie (stört den Werkzeug-Shop nicht)
 
@@ -43,13 +42,14 @@ geschrieben wird.
 
 ## Erledigt
 
+- 3D-Modelle für die Werkzeuge + Schuppen, ToolModelBuilder, Achsen-Fix für Meshes (Archie, PR #4)
 - 3D-Eimer + Schemel aus Blender, Holz-Farm-UI, Kisten-Fix (Archie, PR #2)
 - Kuh kippt nicht mehr beim Umdrehen (Maxi, PR #3)
 - Bauernhof-Karte umgebaut (PR #1)
 
 ## Notizen
 
-- **Für Maxi – Werkzeug-Modelle benutzen** (nach dem Merge von PR #4):
+- **Für Maxi – Werkzeug-Modelle benutzen** (PR #4 ist gemergt, `git pull origin main`):
   `ToolModelBuilder.Build("Futtereimer" | "Kuhglocke" | "Buerste" | "Schuppen", cframe)` gibt ein fertiges
   Modell zurück (PrimaryPart `Root` = Boden-Mitte, Schuppen-Tür zeigt nach -Z wie bei den Shops),
   `ToolModelBuilder.SetSign(schuppen, "WERKZEUGE")` beschriftet das Schild. Zum Animieren: `Buerste_Rolle`
