@@ -1,7 +1,7 @@
 -- MapBuilder.server.lua
 -- Baut einmalig die gemeinsame Karte (alles unter Workspace.CowFarmLayout):
 --   * runder Marktplatz in der Mitte: Brunnen, Dorfbaum, Pavillon, Wegweiser, Bänke, Beete
---   * vier Shops rund um den Brunnen, Türen zur Mitte (Daten in CowData.Map.Shops;
+--   * fünf Shops rund um den Brunnen, Türen zur Mitte (Daten in CowData.Map.Shops;
 --     jedes Gebäude bekommt einen Teleport-Punkt)
 --   * Landschaft (Folder "Countryside"): Feldwege zu den Farm-Toren, Ringweg, Wiesen mit Bäumen,
 --     zwischen den Farmen Windmühle, Teich, Obstgarten, Kürbisse, Blumenfeld, Heu; Waldrand, Hügel
@@ -17,6 +17,7 @@ local CowData = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("C
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local Palette = require(ReplicatedStorage.Shared:WaitForChild("Palette"))
 local FarmProps = require(script.Parent:WaitForChild("FarmProps"))
+local GearModels = require(ReplicatedStorage.Shared:WaitForChild("GearModels"))
 local Map = CowData.Map
 local Pal = Palette.Colors
 local World = Palette.World
@@ -361,28 +362,10 @@ do
 		radialPath(hub, shop.Angle, 15, Map.ShopRadius - 8, 7)
 	end
 
-	-- Dorfbaum mit runder Bank (Osten, zwischen Zucht-Stall und Kisten)
-	local treeBase = onRing(90, 40)
-	prop(
-		hub,
-		"TreeBench",
-		Vector3.new(1.3, 8.4, 8.4),
-		treeBase * CFrame.new(0, 0.85, 0) * CFrame.Angles(0, 0, math.rad(90)),
-		World.Wood,
-		Enum.Material.WoodPlanks,
-		{ Shape = Enum.PartType.Cylinder }
-	)
-	prop(
-		hub,
-		"TreeBenchSeat",
-		Vector3.new(0.3, 9, 9),
-		treeBase * CFrame.new(0, 1.6, 0) * CFrame.Angles(0, 0, math.rad(90)),
-		World.WoodLight,
-		Enum.Material.WoodPlanks,
-		{ Shape = Enum.PartType.Cylinder }
-	)
+	-- Dorfbaum hinter dem Werkzeug-Shop (Osten): die Krone ragt über das Dach
+	local treeBase = onRing(90, 57)
 	FarmProps.Tree(hub, treeBase * CFrame.new(0, 0.2, 0), { Scale = 2.1, Shade = 0.6, Rng = rng })
-	FarmProps.Wildflowers(hub, treeBase * CFrame.new(0, 0.2, 0), 8, 14, rng)
+	FarmProps.Wildflowers(hub, treeBase * CFrame.new(0, 0.2, 0), 5, 10, rng)
 
 	-- Pavillon (Westen, zwischen Auto-Melker und Kuh-Shop), Eingang zum Brunnen
 	local pavilion = onRing(270, 40)
@@ -470,7 +453,7 @@ do
 	end
 
 	-- Bänke am Brunnen, Blick zur Mitte
-	for _, angle in ipairs({ 80, 100, 245, 295 }) do
+	for _, angle in ipairs({ 245, 295 }) do
 		buildBench(hub, onRing(angle, 20))
 	end
 
@@ -1179,11 +1162,192 @@ local function styleWorkshop(ctx)
 	end
 end
 
+-- Stil 5: Werkzeug = Geräteschuppen: Steinsockel, Holzwände, steiles Satteldach mit Wetterhahn,
+-- Mistgabel/Schaufel/Rechen an der Wand, Werkbank mit Amboss, Werkzeug aus dem Shop als Schaufenster
+local function styleToolShed(ctx)
+	local opts, D = ctx.opts, ctx.D
+	local H = 8.5
+	local trim = World.WoodDark
+	local doorW = 6
+	buildShell(ctx, { W = 18, H = H, DoorW = doorW, DoorH = 6.5, WallColor = opts.WallColor, Trim = trim })
+	local W = ctx.W
+	local front = -D / 2
+
+	-- Steinsockel rundherum (vorne nur neben der Tür)
+	local stone, cobble = World.StoneDark, Enum.Material.Cobblestone
+	ctx.part("StoneBase", Vector3.new(W + 0.4, 2.2, 1.3), CFrame.new(0, 1.1, D / 2 - 0.4), stone, cobble)
+	local pieceW = (W - doorW) / 2
+	for _, side in ipairs({ -1, 1 }) do
+		ctx.part("StoneBase", Vector3.new(1.3, 2.2, D + 0.4), CFrame.new(side * (W / 2 - 0.4), 1.1, 0), stone, cobble)
+		ctx.part(
+			"StoneBase",
+			Vector3.new(pieceW, 2.2, 1.3),
+			CFrame.new(side * (doorW / 2 + pieceW / 2), 1.1, front + 0.4),
+			stone,
+			cobble
+		)
+	end
+
+	-- steiles Satteldach (First parallel zur Vorderseite), Esse mit Rauch
+	local ridgeY = H + (D / 2) * math.tan(math.rad(38))
+	local profile = { Vector2.new(-D / 2, H), Vector2.new(0, ridgeY) }
+	buildRoof(ctx, profile, 1.4, opts.RoofColor, Enum.Material.Slate, W + 2)
+	buildGables(ctx, profile, H, opts.WallColor, Enum.Material.WoodPlanks)
+	ctx.part("Ridge", Vector3.new(W + 2.2, 0.6, 0.9), CFrame.new(0, ridgeY + 0.4, 0), trim, Enum.Material.Wood, SOFT)
+	local chimney = ctx.part(
+		"Chimney",
+		Vector3.new(1.8, 5, 1.8),
+		CFrame.new(W / 2 - 3, ridgeY - 0.6, 3.2),
+		Color3.fromRGB(150, 82, 64),
+		Enum.Material.Brick,
+		SOFT
+	)
+	local smoke = Instance.new("ParticleEmitter")
+	smoke.Color = ColorSequence.new(Color3.fromRGB(200, 200, 200))
+	smoke.Transparency = NumberSequence.new(0.4, 1)
+	smoke.Size = NumberSequence.new(0.8, 2.4)
+	smoke.Lifetime = NumberRange.new(2.5, 4)
+	smoke.Speed = NumberRange.new(2, 3)
+	smoke.SpreadAngle = Vector2.new(12, 12)
+	smoke.Rate = 3
+	smoke.EmissionDirection = Enum.NormalId.Top
+	smoke.Parent = chimney
+	-- Wetterhahn auf dem First (dreht sich, siehe WorldAnimator)
+	local vane = GearModels.Build("WeatherVane", ctx.base * CFrame.new(-W / 2 + 3.2, ridgeY - 0.1, 0))
+	if vane then
+		vane.Name = "RoofVane"
+		vane.Parent = ctx.model
+	end
+
+	buildSign(ctx, 0, 7.4, 8.5, 1.5)
+	buildInnerLight(ctx, H - 1.5)
+
+	-- Werkzeug an der Wand links neben der Tür (lehnt oben an der Wand)
+	local tool = World.WoodLight
+	local metal = World.Metal
+	local function leaning(x)
+		return CFrame.new(x, 0, front - 0.45) * CFrame.Angles(math.rad(9), 0, 0)
+	end
+	local fork = leaning(-4.3)
+	ctx.part("ForkHandle", Vector3.new(0.2, 4.2, 0.2), fork * CFrame.new(0, 2.1, 0), tool, Enum.Material.Wood, SOFT)
+	ctx.part("ForkHead", Vector3.new(1.05, 0.14, 0.14), fork * CFrame.new(0, 4.25, 0), metal, Enum.Material.Metal, SOFT)
+	for _, x in ipairs({ -0.45, 0, 0.45 }) do
+		ctx.part(
+			"ForkTine",
+			Vector3.new(0.08, 0.9, 0.08),
+			fork * CFrame.new(x, 4.75, 0),
+			metal,
+			Enum.Material.Metal,
+			SOFT
+		)
+	end
+	local shovel = leaning(-5.7)
+	ctx.part(
+		"ShovelBlade",
+		Vector3.new(0.95, 1.15, 0.1),
+		shovel * CFrame.new(0, 0.62, 0),
+		metal,
+		Enum.Material.Metal,
+		SOFT
+	)
+	ctx.part("ShovelHandle", Vector3.new(0.2, 3.3, 0.2), shovel * CFrame.new(0, 2.8, 0), tool, Enum.Material.Wood, SOFT)
+	ctx.part(
+		"ShovelGrip",
+		Vector3.new(0.65, 0.16, 0.16),
+		shovel * CFrame.new(0, 4.45, 0),
+		tool,
+		Enum.Material.Wood,
+		SOFT
+	)
+	local rake = leaning(-7.1)
+	ctx.part("RakeHandle", Vector3.new(0.18, 4.4, 0.18), rake * CFrame.new(0, 2.2, 0), tool, Enum.Material.Wood, SOFT)
+	ctx.part("RakeHead", Vector3.new(1.4, 0.16, 0.2), rake * CFrame.new(0, 4.45, 0), metal, Enum.Material.Metal, SOFT)
+	for k = -2, 2 do
+		ctx.part(
+			"RakeTooth",
+			Vector3.new(0.07, 0.35, 0.07),
+			rake * CFrame.new(k * 0.3, 4.66, 0),
+			metal,
+			Enum.Material.Metal,
+			SOFT
+		)
+	end
+
+	-- Werkbank mit Amboss und Hammer rechts neben der Tür
+	local bench = CFrame.new(5.8, 0, front - 1.1)
+	ctx.part(
+		"Workbench",
+		Vector3.new(3.4, 0.3, 1.4),
+		bench * CFrame.new(0, 2.25, 0),
+		World.Wood,
+		Enum.Material.WoodPlanks
+	)
+	for _, x in ipairs({ -1.45, 1.45 }) do
+		for _, z in ipairs({ -0.5, 0.5 }) do
+			ctx.part(
+				"BenchLeg",
+				Vector3.new(0.25, 2.1, 0.25),
+				bench * CFrame.new(x, 1.05, z),
+				World.WoodDark,
+				Enum.Material.Wood
+			)
+		end
+	end
+	local iron = Color3.fromRGB(70, 74, 82)
+	ctx.part("Anvil", Vector3.new(1.1, 0.45, 0.55), bench * CFrame.new(-0.6, 2.85, 0), iron, Enum.Material.Metal, SOFT)
+	ctx.part(
+		"AnvilFoot",
+		Vector3.new(0.6, 0.25, 0.45),
+		bench * CFrame.new(-0.6, 2.52, 0),
+		iron,
+		Enum.Material.Metal,
+		SOFT
+	)
+	ctx.part(
+		"HammerHandle",
+		Vector3.new(1.2, 0.12, 0.12),
+		bench * CFrame.new(0.8, 2.48, 0.1) * CFrame.Angles(0, math.rad(30), 0),
+		tool,
+		Enum.Material.Wood,
+		SOFT
+	)
+	ctx.part(
+		"HammerHead",
+		Vector3.new(0.22, 0.25, 0.5),
+		bench * CFrame.new(1.3, 2.55, 0.4),
+		iron,
+		Enum.Material.Metal,
+		SOFT
+	)
+
+	-- Fass an der Ecke
+	ctx.part(
+		"Barrel",
+		Vector3.new(2, 1.5, 1.5),
+		CFrame.new(W / 2 + 1.2, 1, front + 1.4) * CFrame.Angles(0, 0, math.rad(90)),
+		World.Wood,
+		Enum.Material.Wood,
+		{ Shape = Enum.PartType.Cylinder }
+	)
+
+	-- Schaufenster: echtes Werkzeug aus dem Shop neben dem Schuppen
+	for _, show in ipairs({ { "FeedTrough", -11.6, 20 }, { "CowBell", 11.8, -15 } }) do
+		local model = GearModels.Build(
+			show[1],
+			ctx.base * CFrame.new(show[2], 0, front + 2.4) * CFrame.Angles(0, math.rad(show[3]), 0)
+		)
+		if model then
+			model.Parent = ctx.model
+		end
+	end
+end
+
 local STYLES = {
 	CowShop = styleBarn,
 	CrateShop = styleStall,
 	BreedingBarn = styleStable,
 	AutoMilkerShop = styleWorkshop,
+	GearShop = styleToolShed,
 }
 
 -- base: Boden-Mitte des Gebäudes, Vorderseite (Tür) zeigt nach -Z

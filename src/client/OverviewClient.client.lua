@@ -224,7 +224,7 @@ places.Size = UDim2.new(1, -(MAP_SIZE.X + 20), 1, 0)
 places.BackgroundTransparency = 1
 places.Parent = window.Body
 local placesLayout = Instance.new("UIListLayout")
-placesLayout.Padding = UDim.new(0, 10)
+placesLayout.Padding = UDim.new(0, 8)
 placesLayout.SortOrder = Enum.SortOrder.LayoutOrder
 placesLayout.Parent = places
 
@@ -240,13 +240,13 @@ Theme.label(places, {
 local function placeRow(order, color, title, subtitle, destination, drawIcon)
 	local row = Theme.panel(places, {
 		LayoutOrder = order,
-		Size = UDim2.new(1, 0, 0, 64),
+		Size = UDim2.new(1, 0, 0, 58),
 		BackgroundColor3 = Colors.Card,
 		Radius = 12,
 	})
 	local swatch = Theme.panel(row, {
-		Position = UDim2.fromOffset(10, 10),
-		Size = UDim2.fromOffset(44, 44),
+		Position = UDim2.fromOffset(9, 9),
+		Size = UDim2.fromOffset(40, 40),
 		BackgroundColor3 = color,
 		Radius = 10,
 		Outline = 2,
@@ -255,13 +255,13 @@ local function placeRow(order, color, title, subtitle, destination, drawIcon)
 		drawIcon(swatch)
 	end
 	Theme.label(row, {
-		Position = UDim2.fromOffset(66, 9),
+		Position = UDim2.fromOffset(60, 7),
 		Size = UDim2.new(1, -200, 0, 26),
 		TextSize = 22,
 		Text = title,
 	})
 	Theme.label(row, {
-		Position = UDim2.fromOffset(66, 36),
+		Position = UDim2.fromOffset(60, 33),
 		Size = UDim2.new(1, -200, 0, 16),
 		Font = Theme.BodyFont,
 		TextSize = 13,
@@ -274,7 +274,7 @@ local function placeRow(order, color, title, subtitle, destination, drawIcon)
 		Color = Colors.Green,
 		AnchorPoint = Vector2.new(1, 0.5),
 		Position = UDim2.new(1, -10, 0.5, 0),
-		Size = UDim2.fromOffset(116, 44),
+		Size = UDim2.fromOffset(116, 40),
 		TextSize = 20,
 		Radius = 10,
 		Lip = 4,

@@ -6,6 +6,7 @@
 --   Zucht       – zwei Kühe auswählen, Chancen, Zucht       (Gebäude "ZUCHT-STALL")
 --   Tagesbonus  – Login-Streak und Belohnungen der 7 Tage
 --   Auto-Melker – Gamepass kaufen                           (Gebäude "AUTO-MELKER")
+--   Werkzeug    – Werkzeug aus dem wechselnden Lager kaufen (Gebäude "WERKZEUG")
 -- Stil und Bausteine kommen aus Theme.lua (Fenster, Knöpfe, Karten, Abzeichen, Balken).
 
 local Players = game:GetService("Players")
@@ -19,6 +20,7 @@ local CowData = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("C
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local UIBus = require(script.Parent:WaitForChild("UIBus"))
 local Theme = require(script.Parent:WaitForChild("Theme"))
+local GearView = require(script.Parent:WaitForChild("GearView"))
 
 local player = Players.LocalPlayer
 local Colors = Theme.Colors
@@ -547,6 +549,256 @@ do
 	player:GetAttributeChangedSignal("Coins"):Connect(updateCards)
 	updateCards()
 	timerText.Text = "Neues Lager in " .. formatTime(CowData.GetRestockTime(currentCycle()) - serverTime())
+end
+
+------------------------------------------------------------------------
+-- Werkzeug-Shop (wie der Gear-Shop in Grow a Garden): wechselndes Lager wie beim Kuh-Shop
+-- (CowData.GearShop). Gekauftes Werkzeug liegt im Rucksack: Fenster WERKZEUG (Taste G, GearClient).
+------------------------------------------------------------------------
+local gearPage = newPage("Gear", "WERKZEUG")
+do
+	local serverStock = nil -- letzte Antwort von GetGearStock
+	local loadToken = 0
+
+	local function serverTime()
+		return workspace:GetServerTimeNow()
+	end
+
+	local function currentCycle()
+		return CowData.GetGearCycle(math.floor(serverTime()))
+	end
+
+	local header = Theme.panel(gearPage.Frame, {
+		Name = "Header",
+		Size = UDim2.new(1, 0, 0, 40),
+		BackgroundColor3 = Colors.PanelLight,
+		Radius = Theme.Radius.M,
+	})
+	local timerText = label(header, {
+		Name = "Timer",
+		Position = UDim2.fromOffset(Theme.Spacing.L, 0),
+		Size = UDim2.new(0.5, 0, 1, 0),
+		Font = Theme.Font,
+		TextSize = Theme.TextSize.Body + 2,
+		TextWrapped = false,
+		Text = "",
+	})
+	label(header, {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -Theme.Spacing.L, 0, 0),
+		Size = UDim2.new(0.5, -Theme.Spacing.L, 1, 0),
+		TextXAlignment = Enum.TextXAlignment.Right,
+		TextColor3 = Colors.SubText,
+		TextSize = Theme.TextSize.Small,
+		Font = Theme.BodyFont,
+		TextWrapped = false,
+		Text = "Gekauftes Werkzeug: Taste G",
+	})
+
+	local list = Instance.new("ScrollingFrame")
+	list.Name = "List"
+	list.Position = UDim2.fromOffset(0, 48)
+	list.Size = UDim2.new(1, 0, 1, -48)
+	list.BackgroundTransparency = 1
+	list.BorderSizePixel = 0
+	list.ZIndex = Theme.zOf(gearPage.Frame)
+	list.ScrollBarThickness = 6
+	list.ScrollBarImageColor3 = Colors.Line
+	list.ScrollingDirection = Enum.ScrollingDirection.Y
+	list.CanvasSize = UDim2.new()
+	list.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	list.Parent = gearPage.Frame
+	local listPadding = Instance.new("UIPadding")
+	listPadding.PaddingRight = UDim.new(0, 10)
+	listPadding.PaddingBottom = UDim.new(0, 4)
+	listPadding.Parent = list
+	local grid = Instance.new("UIGridLayout")
+	grid.CellSize = UDim2.new(0.5, -6, 0, 196)
+	grid.CellPadding = UDim2.fromOffset(Theme.Spacing.M, Theme.Spacing.M)
+	grid.SortOrder = Enum.SortOrder.LayoutOrder
+	grid.Parent = list
+
+	local function stockOf(gearType)
+		local cycle = currentCycle()
+		local amount = CowData.RollGearStock(cycle)[gearType] or 0
+		local remaining = amount
+		if serverStock and serverStock.Cycle == cycle then
+			for _, item in ipairs(serverStock.Items) do
+				if item.Type == gearType then
+					remaining = math.min(amount, item.Remaining)
+				end
+			end
+		end
+		return amount, remaining
+	end
+
+	local cards = {} -- [Werkzeug] = { Api, Card, Tag, Price }
+
+	local function updateCards()
+		for gearType, entry in pairs(cards) do
+			local amount, remaining = stockOf(gearType)
+			local affordable = remaining > 0 and coins() >= entry.Price
+			entry.Api.SetDisabled(not affordable)
+			if amount <= 0 then
+				entry.Tag.Text = "Nicht im Lager"
+				entry.Tag.BackgroundColor3 = Colors.Grey
+			elseif remaining <= 0 then
+				entry.Tag.Text = "Ausverkauft"
+				entry.Tag.BackgroundColor3 = Colors.Red
+			else
+				entry.Tag.Text = ("x%d im Lager"):format(remaining)
+				entry.Tag.BackgroundColor3 = Colors.Green
+			end
+			entry.Card.BackgroundTransparency = remaining > 0 and 0 or 0.35
+			local stroke = entry.Card:FindFirstChildOfClass("UIStroke")
+			if stroke then
+				stroke.Color = affordable and Colors.Green or Colors.Line
+				stroke.Thickness = affordable and 3 or Theme.Stroke.Thin
+			end
+		end
+	end
+
+	local function loadServerStock()
+		loadToken += 1
+		local token = loadToken
+		task.spawn(function()
+			local ok, result = pcall(function()
+				return Remotes:WaitForChild("GetGearStock", 5):InvokeServer()
+			end)
+			if token ~= loadToken then
+				return
+			end
+			if ok and type(result) == "table" and type(result.Items) == "table" then
+				serverStock = result
+			else
+				warn("[MenuUI] Werkzeug-Shop: Lager vom Server konnte nicht geladen werden:", result)
+			end
+			updateCards()
+		end)
+	end
+
+	for order, entry in ipairs(CowData.GearShop.Stock) do
+		local gearType = entry.Type
+		local info = CowData.Gears[gearType]
+		local card = Theme.panel(list, {
+			Name = gearType,
+			LayoutOrder = order,
+			BackgroundColor3 = Colors.Card,
+			Radius = Theme.Radius.M,
+		})
+		local strip = Instance.new("Frame")
+		strip.Size = UDim2.new(1, 0, 0, 5)
+		strip.BackgroundColor3 = info.Color
+		strip.BorderSizePixel = 0
+		strip.ZIndex = card.ZIndex
+		strip.Parent = card
+		Theme.corner(strip, 3)
+
+		GearView.new(card, gearType, {
+			Position = UDim2.fromOffset(8, 12),
+			Size = UDim2.fromOffset(92, 92),
+			ZIndex = card.ZIndex + 1,
+		})
+		label(card, {
+			Position = UDim2.fromOffset(106, 12),
+			Size = UDim2.new(1, -114, 0, 26),
+			Font = Theme.Font,
+			TextSize = Theme.TextSize.Heading - 2,
+			TextWrapped = false,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			TextColor3 = info.Color,
+			Text = info.Icon .. " " .. info.DisplayName,
+		})
+		local kindTag = Theme.tag(card, {
+			Position = UDim2.fromOffset(106, 42),
+			Color = info.Kind == "Place" and Colors.Blue or Colors.Teal,
+			Text = info.Kind == "Place" and ("Aufstellen · %d Min"):format(math.floor(info.Duration / 60))
+				or "Für eine Kuh",
+		})
+		kindTag.TextColor3 = Colors.Cream
+		label(card, {
+			Position = UDim2.fromOffset(106, 68),
+			Size = UDim2.new(1, -114, 0, 64),
+			TextSize = Theme.TextSize.Small,
+			Font = Theme.BodyFont,
+			TextColor3 = Colors.SubText,
+			TextYAlignment = Enum.TextYAlignment.Top,
+			Text = info.Description,
+		})
+
+		local api, buy = priceButton(card, {
+			Price = info.Price,
+			AnchorPoint = Vector2.new(0.5, 1),
+			Position = UDim2.new(0.5, 0, 1, -Theme.Spacing.M),
+			Size = UDim2.new(1, -32, 0, 44),
+		})
+		local tag = Theme.tag(card, {
+			Name = "Stock",
+			AnchorPoint = Vector2.new(0, 0),
+			Position = UDim2.fromOffset(10, 108),
+			Color = Colors.Grey,
+			Text = "",
+		})
+		tag.TextColor3 = Colors.Cream
+		cards[gearType] = { Api = api, Card = card, Tag = tag, Price = info.Price }
+
+		buy.Activated:Connect(function()
+			local amount, remaining = stockOf(gearType)
+			if amount <= 0 then
+				showStatus(
+					("%s ist gerade nicht im Lager. Schau beim nächsten Lager wieder vorbei!"):format(info.DisplayName)
+				)
+				return
+			end
+			if remaining <= 0 then
+				showStatus("Ausverkauft! Warte auf das nächste Lager.")
+				return
+			end
+			if coins() < info.Price then
+				showStatus("Nicht genug Coins! Melke und verkaufe mehr Milch.")
+				return
+			end
+			buy.Active = false
+			local called, ok, message = pcall(function()
+				return Remotes:WaitForChild("BuyGear", 5):InvokeServer(gearType)
+			end)
+			buy.Active = true
+			if called and ok then
+				showStatus(message or "Gekauft!", OK_COLOR)
+			else
+				showStatus((called and message) or "Kauf fehlgeschlagen.")
+			end
+			loadServerStock()
+		end)
+	end
+
+	gearPage.Build = function()
+		updateCards()
+		loadServerStock()
+	end
+
+	local shownCycle = currentCycle()
+	task.spawn(function()
+		while true do
+			task.wait(0.5)
+			local cycle = currentCycle()
+			if currentPage == "Gear" and win:IsOpen() then
+				local left = CowData.GetGearRestockTime(cycle) - serverTime()
+				timerText.Text = "Neues Werkzeug in " .. formatTime(left)
+				timerText.TextColor3 = left <= 10 and Colors.Gold or Colors.Text
+				if cycle ~= shownCycle then
+					shownCycle = cycle
+					gearPage.Build()
+				end
+			else
+				shownCycle = cycle
+			end
+		end
+	end)
+
+	player:GetAttributeChangedSignal("Coins"):Connect(updateCards)
+	updateCards()
+	timerText.Text = "Neues Werkzeug in " .. formatTime(CowData.GetGearRestockTime(currentCycle()) - serverTime())
 end
 
 ------------------------------------------------------------------------

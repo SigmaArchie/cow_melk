@@ -35,7 +35,10 @@
         "TeleportTo": { "$className": "RemoteEvent" },
         "GetShopStock": { "$className": "RemoteFunction" },
         "ShopRestocked": { "$className": "RemoteEvent" },
-        "BucketAction": { "$className": "RemoteFunction" }
+        "BucketAction": { "$className": "RemoteFunction" },
+        "GetGearStock": { "$className": "RemoteFunction" },
+        "BuyGear": { "$className": "RemoteFunction" },
+        "GearAction": { "$className": "RemoteFunction" }
       }
     },
 

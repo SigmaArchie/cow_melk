@@ -84,6 +84,7 @@ CowData.Map = {
 	GridCellX = 16,
 	GridCellZ = 16,
 	GridFirstRowZ = -58,
+	CowOffsetX = 1, -- Kuh steht im Feld etwas rechts, links ist Platz für den Schemel
 }
 
 -- Kühe laufen auf ihrem Feld ein wenig herum (nur Darstellung im Client, WorldAnimator).
@@ -154,6 +155,19 @@ CowData.Map.Shops = {
 		WallColor = Color3.fromRGB(245, 230, 200),
 		Angle = 150,
 		Position = shopPosition(150),
+	},
+	{
+		Name = "GearShop",
+		Page = "Gear",
+		Title = "WERKZEUG",
+		Label = "Werkzeug",
+		Icon = "🧰",
+		Area = "Marktplatz",
+		Color = Color3.fromRGB(214, 128, 58),
+		RoofColor = Color3.fromRGB(150, 62, 44),
+		WallColor = Color3.fromRGB(196, 150, 104),
+		Angle = 90,
+		Position = shopPosition(90),
 	},
 	{
 		Name = "AutoMilkerShop",
@@ -574,6 +588,113 @@ CowData.Shop = {
 		{ Type = "Moon", Chance = 0.035, Min = 1, Max = 1 },
 		{ Type = "Dragon", Chance = 0.015, Min = 1, Max = 1 },
 		{ Type = "Crystal", Chance = 0.006, Min = 1, Max = 1 },
+	},
+}
+
+------------------------------------------------------------------------
+-- Werkzeug (wie die Ausrüstung im Gear-Shop von Grow a Garden)
+-- Kind = "Cow":   wird an einer Kuh benutzt (Kuh anklicken -> Knopf unter dem Kuh-Menü)
+-- Kind = "Place": wird auf der Weide aufgestellt, an einer Ecke zwischen vier Feldern
+--                 (CowData.GetGearCornerLocal); wirkt Duration Sekunden auf alle Kühe, deren
+--                 Feld-Mitte höchstens Radius Studs entfernt ist (12 = die 4 Felder rundherum,
+--                 26 = 12 Felder, siehe CowData.CountGearCells).
+--   Growth        Kälber wachsen so viel schneller (x2 = doppelt so schnell)
+--   MutationLuck  Kuh-Mutationen durch Wetter kommen so viel öfter
+--   MilkBonus     (Striegel) der nächste volle Eimer dieser Kuh hat so viel mehr Milch
+------------------------------------------------------------------------
+CowData.GearOrder = { "Hay", "Brush", "FeedTrough", "CowBell", "GoldenTrough", "WeatherVane", "MutationSpray" }
+
+CowData.Gears = {
+	Hay = {
+		DisplayName = "Heubündel",
+		Icon = "🌾",
+		Kind = "Cow",
+		Price = 150,
+		Description = "Leckeres Heu: Die Kuh braucht keine Pause mehr und kann sofort wieder gemolken werden.",
+		Color = Color3.fromRGB(226, 196, 104),
+	},
+	Brush = {
+		DisplayName = "Striegel",
+		Icon = "🧹",
+		Kind = "Cow",
+		Price = 400,
+		MilkBonus = 1.5,
+		Description = "Kuh striegeln: Der nächste volle Eimer dieser Kuh hat 50 % mehr Milch.",
+		Color = Color3.fromRGB(176, 120, 76),
+	},
+	FeedTrough = {
+		DisplayName = "Futtertrog",
+		Icon = "🥕",
+		Kind = "Place",
+		Price = 800,
+		Radius = 12,
+		Duration = 600,
+		Growth = 2,
+		Description = "Kälber auf den 4 Feldern rundherum wachsen doppelt so schnell. Hält 10 Minuten.",
+		Color = Color3.fromRGB(236, 140, 60),
+	},
+	CowBell = {
+		DisplayName = "Kuhglocke",
+		Icon = "🔔",
+		Kind = "Place",
+		Price = 2500,
+		Radius = 12,
+		Duration = 600,
+		MutationLuck = 2,
+		Description = "Kühe auf den 4 Feldern rundherum bekommen bei Wetter doppelt so oft Mutationen. Hält 10 Minuten.",
+		Color = Color3.fromRGB(240, 196, 70),
+	},
+	GoldenTrough = {
+		DisplayName = "Goldener Futtertrog",
+		Icon = "⭐",
+		Kind = "Place",
+		Price = 10000,
+		Radius = 26,
+		Duration = 900,
+		Growth = 3,
+		Description = "Kälber auf 12 Feldern rundherum wachsen dreimal so schnell. Hält 15 Minuten.",
+		Color = Color3.fromRGB(255, 214, 80),
+	},
+	WeatherVane = {
+		DisplayName = "Wetterhahn",
+		Icon = "🐓",
+		Kind = "Place",
+		Price = 25000,
+		Radius = 26,
+		Duration = 900,
+		MutationLuck = 3,
+		Description = "Kühe auf 12 Feldern rundherum bekommen bei Wetter dreimal so oft Mutationen. Hält 15 Minuten.",
+		Color = Color3.fromRGB(110, 200, 230),
+	},
+	MutationSpray = {
+		DisplayName = "Wunder-Spray",
+		Icon = "🧪",
+		Kind = "Cow",
+		Price = 60000,
+		Description = "Gibt einer Kuh sofort eine zufällige Mutation – Verbindungen inklusive!",
+		Color = Color3.fromRGB(190, 120, 255),
+	},
+}
+
+CowData.GearSettings = {
+	MaxPlaced = 6, -- so viel Werkzeug darf gleichzeitig auf einer Weide stehen
+	GrowthTick = 5, -- alle 5 s wird das schnellere Wachsen angerechnet
+	-- Wunder-Spray: welche Mutation wie oft (nur welche die Kuh noch bekommen kann)
+	SprayWeights = { Sunkissed = 3, Wet = 3, Chilled = 3, Moonlit = 2, Shocked = 1 },
+}
+
+-- Lager des Werkzeug-Shops: wechselt wie der Kuh-Shop, in allen Servern gleich
+CowData.GearShop = {
+	RestockInterval = 300, -- 5 Minuten
+	AnnounceFrom = 10000, -- ab diesem Preis wird ein Treffer im ganzen Server angesagt
+	Stock = {
+		{ Type = "Hay", Chance = 1, Min = 3, Max = 6 },
+		{ Type = "Brush", Chance = 0.85, Min = 2, Max = 4 },
+		{ Type = "FeedTrough", Chance = 0.7, Min = 1, Max = 3 },
+		{ Type = "CowBell", Chance = 0.45, Min = 1, Max = 2 },
+		{ Type = "GoldenTrough", Chance = 0.2, Min = 1, Max = 1 },
+		{ Type = "WeatherVane", Chance = 0.1, Min = 1, Max = 1 },
+		{ Type = "MutationSpray", Chance = 0.04, Min = 1, Max = 1 },
 	},
 }
 
@@ -1091,6 +1212,87 @@ function CowData.RollShopStock(cycle)
 		end
 	end
 	return stock
+end
+
+------------------------------------------------------------------------
+-- Werkzeug
+------------------------------------------------------------------------
+function CowData.GetGearCycle(now)
+	return math.floor(now / CowData.GearShop.RestockInterval)
+end
+
+function CowData.GetGearRestockTime(cycle)
+	return (cycle + 1) * CowData.GearShop.RestockInterval
+end
+
+-- Lager des Werkzeug-Shops: { [Werkzeug] = Menge } (andere Würfe als der Kuh-Shop)
+function CowData.RollGearStock(cycle)
+	local stock = {}
+	for index, entry in ipairs(CowData.GearShop.Stock) do
+		if stockRoll(cycle, index + 100, 1) < entry.Chance then
+			local spread = entry.Max - entry.Min + 1
+			stock[entry.Type] = entry.Min + math.min(math.floor(stockRoll(cycle, index + 100, 2) * spread), spread - 1)
+		end
+	end
+	return stock
+end
+
+function CowData.IsValidGear(gearType)
+	return type(gearType) == "string" and CowData.Gears[gearType] ~= nil
+end
+
+-- Ecken zwischen den Feldern (nur innen): (Spalten-1) x (Reihen-1) = 5 x 5 = 25
+function CowData.GetGearCornerCount()
+	local map = CowData.Map
+	return (map.GridColumns - 1) * (map.GridRows - 1)
+end
+
+-- Mitte einer Ecke (1 .. GetGearCornerCount) in lokalen Plot-Koordinaten (auf dem Boden).
+-- Dort ist am meisten Platz: jede Kuh bleibt in ihrem Feld (siehe CowWander).
+function CowData.GetGearCornerLocal(corner)
+	local map = CowData.Map
+	local columns = map.GridColumns - 1
+	local index = corner - 1
+	local column = index % columns
+	local row = math.floor(index / columns)
+	local x = (column - (columns - 1) / 2) * map.GridCellX + (map.CowOffsetX or 0)
+	local z = map.GridFirstRowZ + map.GridCellZ / 2 + row * map.GridCellZ
+	return CFrame.new(x, map.GroundTop, z)
+end
+
+-- nächste Ecke zu einem Punkt (lokale Plot-Koordinaten); nil, wenn weiter weg als maxDistance
+function CowData.GetNearestGearCorner(localPosition, maxDistance)
+	local best, bestDistance = nil, maxDistance or math.huge
+	for corner = 1, CowData.GetGearCornerCount() do
+		local position = CowData.GetGearCornerLocal(corner).Position
+		local distance = Vector3.new(position.X - localPosition.X, 0, position.Z - localPosition.Z).Magnitude
+		if distance <= bestDistance then
+			best, bestDistance = corner, distance
+		end
+	end
+	return best
+end
+
+-- Wirkt aufgestelltes Werkzeug an dieser Ecke auf dieses Feld?
+function CowData.GearCoversCell(gearType, corner, cell)
+	local info = CowData.Gears[gearType]
+	if not info or not info.Radius or type(corner) ~= "number" or type(cell) ~= "number" then
+		return false
+	end
+	local a = CowData.GetGearCornerLocal(corner).Position
+	local b = CowData.GetGridCellLocal(cell).Position + Vector3.new(CowData.Map.CowOffsetX or 0, 0, 0)
+	return Vector3.new(a.X - b.X, 0, a.Z - b.Z).Magnitude <= info.Radius
+end
+
+-- Auf wie viele Felder wirkt das Werkzeug an dieser Ecke? (für die Beschreibung / Tests)
+function CowData.CountGearCells(gearType, corner)
+	local count = 0
+	for cell = 1, CowData.GetGridCellCount() do
+		if CowData.GearCoversCell(gearType, corner, cell) then
+			count += 1
+		end
+	end
+	return count
 end
 
 ------------------------------------------------------------------------

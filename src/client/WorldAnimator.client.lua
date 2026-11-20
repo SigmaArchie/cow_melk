@@ -43,16 +43,27 @@ local function cameraPosition()
 end
 
 ------------------------------------------------------------------------
--- Drehende Teile (Tag "Spinner", z.B. Windmühlen-Flügel): drehen sich um die eigene Z-Achse
--- ihres Pivots, Winkel aus der Serverzeit (bei allen Spielern gleich)
+-- Drehende Teile (Tag "Spinner", z.B. Windmühlen-Flügel, Wetterhahn): drehen sich um die eigene
+-- Z-Achse ihres Pivots, Winkel aus der Serverzeit (bei allen Spielern gleich).
+-- Mit Attribut SwingAngle schwingen sie stattdessen hin und her (Kuhglocke).
 ------------------------------------------------------------------------
 local SPIN_DISTANCE = 450
 local spinners = {} -- [model] = { Pivot, Parts, Offsets, Speed }
 
 local function registerSpinner(model)
 	task.wait() -- Teile sind beim Hinzufügen evtl. noch nicht alle da
+	-- nur echte Welt-Teile (BulkMoveTo geht nicht mit Teilen in ViewportFrames)
+	if not model:IsDescendantOf(workspace) then
+		return
+	end
 	local pivot = model:GetPivot()
-	local entry = { Pivot = pivot, Parts = {}, Offsets = {}, Speed = model:GetAttribute("SpinSpeed") or 20 }
+	local entry = {
+		Pivot = pivot,
+		Parts = {},
+		Offsets = {},
+		Speed = model:GetAttribute("SpinSpeed") or 20,
+		Swing = model:GetAttribute("SwingAngle"), -- gesetzt: hin und her schwingen statt drehen (Glocke)
+	}
 	for _, part in ipairs(model:GetDescendants()) do
 		if part:IsA("BasePart") then
 			table.insert(entry.Parts, part)
@@ -78,7 +89,8 @@ RunService.Heartbeat:Connect(function()
 	local parts, cframes = {}, {}
 	for _, entry in pairs(spinners) do
 		if (entry.Pivot.Position - camPos).Magnitude < SPIN_DISTANCE then
-			local pivot = entry.Pivot * CFrame.Angles(0, 0, math.rad((now * entry.Speed) % 360))
+			local angle = entry.Swing and math.sin(now * entry.Speed) * entry.Swing or (now * entry.Speed) % 360
+			local pivot = entry.Pivot * CFrame.Angles(0, 0, math.rad(angle))
 			for i, part in ipairs(entry.Parts) do
 				table.insert(parts, part)
 				table.insert(cframes, pivot * entry.Offsets[i])

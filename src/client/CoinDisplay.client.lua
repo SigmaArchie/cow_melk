@@ -1,7 +1,7 @@
 -- CoinDisplay.client.lua  (das HUD)
 -- Feste Bildschirm-Zonen, nichts überlappt:
 --   oben links    Coins + Milch (Zahlen zählen hoch, Münz-Sound), Nächstes Ziel, Wetter (nur bei Events)
---   links Mitte   3 Knöpfe: KARTE (M), KÜHE (I), BONUS (mit Streak-Zahl)
+--   links Mitte   4 Knöpfe: KARTE (M), KÜHE (I), WERKZEUG (G), BONUS (mit Streak-Zahl)
 --   oben Mitte    Meldungen (max. 3, verschwinden nach 2,5 s)
 --   unten rechts  VERKAUFEN (pulsiert, sobald Milch da ist), darüber der Wert der Milch
 -- Stil und Bausteine kommen aus Theme.lua. Safe-Area: Theme.screenGui (CoreUISafe).
@@ -293,7 +293,7 @@ task.spawn(function()
 end)
 
 ------------------------------------------------------------------------
--- Links Mitte: KARTE / KÜHE / BONUS
+-- Links Mitte: KARTE / KÜHE / WERKZEUG / BONUS
 ------------------------------------------------------------------------
 local side = Instance.new("Frame")
 side.Name = "SideButtons"
@@ -309,7 +309,7 @@ sideLayout.SortOrder = Enum.SortOrder.LayoutOrder
 sideLayout.Parent = side
 Theme.autoScale(side)
 
-local function sideButton(order, text, color, keyHint, drawIcon, onClick)
+local function sideButton(order, text, color, keyHint, drawIcon, onClick, textSize)
 	local face, holder = Theme.button(side, {
 		Name = text,
 		Size = UDim2.fromOffset(84, 84),
@@ -324,7 +324,7 @@ local function sideButton(order, text, color, keyHint, drawIcon, onClick)
 		Position = UDim2.new(0.5, 0, 1, -4),
 		Size = UDim2.new(1, 0, 0, 20),
 		TextXAlignment = Enum.TextXAlignment.Center,
-		TextSize = 16,
+		TextSize = textSize or 16,
 		Text = text,
 	})
 	if keyHint and showKeyHints then
@@ -416,7 +416,42 @@ end)
 sideButton(2, "KÜHE", Colors.Steel, "I", drawCowIcon, function()
 	UIBus.ToggleInventory:Fire()
 end)
-local bonusFace = sideButton(3, "BONUS", Colors.Green, nil, drawGiftIcon, function()
+-- Werkzeug-Symbol: Hammer (Stiel + Kopf, schräg)
+local function drawToolIcon(face)
+	local icon = Instance.new("Frame")
+	icon.AnchorPoint = Vector2.new(0.5, 0.5)
+	icon.Position = UDim2.new(0.5, 0, 0.5, -10)
+	icon.Size = UDim2.fromOffset(44, 44)
+	icon.BackgroundTransparency = 1
+	icon.Rotation = -35
+	icon.ZIndex = face.ZIndex
+	icon.Parent = face
+	local handle = Instance.new("Frame")
+	handle.AnchorPoint = Vector2.new(0.5, 0)
+	handle.Position = UDim2.new(0.5, 0, 0, 10)
+	handle.Size = UDim2.fromOffset(9, 34)
+	handle.BackgroundColor3 = Color3.fromRGB(176, 120, 76)
+	handle.BorderSizePixel = 0
+	handle.ZIndex = face.ZIndex
+	handle.Parent = icon
+	Theme.corner(handle, 3)
+	Theme.border(handle, 1.5, Colors.Outline)
+	local head = Instance.new("Frame")
+	head.AnchorPoint = Vector2.new(0.5, 0)
+	head.Position = UDim2.fromScale(0.5, 0)
+	head.Size = UDim2.fromOffset(32, 13)
+	head.BackgroundColor3 = Color3.fromRGB(176, 184, 196)
+	head.BorderSizePixel = 0
+	head.ZIndex = face.ZIndex
+	head.Parent = icon
+	Theme.corner(head, 3)
+	Theme.border(head, 1.5, Colors.Outline)
+end
+
+sideButton(3, "WERKZEUG", Colors.Orange, "G", drawToolIcon, function()
+	UIBus.ToggleGear:Fire()
+end, 13)
+local bonusFace = sideButton(4, "BONUS", Colors.Green, nil, drawGiftIcon, function()
 	UIBus.OpenPage:Fire("Daily")
 end)
 

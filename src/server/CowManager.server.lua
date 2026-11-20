@@ -33,6 +33,7 @@ local CowModelBuilder = require(Shared:WaitForChild("CowModelBuilder"))
 local DataService = require(script.Parent:WaitForChild("DataService"))
 local ShopService = require(script.Parent:WaitForChild("ShopService"))
 local FarmBuilder = require(script.Parent:WaitForChild("FarmBuilder"))
+local GearService = require(script.Parent:WaitForChild("GearService"))
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 
 local Config = CowData.Config
@@ -102,7 +103,6 @@ end
 ------------------------------------------------------------------------
 local GRID_CELLS = CowData.GetGridCellCount() -- Felder pro Farm (6 x 6 = 36)
 local HOTBAR_SIZE = Config.HotbarSize
-local COW_OFFSET_X = 1 -- Kuh steht im Feld etwas rechts, links ist Platz für den Schemel
 
 local layoutFolder = workspace:FindFirstChild("CowFarmLayout")
 if not layoutFolder then
@@ -569,6 +569,11 @@ local function endMilking(player, completed)
 	local data = DataService.Get(player)
 	local cow = data and data.Cows[session.CowId]
 	local milk = math.floor(session.Pulls * session.MilkPerPull + 0.5)
+	-- gestriegelte Kuh: voller Eimer hat mehr Milch (Striegel aus dem Werkzeug-Shop)
+	local brushBonus = (completed and milk > 0) and GearService.TakeMilkBonus(cow) or 1
+	if brushBonus > 1 then
+		milk = math.floor(milk * brushBonus + 0.5)
+	end
 
 	-- Jedes Melken gibt einen Eimer. Nur ein VOLLER Eimer kann Mutationen bekommen (Wetter zählt mit).
 	local mutations = {}
@@ -600,6 +605,9 @@ local function endMilking(player, completed)
 	if completed then
 		playSound(spot.Torso, Config.MilkDoneSoundId, 1, 0.8)
 		local cowName = cow and cow.Name or "deiner Kuh"
+		if brushBonus > 1 then
+			cowName ..= " (gestriegelt: +50 % Milch)"
+		end
 		if #mutations == 0 then
 			DataService.Notify(
 				player,
@@ -953,7 +961,7 @@ local function buildSpot(player, farm, cow)
 	local slot = cow.Slot
 	-- Heimat-Platz der Kuh (Blick zur Weide-Rückseite, -Z). Von hier aus läuft sie im Client
 	-- ein wenig herum; zum Melken kommt sie genau hierher zurück (Schemel steht links daneben).
-	local base = farm.Origin * CowData.GetGridCellLocal(cow.Slot) * CFrame.new(COW_OFFSET_X, 0, 0)
+	local base = farm.Origin * CowData.GetGridCellLocal(cow.Slot) * CFrame.new(Map.CowOffsetX, 0, 0)
 
 	local spotModel = Instance.new("Model")
 	spotModel.Name = cow.Id
@@ -1782,6 +1790,7 @@ local function buildInventory(player)
 			Slot = cow.Slot,
 			Hotbar = cow.Hotbar,
 			Stored = cow.Stored == true,
+			Brushed = cow.Brushed == true,
 		})
 	end
 	table.sort(cows, function(a, b)
@@ -1823,6 +1832,18 @@ local function buildInventory(player)
 		ServerTime = os.time(),
 		HotbarSize = HOTBAR_SIZE,
 		CellCount = GRID_CELLS,
+		-- Werkzeug: im Rucksack und auf der Weide (GearClient)
+		Gears = table.clone(data.Gears or {}),
+		PlacedGear = (function()
+			local placed = {}
+			for _, entry in ipairs(GearService.GetActive(data, os.time())) do
+				table.insert(
+					placed,
+					{ Id = entry.Id, Type = entry.Type, Corner = entry.Corner, ExpiresAt = entry.ExpiresAt }
+				)
+			end
+			return placed
+		end)(),
 	}
 end
 
@@ -2146,7 +2167,10 @@ local function rollCowMutations(player, data)
 		if cow and cow.Slot then
 			local current = cow.Mutations or {}
 			for _, id in ipairs(CowData.CowMutationOrder) do
-				local chance = CowData.GetCowMutationChance(id, weather) * mutationBoost
+				-- Kuhglocke / Wetterhahn in der Nähe: öfter
+				local chance = CowData.GetCowMutationChance(id, weather)
+					* mutationBoost
+					* GearService.GetMutationLuck(data, cow, os.time())
 				if chance > 0 and CowData.CanGainCowMutation(current, id) and rng:NextNumber() < chance then
 					local list = table.clone(current)
 					table.insert(list, id)

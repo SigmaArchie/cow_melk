@@ -56,6 +56,11 @@ local function createDefaultData()
 		LoginStreak = { Streak = 0, LastDay = 0, Best = 0 },
 		Receipts = {}, -- bereits verarbeitete Robux-Käufe
 		ShopStock = { Cycle = 0, Bought = {} }, -- im aktuellen Kuh-Shop-Lager schon gekauft: [Kuh-Art] = Anzahl
+		-- Werkzeug (GearService): im Rucksack, auf der Weide aufgestellt, im Werkzeug-Lager schon gekauft
+		Gears = {}, -- [Werkzeug] = Anzahl
+		PlacedGear = {}, -- { { Id, Type, Corner, PlacedAt, ExpiresAt } }
+		NextGearId = 1,
+		GearStock = { Cycle = 0, Bought = {} },
 		ReceivedStarterCow = false,
 		TutorialDone = false, -- Einführung für neue Spieler schon gesehen?
 	}

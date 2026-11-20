@@ -25,6 +25,7 @@ src/shared/  -> ReplicatedStorage.Shared
   CowData.lua               alle Spielwerte, Kuh-Arten, Shop-Lager, Milch-Mutationen, Wetter, Zucht, Kisten, Karte, Shops, Sounds
   Palette.lua               gemeinsame Farben, Schriften, Welt- und Seltenheitsfarben (Client UND Server; Theme.lua liest hier)
   CowModelBuilder.lua       baut Kuh (Blender-Modell oder Ersatz aus Parts), Schemel, Eimer, Seltenheits-Effekte
+  GearModels.lua            3D-Modelle fürs Werkzeug (Heu, Striegel, Futtertrog, Kuhglocke, Goldener Trog, Wetterhahn, Spray)
 src/server/  -> ServerScriptService.Server
   DataService.lua           DataStore laden/speichern + API für alle Server-Scripts
   PlayerDataManager.server  Laden/Speichern/Autosave, Starter-Kuh, TutorialDone
@@ -33,6 +34,8 @@ src/server/  -> ServerScriptService.Server
   FarmProps.lua             Deko-Bausteine (Bäume, Zäune, Scheune, Silo, Haus, Traktor, Brunnen, Heu, Felder, Windmühle, Teich ...)
   ShopService.lua           Lager des Kuh-Shops (Abschnitt, Lager, was der Spieler schon gekauft hat)
   ShopManager.server        GetShopStock, neues Lager ansagen (ShopRestocked + Meldung)
+  GearService.lua           Werkzeug-Logik nur mit Daten (Lager, Kaufen, Aufstellen, Ablaufen, Wirkung, an der Kuh benutzen)
+  GearManager.server        Werkzeug-Remotes (GetGearStock, BuyGear, GearAction), Modelle auf der Weide, Wachstums-Schleife
   WeatherManager.server     Wetter-Events für den ganzen Server (workspace-Attribute Weather / WeatherEndsAt)
   LoginStreak.server        Tagesbonus, 7 Tage am Stück -> Rainbow Cow
   MapBuilder.server         runder Marktplatz mit Brunnen + 4 Shop-Gebäuden (NPC), Feldwege, Landschaft zwischen den Farmen, Wald, Hügel
@@ -42,6 +45,8 @@ src/client/  -> StarterPlayerScripts.Client
   CoinDisplay.client        HUD (ScreenGui "HUD"): Coins/Milch, Seitenknöpfe, Meldungen, VERKAUFEN
   InventoryClient.client    Hotbar (Kühe + Milch-Eimer, Tasten 1-9), Fenster "MEINE KÜHE" mit Reitern Kühe/Eimer, Platzier-Modus, Kuh-Menü
   OverviewClient.client     Fenster "KARTE" mit gezeichneter Karte + Reisen
+  GearClient.client         Fenster "MEIN WERKZEUG" (Taste G), Aufstell-Modus, Werkzeug-Knöpfe unter dem Kuh-Menü
+  GearView.lua              Werkzeug-Modell als drehendes 3D-Bild (ViewportFrame) für Shop und Werkzeug-Fenster
   MenuUI.client             Fenster Kuh-Shop, Kisten, Zucht-Stall, Tagesbonus, Auto-Melker (ScreenGui "MenuUI", Fenster "Window")
   MilkingClient.client      Melk-Minispiel
   TutorialClient.client     Einführung für neue Spieler
@@ -69,6 +74,9 @@ src/client/  -> StarterPlayerScripts.Client
 | TutorialDone | RE | C→S | Tutorial als gesehen speichern |
 | MilkingStarted / MilkingProgress / MilkingEnded | RE | S→C | Melk-Minispiel; MilkingEnded = (completed, milk, mutations) |
 | ShopRestocked | RE | S→C | neues Lager im Kuh-Shop (offenes Shop-Fenster lädt neu) |
+| GetGearStock | RF | C→S | Werkzeug-Lager → { Cycle, RestockAt, ServerTime, Items = { Type, Order, Price, Amount, Remaining } } |
+| BuyGear | RF | C→S | (Werkzeug) → ok, msg – nur, was im aktuellen Werkzeug-Lager ist |
+| GearAction | RF | C→S | ("Place", Werkzeug, Ecke 1-25) aufstellen · ("UseOnCow", Werkzeug, cowId) an einer Kuh benutzen → ok, msg |
 | CowClicked | RE | S→C | eigene Kuh angeklickt → Menü (Melken/Aufheben) |
 | OpenShop | RE | S→C | Shop-Gebäude angeklickt → Fenster öffnen |
 | Notify | RE | S→C | (text, kind) kind = info/success/error/rare |
@@ -88,6 +96,8 @@ Spieler-Attribute (Server setzt sie): `Coins`, `Milk` (Liter in allen Eimern), `
   NextCowId, Breeding = {ParentA, ParentB, StartedAt, ReadyAt} | nil,
   LoginStreak = {Streak, LastDay, Best}, Receipts = {[PurchaseId]=time},
   ShopStock = { Cycle, Bought = { [Kuh-Art]=Anzahl } },
+  Gears = { [Werkzeug]=Anzahl }, PlacedGear = { { Id, Type, Corner, PlacedAt, ExpiresAt } }, NextGearId,
+  GearStock = { Cycle, Bought = { [Werkzeug]=Anzahl } },   -- Kuh: Brushed = true (gestriegelt)
   ReceivedStarterCow, TutorialDone }
 ```
 `Rarity` einer Kuh ist ihre **Art** (Name aus alten Zeiten). Alte Speicherstände: `MilkStock` (je Sorte ein Eimer) bzw. nur `Milk` (ein Eimer ohne Mutation, "Alte Milch") werden beim Laden zu Eimern im Eimer-Lager. Laden mit 3 Versuchen, fehlende Felder werden aufgefüllt; Speichern erst NACH allen PlayerRemoving-Handlern (`task.defer`), damit z.B. Milch aus einem abgebrochenen Melken noch gespeichert wird; alte Kühe ohne Ort werden beim Laden automatisch auf freie Felder verteilt. Studio ohne API-Zugriff → Testdaten (nicht gespeichert). Live: bei Ladefehler Kick.
@@ -181,13 +191,24 @@ Wachstumszeit nach Stufe der Art (`TimeByTier`): 5 / 8 / 12 / 18 / 25 / 30 / 40 
 
 Alles dreht sich um die Kartenmitte (0, 0, 0). Winkel im Uhrzeigersinn von Norden (+Z): Position = Radius · (sin w, 0, cos w). Vorschau-Bilder (gerendert ohne Studio): `assets_src/previews/umbau/`.
 
-- **Marktplatz** (rund, Radius 64, Folder `Hub`): Milch-Brunnen in der Mitte, Ring-Weg darum, Gassen zu den Feldwegen (0°, 60°, ...) und zu den Shop-Türen, **Dorfbaum** mit Rundbank (90°), **Pavillon** (270°), Spawn, Wegweiser zu den Shops, Bänke, runde Blumenbeete, Laternen.
-- **Shop-Gebäude** rund um den Brunnen (Radius 40, Tür zum Brunnen): Kuh-Shop 330°, Zucht-Stall 30°, Kisten 150°, Auto-Melker 210° (`CowData.Map.Shops`, Lage über `CowData.GetShopCFrame`). Stile: Kuh-Shop = Scheune (Gambrel-Dach, Scheunentore), Kisten = offener Marktstand mit gestreiftem Dach und Kistenstapeln, Zucht-Stall = gemütlicher Stall (Blumenkästen, Heu, Trog), Auto-Melker = Werkstatt aus Metall mit Silo und Schornstein. Alle: Grundfläche ca. 20×16, Tür vorne (−Z), Holzschild (Symbol + Name), winkender NPC mit Strohhut, Hinweis "Klicken zum Öffnen", Klick → `OpenShop`, Teleport-Punkt 9 Studs vor der Tür.
+- **Marktplatz** (rund, Radius 64, Folder `Hub`): Milch-Brunnen in der Mitte, Ring-Weg darum, Gassen zu den Feldwegen (0°, 60°, ...) und zu den Shop-Türen, **Dorfbaum** (hinter dem Werkzeug-Shop, 90°), **Pavillon** (270°), Spawn, Wegweiser zu den Shops, Bänke, runde Blumenbeete, Laternen.
+- **Shop-Gebäude** rund um den Brunnen (Radius 40, Tür zum Brunnen): Kuh-Shop 330°, Zucht-Stall 30°, Werkzeug 90°, Kisten 150°, Auto-Melker 210° (`CowData.Map.Shops`, Lage über `CowData.GetShopCFrame`). Stile: Kuh-Shop = Scheune (Gambrel-Dach, Scheunentore), Kisten = offener Marktstand mit gestreiftem Dach und Kistenstapeln, Zucht-Stall = gemütlicher Stall (Blumenkästen, Heu, Trog), Auto-Melker = Werkstatt aus Metall mit Silo und Schornstein, Werkzeug = Geräteschuppen mit Steinsockel, steilem Dach, Esse und Wetterhahn, Mistgabel/Schaufel/Rechen an der Wand, Werkbank mit Amboss, Futtertrog und Kuhglocke als Schaufenster. Alle: Grundfläche ca. 20×16, Tür vorne (−Z), Holzschild (Symbol + Name), winkender NPC mit Strohhut, Hinweis "Klicken zum Öffnen", Klick → `OpenShop`, Teleport-Punkt 9 Studs vor der Tür.
 - **Landschaft** (Folder `Countryside`): Feldwege vom Platz zu jedem Farm-Tor, Ringweg (Radius 108) vor den Toren, Wiese mit Bäumen/Büschen/Blumen. In den Lücken zwischen den Farmen (30°, 90°, ...) je ein Thema links/rechts eines Pfads: Windmühle (Flügel drehen sich, Tag `Spinner`) + Weizenfeld, Teich mit Enten und Steg, Apfel-Obstgarten, Kürbisbeet mit Vogelscheuche, Blumenfeld mit Bienenstöcken und Sonnenblumen, Traktor + Heu; dazu Hecken aus Bäumen entlang der Farm-Zäune. Waldrand hinter den Farmen, **Hügel** (`Hills`) ganz außen (Radius > 600).
 - **Farmen** (Bauernhöfe, `FarmBuilder.lua`) im Kreis: bis 6 Spieler im inneren Ring (Mitte bei Radius 185, 0°, 60°, ...; Tor bei Radius 115 zeigt zum Platz), ab Spieler 7 ein zweiter Ring (Radius 350, in den Lücken). Lokale Koordinaten: x −54..54, z −70..70, Tor bei +Z.
   - **Hof** (z 32..70): Steinpfeiler-Tor mit Namensschild (Part `Sign` direkt in `Decor`, vom Tutorial gebraucht) und Laternen, Weg, Hofplatz aus Erde, rote **Scheune** mit Mansarddach und **Silo** (links), Traktor, Schubkarre, Heuballen, Kisten, Baum + Bank, **Milch-Verkaufsstation** (ProximityPrompt F), Brunnen, Milchkannen, **Bauernhaus**, Hühnerstall mit Hühnern, Karren, Blumenbeete, Briefkasten; am Weide-Zaun Wassertrog und Heuraufe.
   - **Weide** (z −70..32): Holzzaun mit offenem Gatter, Wiese mit Flecken, Wildblumen, Steine. **Raster mit 36 Feldern** à 16×16 (`CowData.GetGridCellLocal`, Kühe lokal z −58..22); die Felder sind unsichtbar und nur im Platzier-Modus eingefärbt.
   - **Kühe laufen herum** (nur Darstellung, `WorldAnimator`): jede Kuh läuft auf ihrem Feld umher (Radius je nach Größe 3,3–4,5 Studs, `CowData.CowWander` / `GetWanderRadius`), dreht sich, grast (Kopf runter). Wohin, berechnet jeder Client gleich aus Serverzeit + Kuh-ID (`CowData.HashRoll`), deshalb sehen alle Spieler dasselbe. Auf dem Server steht die Kuh immer auf ihrem Platz. Schemel und Eimer sind nur beim Melken sichtbar; dann steht die Kuh genau auf ihrem Platz.
+
+## Werkzeug-Shop (wie der Gear-Shop in Grow a Garden)
+
+Daten in `CowData.Gears` / `CowData.GearShop` / `CowData.GearSettings`, Logik in `GearService` (nur Daten, getestet), Server in `GearManager`, Oberfläche in `MenuUI` (Seite "Gear") und `GearClient`. Vorschau-Bilder: `assets_src/previews/werkzeug/`.
+
+- **Lager** wie beim Kuh-Shop: alle 5 Minuten neu, in allen Servern gleich (`CowData.RollGearStock`), jeder Spieler darf bis zur Lager-Menge kaufen (`GearStock`). Seltenes (ab 10.000 Coins) wird im Server angesagt.
+- **Für eine Kuh** (Kuh anklicken → Knöpfe unter dem Kuh-Menü): **Heubündel** 150 (Pause sofort vorbei), **Striegel** 400 (nächster voller Eimer +50 % Milch), **Wunder-Spray** 60.000 (zufällige Kuh-Mutation, Gewichte `SprayWeights`, Verbindungen zählen).
+- **Zum Aufstellen** (Fenster WERKZEUG → "Aufstellen" → grünen Punkt anklicken): steht an einer der 25 Ecken zwischen den Feldern (dort laufen keine Kühe, `CowData.GetGearCornerLocal`), wirkt auf alle Kühe, deren Feld im Radius liegt, und läuft nach Ablauf ab. **Futtertrog** 800 (Kälber wachsen x2, 4 Felder, 10 Min), **Kuhglocke** 2.500 (Wetter-Mutationen x2, 4 Felder, 10 Min), **Goldener Futtertrog** 10.000 (x3, 12 Felder, 15 Min), **Wetterhahn** 25.000 (Mutationen x3, 12 Felder, 15 Min). Höchstens 6 gleichzeitig. Mehrere Werkzeuge: der beste Faktor zählt.
+- Wachstum: alle 5 s bekommen Kälber im Bereich `5 · (Faktor − 1)` Sekunden geschenkt (`BornAt` rückt vor, nie über "ausgewachsen" hinaus); den Umbau zur nächsten Stufe macht wie immer `CowManager.checkGrowth`. Mutations-Glück multipliziert in `rollCowMutations` die Wetter-Chance.
+- Auf der Weide: Modell + halbdurchsichtiger Wirkungsbereich + Schild mit Restzeit (Folder `Gear` im Plot). Glocke schwingt, Wetterhahn dreht sich (Tag `Spinner`, `SwingAngle`).
+- HUD-Knopf **WERKZEUG** (Taste G) links; Shop-Karten und Werkzeug-Fenster zeigen die Modelle als drehendes 3D-Bild.
 
 ## Kuhmodell & Animation
 
