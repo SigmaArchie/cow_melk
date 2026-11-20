@@ -8,7 +8,7 @@ geschrieben wird.
 
 | Wer | Aufgabe | Branch | Belegte Dateien | Stand |
 |---|---|---|---|---|
-| Maxi | **Werkzeug-Shop** als 5. Shop am Marktplatz (beim Pavillon / Dorfbaum): Futtereimer (Kuh wächst schneller), Kuhglocke (mehr Mutations-Chance für Kühe in der Nähe), Bürste (eine Kuh kurz mehr Milch). Kaufen, auf die Weide stellen, wirkt eine Zeit lang. | noch nicht gepusht | *vermutet, Maxis Claude bitte korrigieren:* `CowData.lua`, `MapBuilder.server.lua`, `MenuUI.client.lua`, `CowManager.server.lua`, `DataService.lua`, `InventoryClient.client.lua`, `WorldAnimator.client.lua`, neue `Tool*`-Module | in Arbeit |
+| – | *(gerade nichts)* | | | |
 
 ## Als Nächstes – Archie (stört den Werkzeug-Shop nicht)
 
@@ -28,10 +28,10 @@ geschrieben wird.
 
 ## Als Nächstes – Maxi
 
-1. Werkzeug-Shop fertig machen (siehe oben), Branch früh pushen.
-2. Werkzeuge im Platzier-Modus der Hotbar aufstellen, in `DataService` speichern, Wirkzeit über
-   der Kuh/dem Werkzeug anzeigen (wie die Melk-Pause).
-3. Danach: Sounds aus den Notizen in `CowData.lua` eintragen.
+1. Archies Werkzeug-Modelle einbauen: `ToolModelBuilder` in `GearModels.lua` benutzen
+   (Futtereimer → Futtertrog, Kuhglocke, Buerste → Striegel, Schuppen → Werkzeug-Shop in `MapBuilder`),
+   Ersatz aus Parts bleibt. Vorher hier eintragen.
+2. Danach: Sounds aus den Notizen in `CowData.lua` eintragen.
 
 ## Später (erst wenn beide Branches gemergt sind – betrifft fast alles)
 
@@ -42,6 +42,11 @@ geschrieben wird.
 
 ## Erledigt
 
+- Werkzeug-Shop als 5. Shop (Heubündel, Striegel, Futtertrog, Kuhglocke, Goldener Trog, Wetterhahn,
+  Wunder-Spray), Werkzeug in der Hotbar, frei auf der Farm aufstellen (wirkt auf Kuh-Plätze im Radius),
+  Restzeit-Schild, Studio-Testmodus; Fix: gekaufte Kühe alle auf Feld 1 (Maxi, `feature/werkzeug-shop`).
+  Neue Dateien: `GearService.lua`, `GearManager.server.lua`, `GearModels.lua`, `GearClient.client.lua`,
+  `GearView.lua`. Details in PROJECT_OVERVIEW.md ("Werkzeug-Shop").
 - Holz-Stil für Melk-Minispiel und Karte, Theme.grassStrip / Theme.titleSign (Archie, PR #5)
 - 3D-Modelle für die Werkzeuge + Schuppen, ToolModelBuilder, Achsen-Fix für Meshes (Archie, PR #4)
 - 3D-Eimer + Schemel aus Blender, Holz-Farm-UI, Kisten-Fix (Archie, PR #2)
