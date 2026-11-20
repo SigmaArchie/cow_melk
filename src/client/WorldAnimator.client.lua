@@ -233,6 +233,23 @@ local function setupMilkPrompt(cow, torso)
 	cow:GetAttributeChangedSignal("BeingMilked"):Connect(update)
 end
 
+-- Aufrechter Bezugspunkt der Kuh: Boden unter der Kuh-Mitte, nur um die Hochachse gedreht.
+-- Der Server schreibt ihn als Attribut "HomeCFrame" an die Kuh. Den Model-Pivot NICHT direkt
+-- nehmen: beim Blender-Modell kann er schief sein (gedrehtes Mesh) – dann würde sich die Kuh beim
+-- Umdrehen um eine schräge Achse drehen und umkippen.
+local function uprightBase(cow)
+	local home = cow:GetAttribute("HomeCFrame")
+	if typeof(home) == "CFrame" then
+		return home
+	end
+	local pivot = cow:GetPivot()
+	local look = pivot.LookVector * Vector3.new(1, 0, 1)
+	if look.Magnitude < 0.1 then
+		look = Vector3.new(0, 0, -1)
+	end
+	return CFrame.lookAt(pivot.Position, pivot.Position + look.Unit)
+end
+
 local function startCow(cow)
 	if cows[cow] then
 		return
@@ -248,13 +265,20 @@ local function startCow(cow)
 
 	task.spawn(setupMilkPrompt, cow, torso)
 
-	-- neue Kühe fallen erst noch vom Himmel (Server-Animation) -> kurz warten
+	-- neue Kühe fallen erst noch vom Himmel (Server-Animation) -> warten, bis sie still steht
 	task.wait(1.2)
+	for _ = 1, 12 do
+		local before = torso.Position
+		task.wait(0.25)
+		if (torso.Position - before).Magnitude < 0.01 then
+			break
+		end
+	end
 	if not cow:IsDescendantOf(workspace) then
 		return
 	end
 
-	local base = cow:GetPivot()
+	local base = uprightBase(cow)
 	local headPivot = headGroup:GetPivot()
 	local state = {
 		Alive = true,
