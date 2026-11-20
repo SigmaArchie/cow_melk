@@ -48,6 +48,9 @@ end)
 ------------------------------------------------------------------------
 local function announceRestock(cycle)
 	ShopRestocked:FireAllClients(cycle)
+	if CowData.IsStudioTest() then
+		return -- im Studio-Testmodus ist immer alles da, keine Ansagen
+	end
 
 	local stock = ShopService.GetStock(cycle)
 	local rare = {}

@@ -2,6 +2,8 @@
 -- Zentrale Spieldaten für "Cow Farm".
 -- Wird von Server UND Client benutzt (liegt in ReplicatedStorage.Shared).
 
+local RunService = game:GetService("RunService")
+
 local CowData = {}
 
 ------------------------------------------------------------------------
@@ -43,6 +45,14 @@ CowData.Config = {
 	RainbowStreakDays = 7, -- alle 7 Tage am Stück -> Rainbow Cow
 
 	AutosaveInterval = 120, -- Sekunden
+
+	-- Studio-Testmodus (gilt NUR in Roblox Studio, im echten Spiel nie):
+	-- man startet mit StudioTestCoins, beide Shops haben alles im Lager (StudioTestStock Stück)
+	-- und es wird NICHTS gespeichert (damit echte Spielstände nicht verändert werden).
+	-- Zum normalen Testen in Studio (mit Speichern) auf false stellen.
+	StudioTestMode = true,
+	StudioTestCoins = 10000000,
+	StudioTestStock = 10,
 }
 
 ------------------------------------------------------------------------
@@ -1202,8 +1212,33 @@ function CowData.HashString(text)
 	return h
 end
 
+------------------------------------------------------------------------
+-- Studio-Testmodus (siehe Config.StudioTestMode)
+------------------------------------------------------------------------
+function CowData.IsStudioTest()
+	if CowData.Config.StudioTestMode ~= true then
+		return false
+	end
+	local ok, studio = pcall(function()
+		return RunService:IsStudio()
+	end)
+	return ok and studio == true
+end
+
+-- Im Testmodus ist alles im Lager
+local function fullStock(entries)
+	local stock = {}
+	for _, entry in ipairs(entries) do
+		stock[entry.Type] = math.max(entry.Max, CowData.Config.StudioTestStock or entry.Max)
+	end
+	return stock
+end
+
 -- Lager eines Zeitabschnitts: { [Kuh-Art] = Menge } (nur Arten, die da sind)
 function CowData.RollShopStock(cycle)
+	if CowData.IsStudioTest() then
+		return fullStock(CowData.Shop.Stock)
+	end
 	local stock = {}
 	for index, entry in ipairs(CowData.Shop.Stock) do
 		if stockRoll(cycle, index, 1) < entry.Chance then
@@ -1227,6 +1262,9 @@ end
 
 -- Lager des Werkzeug-Shops: { [Werkzeug] = Menge } (andere Würfe als der Kuh-Shop)
 function CowData.RollGearStock(cycle)
+	if CowData.IsStudioTest() then
+		return fullStock(CowData.GearShop.Stock)
+	end
 	local stock = {}
 	for index, entry in ipairs(CowData.GearShop.Stock) do
 		if stockRoll(cycle, index + 100, 1) < entry.Chance then

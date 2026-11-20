@@ -199,6 +199,10 @@ Alles dreht sich um die Kartenmitte (0, 0, 0). Winkel im Uhrzeigersinn von Norde
   - **Weide** (z −70..32): Holzzaun mit offenem Gatter, Wiese mit Flecken, Wildblumen, Steine. **Raster mit 36 Feldern** à 16×16 (`CowData.GetGridCellLocal`, Kühe lokal z −58..22); die Felder sind unsichtbar und nur im Platzier-Modus eingefärbt.
   - **Kühe laufen herum** (nur Darstellung, `WorldAnimator`): jede Kuh läuft auf ihrem Feld umher (Radius je nach Größe 3,3–4,5 Studs, `CowData.CowWander` / `GetWanderRadius`), dreht sich, grast (Kopf runter). Wohin, berechnet jeder Client gleich aus Serverzeit + Kuh-ID (`CowData.HashRoll`), deshalb sehen alle Spieler dasselbe. Auf dem Server steht die Kuh immer auf ihrem Platz. Schemel und Eimer sind nur beim Melken sichtbar; dann steht die Kuh genau auf ihrem Platz.
 
+## Studio-Testmodus
+
+`CowData.Config.StudioTestMode = true` (gilt NUR in Roblox Studio, `CowData.IsStudioTest()`): man startet mit `StudioTestCoins` (10 Mio.), Kuh-Shop und Werkzeug-Shop haben alles im Lager (`StudioTestStock`, keine Ansagen), und es wird **nichts gespeichert** (DataService setzt den Spieler auf "nicht speichern", damit echte Spielstände nicht verändert werden). Hinweis im Output und als Meldung im Spiel. Zum Testen mit Speichern auf `false` stellen. Im veröffentlichten Spiel ist er immer aus.
+
 ## Werkzeug-Shop (wie der Gear-Shop in Grow a Garden)
 
 Daten in `CowData.Gears` / `CowData.GearShop` / `CowData.GearSettings`, Logik in `GearService` (nur Daten, getestet), Server in `GearManager`, Oberfläche in `MenuUI` (Seite "Gear") und `GearClient`. Vorschau-Bilder: `assets_src/previews/werkzeug/`.

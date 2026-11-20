@@ -220,8 +220,26 @@ function DataService.Load(player)
 		migrateMilk(data)
 	end
 
+	-- Studio-Testmodus: viele Coins zum Ausprobieren, aber NICHT speichern (echte Spielstände bleiben, wie sie sind)
+	local testMode = CowData.IsStudioTest()
+	if testMode then
+		data.Coins = math.max(data.Coins or 0, CowData.Config.StudioTestCoins)
+		warn(
+			("[DataService] Studio-Testmodus: %s Coins, alles im Lager, es wird NICHT gespeichert. "):format(
+				CowData.FormatNumber(CowData.Config.StudioTestCoins)
+			) .. "(Ausschalten: CowData.Config.StudioTestMode = false)"
+		)
+		task.delay(6, function()
+			DataService.Notify(
+				player,
+				"🧪 Studio-Testmodus: viele Coins, alles im Lager – es wird nichts gespeichert.",
+				"info"
+			)
+		end)
+	end
+
 	profiles[player] = data
-	canSave[player] = loadedOk
+	canSave[player] = loadedOk and not testMode
 
 	setupLeaderstats(player)
 	DataService.Sync(player)

@@ -330,7 +330,7 @@ task.spawn(function()
 	while true do
 		task.wait(1)
 		local cycle = GearService.GetCycle(os.time())
-		if cycle ~= lastCycle then
+		if cycle ~= lastCycle and not CowData.IsStudioTest() then
 			lastCycle = cycle
 			local stock = GearService.GetStock(cycle)
 			local rare = {}
